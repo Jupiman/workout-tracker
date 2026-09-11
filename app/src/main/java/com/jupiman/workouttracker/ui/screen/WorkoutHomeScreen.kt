@@ -60,10 +60,19 @@ fun WorkoutHomeScreen(
                 text = uiState.activeProgram?.name ?: "No active program yet",
                 style = MaterialTheme.typography.titleLarge,
             )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Next workout",
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                text = uiState.nextWorkoutName ?: "No workout templates yet",
+                style = MaterialTheme.typography.titleMedium,
+            )
             Spacer(modifier = Modifier.height(24.dp))
             Button(
                 onClick = {},
-                enabled = uiState.activeProgram != null,
+                enabled = uiState.nextWorkoutName != null,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("Start workout")
@@ -79,4 +88,3 @@ fun WorkoutHomeScreen(
         }
     }
 }
-

@@ -31,7 +31,7 @@ import androidx.room.PrimaryKey
         Index(value = ["workoutTemplateId"]),
         Index(value = ["exerciseId"]),
         Index(value = ["supersetGroupId"]),
-        Index(value = ["workoutTemplateId", "sortOrder"], unique = true),
+        Index(value = ["workoutTemplateId", "sortOrder"]),
     ],
 )
 data class WorkoutTemplateExerciseEntity(
@@ -46,4 +46,3 @@ data class WorkoutTemplateExerciseEntity(
     val restSeconds: Int,
     val supersetGroupId: Long? = null,
 )
-

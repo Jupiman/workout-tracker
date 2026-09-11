@@ -16,8 +16,14 @@ interface ExerciseDao {
     @Query("SELECT * FROM exercises WHERE archived = 0 ORDER BY name COLLATE NOCASE")
     fun observeActive(): Flow<List<ExerciseEntity>>
 
+    @Query("SELECT * FROM exercises ORDER BY name COLLATE NOCASE")
+    suspend fun getAll(): List<ExerciseEntity>
+
     @Query("SELECT * FROM exercises WHERE id = :id")
     suspend fun getById(id: Long): ExerciseEntity?
+
+    @Query("SELECT * FROM exercises WHERE name = :name COLLATE NOCASE LIMIT 1")
+    suspend fun getByName(name: String): ExerciseEntity?
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(exercise: ExerciseEntity): Long
@@ -28,4 +34,3 @@ interface ExerciseDao {
     @Query("UPDATE exercises SET archived = 1 WHERE id = :id")
     suspend fun archive(id: Long)
 }
-

@@ -17,7 +17,7 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index(value = ["programId"]),
-        Index(value = ["programId", "sortOrder"], unique = true),
+        Index(value = ["programId", "sortOrder"]),
     ],
 )
 data class WorkoutTemplateEntity(
@@ -26,4 +26,3 @@ data class WorkoutTemplateEntity(
     val name: String,
     val sortOrder: Int,
 )
-

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "efa7d6e090c81e0894677d2194a72a04",
+    "identityHash": "c7a67683fc1b7599668213c9bd2c79d2",
     "entities": [
       {
         "tableName": "exercises",
@@ -153,13 +153,13 @@
           },
           {
             "name": "index_workout_templates_programId_sortOrder",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "programId",
               "sortOrder"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_workout_templates_programId_sortOrder` ON `${TABLE_NAME}` (`programId`, `sortOrder`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_workout_templates_programId_sortOrder` ON `${TABLE_NAME}` (`programId`, `sortOrder`)"
           }
         ],
         "foreignKeys": [
@@ -331,13 +331,13 @@
           },
           {
             "name": "index_workout_template_exercises_workoutTemplateId_sortOrder",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "workoutTemplateId",
               "sortOrder"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_workout_template_exercises_workoutTemplateId_sortOrder` ON `${TABLE_NAME}` (`workoutTemplateId`, `sortOrder`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_workout_template_exercises_workoutTemplateId_sortOrder` ON `${TABLE_NAME}` (`workoutTemplateId`, `sortOrder`)"
           }
         ],
         "foreignKeys": [
@@ -653,13 +653,13 @@
           },
           {
             "name": "index_session_exercises_sessionId_sortOrderSnapshot",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "sessionId",
               "sortOrderSnapshot"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_session_exercises_sessionId_sortOrderSnapshot` ON `${TABLE_NAME}` (`sessionId`, `sortOrderSnapshot`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_session_exercises_sessionId_sortOrderSnapshot` ON `${TABLE_NAME}` (`sessionId`, `sortOrderSnapshot`)"
           }
         ],
         "foreignKeys": [
@@ -771,13 +771,13 @@
           },
           {
             "name": "index_session_sets_sessionExerciseId_setOrder",
-            "unique": true,
+            "unique": false,
             "columnNames": [
               "sessionExerciseId",
               "setOrder"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_session_sets_sessionExerciseId_setOrder` ON `${TABLE_NAME}` (`sessionExerciseId`, `setOrder`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_session_sets_sessionExerciseId_setOrder` ON `${TABLE_NAME}` (`sessionExerciseId`, `setOrder`)"
           }
         ],
         "foreignKeys": [
@@ -798,7 +798,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'efa7d6e090c81e0894677d2194a72a04')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c7a67683fc1b7599668213c9bd2c79d2')"
     ]
   }
 }

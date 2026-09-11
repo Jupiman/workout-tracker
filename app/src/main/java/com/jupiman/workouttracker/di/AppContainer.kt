@@ -16,8 +16,12 @@ class AppContainer(context: Context) {
 
     val exerciseRepository = ExerciseRepository(database.exerciseDao())
     val programRepository = ProgramRepository(
+        database = database,
         programDao = database.programDao(),
         workoutTemplateDao = database.workoutTemplateDao(),
+        workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+        progressionStateDao = database.progressionStateDao(),
+        exerciseDao = database.exerciseDao(),
     )
     val workoutSessionRepository = WorkoutSessionRepository(
         workoutSessionDao = database.workoutSessionDao(),
@@ -25,4 +29,3 @@ class AppContainer(context: Context) {
         sessionSetDao = database.sessionSetDao(),
     )
 }
-

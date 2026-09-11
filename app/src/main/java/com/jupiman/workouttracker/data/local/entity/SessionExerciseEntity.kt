@@ -18,7 +18,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["sessionId"]),
         Index(value = ["sourceWorkoutTemplateExerciseId"]),
-        Index(value = ["sessionId", "sortOrderSnapshot"], unique = true),
+        Index(value = ["sessionId", "sortOrderSnapshot"]),
     ],
 )
 data class SessionExerciseEntity(
@@ -37,4 +37,3 @@ data class SessionExerciseEntity(
     val supersetGroupSnapshot: Long?,
     val supersetRestSecondsSnapshot: Int?,
 )
-

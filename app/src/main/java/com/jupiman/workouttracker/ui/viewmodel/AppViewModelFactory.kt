@@ -17,7 +17,10 @@ class AppViewModelFactory(
                 ) as T
             }
             modelClass.isAssignableFrom(ProgramViewModel::class.java) -> {
-                ProgramViewModel(programRepository = container.programRepository) as T
+                ProgramViewModel(
+                    programRepository = container.programRepository,
+                    exerciseRepository = container.exerciseRepository,
+                ) as T
             }
             modelClass.isAssignableFrom(HistoryViewModel::class.java) -> {
                 HistoryViewModel(workoutSessionRepository = container.workoutSessionRepository) as T
@@ -26,4 +29,3 @@ class AppViewModelFactory(
         }
     }
 }
-

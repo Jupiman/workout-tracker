@@ -20,6 +20,9 @@ interface ProgramDao {
     @Query("SELECT * FROM programs WHERE id = :id")
     suspend fun getById(id: Long): ProgramEntity?
 
+    @Query("SELECT COUNT(*) FROM programs WHERE archived = 0")
+    suspend fun activeProgramCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(program: ProgramEntity): Long
 
@@ -41,4 +44,3 @@ interface ProgramDao {
     @Query("UPDATE programs SET archived = 1, active = 0 WHERE id = :id")
     suspend fun archive(id: Long)
 }
-

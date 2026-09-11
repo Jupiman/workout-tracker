@@ -30,7 +30,7 @@ enum class SessionSetStatus {
     ],
     indices = [
         Index(value = ["sessionExerciseId"]),
-        Index(value = ["sessionExerciseId", "setOrder"], unique = true),
+        Index(value = ["sessionExerciseId", "setOrder"]),
     ],
 )
 data class SessionSetEntity(
@@ -47,4 +47,3 @@ data class SessionSetEntity(
     val status: SessionSetStatus = SessionSetStatus.PENDING,
     val completedAt: Long? = null,
 )
-

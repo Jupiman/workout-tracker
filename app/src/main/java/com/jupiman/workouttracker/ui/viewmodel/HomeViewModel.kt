@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.stateIn
 data class HomeUiState(
     val activeProgram: ProgramEntity? = null,
     val activeSession: WorkoutSessionEntity? = null,
+    val nextWorkoutName: String? = null,
 )
 
 class HomeViewModel(
@@ -23,10 +24,12 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = combine(
         programRepository.activeProgram,
         workoutSessionRepository.activeSession,
-    ) { activeProgram, activeSession ->
+        programRepository.firstActiveProgramTemplate,
+    ) { activeProgram, activeSession, nextTemplate ->
         HomeUiState(
             activeProgram = activeProgram,
             activeSession = activeSession,
+            nextWorkoutName = nextTemplate?.name,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -34,4 +37,3 @@ class HomeViewModel(
         initialValue = HomeUiState(),
     )
 }
-
