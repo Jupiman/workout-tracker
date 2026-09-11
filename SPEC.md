@@ -44,7 +44,7 @@ Do NOT implement these features unless explicitly requested later:
 - workout recommendations
 - scheduling workouts to particular weekdays
 - Apple / Google Health integration
-- wearable integration
+- wearable integration in the MVP; keep future wearable support documented as a TODO
 - nutrition tracking
 
 Keep the application focused.
@@ -1844,7 +1844,322 @@ Phase 8:
 
 ---
 
-# 54. Development rules for the coding agent
+# 54. Planned UI and Logic Updates
+
+These updates should be implemented after the MVP foundation is stable.
+
+Treat them as a focused follow-up plan, not as broad product expansion.
+
+Prioritize:
+
+1. fast workout logging
+2. progression correctness
+3. clear workout editing
+4. readable superset/drop-set grouping
+5. preserving historical snapshots
+
+---
+
+## 54.1 Program editor progressive-disclosure flow
+
+The Program tab must not be one long editor page.
+
+Use a staged flow:
+
+1. Programs list
+2. Training Days list
+3. Edit Day
+
+Programs list:
+
+- choose/open a program
+- create a program
+- rename a program
+- set a program active
+- archive a program
+
+Training Days list:
+
+- show only days for the selected program
+- use the term `Training Day` or `Day`, not `Workout Template`, in the UI
+- add a day
+- rename a day
+- reorder days
+- remove a day
+
+Edit Day:
+
+- show only exercises for the selected day
+- add exercises through an inline dialog or sheet
+- edit exercise configuration in place
+- keep large tap targets
+- avoid exposing unrelated program-level controls
+
+Exercise ordering:
+
+- replace Up/Down buttons with drag-and-drop reordering when practical
+- persist the resulting `sortOrder`
+- history must remain unchanged after reordering
+
+---
+
+## 54.2 Collapsed completed sets
+
+During workout logging, completed sets should collapse automatically.
+
+Collapsed completed set display:
+
+- set number
+- logged weight
+- logged reps
+- set type label when relevant, such as `AMRAP`, `DROP`, or `EXTRA`
+- skipped state when relevant
+
+Collapsed completed sets should not show edit buttons.
+
+Tapping a collapsed completed set expands it again so the user can edit:
+
+- weight
+- reps
+- complete/save
+- mark pending
+- skip if still applicable
+
+Superset behavior:
+
+- in a superset, completing an earlier exercise should not collapse the whole superset round
+- once the last exercise in the superset round is completed, all completed sets in that superset round collapse together
+- the user can still tap any collapsed set to expand and correct it
+
+Acceptance criteria:
+
+- one tap still completes a normal prescribed set
+- completed sets become visually quieter
+- editing a completed set remains possible
+- no completed workout history becomes editable
+
+---
+
+## 54.3 Weight adjustment controls
+
+Numeric weight entry should not rely only on typing.
+
+Where weight is edited:
+
+- active workout set rows
+- add/edit exercise configuration in the Program tab
+- finish-workout progression review when setting a new target
+
+Provide:
+
+- a numeric text field
+- stepper buttons or a slider for increasing/decreasing weight
+- sensible increments based on the exercise increment where available
+
+Requirements:
+
+- kilograms only for MVP
+- decimal weights remain supported
+- typed values and stepper/slider values must stay in sync
+- prevent negative weights
+- keep the control usable with one hand during a workout
+
+For working-set logging, prefer compact controls:
+
+- `-`
+- weight value
+- `+`
+
+A full slider is acceptable in dialogs or program-edit screens where space is less constrained.
+
+---
+
+## 54.4 Pending sets on workout finish
+
+If the user finishes a workout while planned sets are still pending:
+
+- ask for confirmation as today
+- mark those pending planned sets as skipped before storing history
+- store them in history as skipped
+- keep the workout status as `PARTIAL`
+- do not count skipped sets for progression
+
+This avoids historical details showing unfinished `pending` rows after the workout has been finalized.
+
+---
+
+## 54.5 Per-set targets and finish-time progression decisions
+
+The app currently assumes every planned set in an exercise uses the same prescribed weight and reps.
+
+Add support for planned sets having different targets.
+
+Each planned set should be able to store its own:
+
+- prescribed weight
+- prescribed reps
+- set order
+- progression eligibility
+
+This enables patterns such as:
+
+- top set plus back-off sets
+- ramping sets
+- fixed reps with changing weight
+- fixed weight with changing reps
+
+Program editor UX:
+
+- keep a simple default of same weight/reps for all working sets
+- allow switching to per-set editing for an exercise
+- consider a compact set-strip UI with one circle/chip per set
+- each circle/chip should show the target reps and/or set number
+- tapping a circle/chip opens that set's weight/reps target editor
+
+Finish-workout progression review:
+
+When the user changes weight or reps during a workout, the available choices should be:
+
+1. `No change`
+2. `Change only this set`
+3. `Set this as new target for all sets in this exercise`
+
+Meanings:
+
+`No change`:
+
+- keep the existing future target unchanged for that exercise or set
+
+`Change only this set`:
+
+- update the future target for the matching set order in this exercise instance
+- do not update other sets in the exercise
+
+`Set this as new target for all sets in this exercise`:
+
+- update all planned future sets for that exercise instance to the selected weight/reps
+
+If multiple sets in the same exercise were changed:
+
+- show one review group per exercise
+- allow decisions per changed set where needed
+- provide an exercise-level shortcut to apply one changed set's target to all sets
+
+Progression rules must remain explicit.
+
+Do not silently infer that a changed weight or changed reps should become the new baseline.
+
+---
+
+## 54.6 Superset and drop-set visualization
+
+Supersets must be visually grouped more clearly than a label on each exercise.
+
+Possible implementation:
+
+- draw a tinted block or bordered container around all exercises in the same superset
+- show a `Superset` header above the group
+- show the group rest time once for the group
+- preserve normal exercise cards inside the group if it helps readability
+
+Workout execution:
+
+- superset exercises should appear together
+- the user should clearly see which exercises belong to the same superset
+- the rest timer should start only after the last exercise in the superset round
+
+Drop sets:
+
+- indent drop sets under the preceding set
+- label them `DROP`
+- use subtle background or connector styling so they read as related to the preceding set
+- avoid complex multi-stage drop-set programming in MVP
+
+---
+
+## 54.7 Warm-up schemes
+
+Add optional warm-up schemes per exercise instance.
+
+Warm-up schemes are based on percentages of the working weight.
+
+Default warm-up scheme:
+
+- `10 reps at 30%`
+- `3 reps at 70%`
+- `3 reps at 75%`
+
+Example for Bench Press:
+
+- `10 x 20 kg`
+- `3 x 45 kg`
+- `3 x 50 kg`
+- then working sets
+
+Rounding:
+
+- round calculated warm-up weights to practical values ending in `0` or `5`
+- choose the nearest valid value unless that would create an obviously heavier-than-intended warm-up
+- never exceed the working weight
+
+Warm-up behavior:
+
+- warm-up sets appear before working sets
+- warm-up sets do not count for progression
+- warm-up sets are stored in workout history
+- warm-up sets can be skipped
+- warm-up completion should be fast, with the same collapsed-set behavior after completion
+
+Data model:
+
+- add warm-up scheme configuration to the exercise instance/template side
+- snapshot generated warm-up sets into the session when starting a workout
+- do not reconstruct historical warm-ups from the current template
+
+---
+
+## 54.8 Rest-complete in-app feedback
+
+Use bottom snackbars for short in-app feedback.
+
+For rest completion:
+
+- keep existing notification sound/vibration behavior
+- show an in-app bottom snackbar when the app is visible
+- message: `Rest complete`
+- optional action: `OK`
+
+Snackbars should not depend on the user being scrolled to the top of the workout.
+
+Persistent warnings can use banners, but routine feedback should use snackbars.
+
+---
+
+## 54.9 Future wearable support TODO
+
+Wearable integration remains outside the MVP.
+
+Keep the codebase ready for future wearable support by avoiding assumptions that workout logging can only happen from the phone UI.
+
+Future wearable goals:
+
+- show the current exercise
+- show the current set number
+- show prescribed weight
+- show prescribed reps
+- complete the current set with one tap
+- skip the current set
+- show rest countdown
+- support quick adjustments where practical
+
+Future architecture note:
+
+- expose workout state and set-completion actions through repository/ViewModel APIs that could later be called by a Wear OS surface
+- do not add Wear OS modules until explicitly requested
+
+---
+
+# 55. Development rules for the coding agent
 
 Before implementing a major feature:
 
@@ -1876,7 +2191,7 @@ in that order.
 
 ---
 
-# 55. Definition of MVP complete
+# 56. Definition of MVP complete
 
 The MVP is complete when I can:
 
