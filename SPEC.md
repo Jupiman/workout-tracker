@@ -1858,6 +1858,49 @@ Prioritize:
 4. readable superset/drop-set grouping
 5. preserving historical snapshots
 
+Implementation phases:
+
+Phase 54A - workout logging cleanup:
+
+- collapse completed sets in the active workout
+- collapse superset rounds only after the whole round is complete
+- mark pending sets as skipped when a partial workout is finished
+- keep history read-only
+
+Phase 54B - weight adjustment controls:
+
+- add compact weight steppers to active workout set rows
+- add matching weight controls to program exercise editing
+- keep typed numeric entry available
+
+Phase 54C - clearer grouping:
+
+- improve superset grouping in active workouts
+- improve drop-set visual hierarchy
+- keep rest behavior aligned with superset rounds
+
+Phase 54D - per-set targets and finish decisions:
+
+- add per-set planned targets to the template/session model
+- support changed-set finish choices
+- replace the current progression review wording with the new explicit options
+
+Phase 54E - warm-up schemes:
+
+- add warm-up scheme configuration
+- generate warm-up session sets from percentages
+- snapshot warm-ups into workout history
+
+Phase 54F - program editor ergonomics:
+
+- replace exercise Up/Down controls with drag-and-drop ordering
+- keep the staged Program -> Training Day -> Edit Day flow
+
+Phase 54G - wearable readiness:
+
+- document future Wear OS integration points
+- keep phone UI and repository APIs decoupled enough for a future watch surface
+
 ---
 
 ## 54.1 Program editor progressive-disclosure flow
