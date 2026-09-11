@@ -1,7 +1,7 @@
 package com.jupiman.workouttracker.data.repository
 
 enum class ProgressionFinishChoice {
-    AUTOMATIC,
-    NO_PROGRESSION,
-    SET_TARGET_FROM_LOGGED,
+    NO_CHANGE,
+    CHANGE_THIS_SET,
+    SET_TARGET_FOR_EXERCISE,
 }

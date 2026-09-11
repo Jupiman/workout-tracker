@@ -28,6 +28,8 @@ class ProgramRepositoryTest {
             programDao = database.programDao(),
             workoutTemplateDao = database.workoutTemplateDao(),
             workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+            workoutTemplateSetTargetDao = database.workoutTemplateSetTargetDao(),
+            workoutTemplateWarmupSetDao = database.workoutTemplateWarmupSetDao(),
             progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
             exerciseDao = database.exerciseDao(),
@@ -114,6 +116,81 @@ class ProgramRepositoryTest {
         val first = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
         assertNull(first.supersetGroupId)
         assertEquals(emptyList<Long>(), database.supersetGroupDao().getForWorkoutTemplate(seed.templateId).map { it.id })
+    }
+
+    @Test
+    fun setTargetsCanBeSavedAndReset() = runTest {
+        val seed = seedTwoExerciseTemplate()
+
+        repository.updateTemplateSetTarget(
+            workoutTemplateExerciseId = seed.firstTemplateExerciseId,
+            setOrder = 1,
+            prescribedWeightCentiKg = 7250,
+            prescribedReps = 9,
+        )
+
+        val savedTargets = database.workoutTemplateSetTargetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(1, savedTargets.size)
+        assertEquals(1, savedTargets.single().setOrder)
+        assertEquals(7250, savedTargets.single().prescribedWeightCentiKg)
+        assertEquals(9, savedTargets.single().prescribedReps)
+
+        repository.resetTemplateSetTarget(seed.firstTemplateExerciseId, setOrder = 1)
+
+        assertEquals(
+            emptyList<Long>(),
+            database.workoutTemplateSetTargetDao()
+                .getForTemplateExercise(seed.firstTemplateExerciseId)
+                .map { it.id },
+        )
+    }
+
+    @Test
+    fun reducingWorkingSetCountPrunesOutOfRangeSetTargets() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        val editorItem = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+        repository.updateTemplateSetTarget(
+            workoutTemplateExerciseId = seed.firstTemplateExerciseId,
+            setOrder = 2,
+            prescribedWeightCentiKg = 7250,
+            prescribedReps = 9,
+        )
+
+        repository.updateTemplateExercise(
+            item = editorItem,
+            config = config(plannedWorkingSets = 2, restSeconds = 180),
+        )
+
+        assertEquals(
+            emptyList<Long>(),
+            database.workoutTemplateSetTargetDao()
+                .getForTemplateExercise(seed.firstTemplateExerciseId)
+                .map { it.id },
+        )
+    }
+
+    @Test
+    fun defaultWarmupSchemeCanBeEnabledAndCleared() = runTest {
+        val seed = seedTwoExerciseTemplate()
+
+        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+
+        val warmupSets = database.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(listOf(10, 3, 3), warmupSets.map { it.reps })
+        assertEquals(listOf(30, 70, 75), warmupSets.map { it.percentOfWorkingWeight })
+
+        repository.clearWarmupScheme(seed.firstTemplateExerciseId)
+
+        assertEquals(
+            emptyList<Long>(),
+            database.workoutTemplateWarmupSetDao()
+                .getForTemplateExercise(seed.firstTemplateExerciseId)
+                .map { it.id },
+        )
     }
 
     private suspend fun seedTwoExerciseTemplate(secondPlannedWorkingSets: Int = 3): TwoExerciseTemplateSeed {

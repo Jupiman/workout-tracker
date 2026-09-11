@@ -415,7 +415,7 @@ private fun FinishProgressionReviewDialog(
     onFinish: (Map<Long, ProgressionFinishChoice>) -> Unit,
 ) {
     var choices by remember(items) {
-        mutableStateOf(items.associate { it.sessionExerciseId to ProgressionFinishChoice.AUTOMATIC })
+        mutableStateOf(items.associate { it.sessionSetId to ProgressionFinishChoice.NO_CHANGE })
     }
 
     AlertDialog(
@@ -431,18 +431,17 @@ private fun FinishProgressionReviewDialog(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = item.changedSetsText,
+                            text = item.changedSetText,
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "Logged target: ${formatCentiKg(item.loggedTargetWeightCentiKg)} kg x " +
-                                item.loggedTargetReps,
+                            text = "Logged: ${formatCentiKg(item.loggedWeightCentiKg)} kg x ${item.loggedReps}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         ProgressionChoiceButtons(
-                            selected = choices.getValue(item.sessionExerciseId),
+                            selected = choices.getValue(item.sessionSetId),
                             onSelect = { choice ->
-                                choices = choices + (item.sessionExerciseId to choice)
+                                choices = choices + (item.sessionSetId to choice)
                             },
                         )
                     }
@@ -469,19 +468,19 @@ private fun ProgressionChoiceButtons(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         ProgressionChoiceButton(
-            label = "Automatic",
-            selected = selected == ProgressionFinishChoice.AUTOMATIC,
-            onClick = { onSelect(ProgressionFinishChoice.AUTOMATIC) },
+            label = "No change",
+            selected = selected == ProgressionFinishChoice.NO_CHANGE,
+            onClick = { onSelect(ProgressionFinishChoice.NO_CHANGE) },
         )
         ProgressionChoiceButton(
-            label = "No progression",
-            selected = selected == ProgressionFinishChoice.NO_PROGRESSION,
-            onClick = { onSelect(ProgressionFinishChoice.NO_PROGRESSION) },
+            label = "Change only this set",
+            selected = selected == ProgressionFinishChoice.CHANGE_THIS_SET,
+            onClick = { onSelect(ProgressionFinishChoice.CHANGE_THIS_SET) },
         )
         ProgressionChoiceButton(
-            label = "Set new target",
-            selected = selected == ProgressionFinishChoice.SET_TARGET_FROM_LOGGED,
-            onClick = { onSelect(ProgressionFinishChoice.SET_TARGET_FROM_LOGGED) },
+            label = "Set target for all sets",
+            selected = selected == ProgressionFinishChoice.SET_TARGET_FOR_EXERCISE,
+            onClick = { onSelect(ProgressionFinishChoice.SET_TARGET_FOR_EXERCISE) },
         )
     }
 }
@@ -825,6 +824,7 @@ private fun CollapsedSessionSetRow(
 }
 
 private fun SetType.displayName(): String = when (this) {
+    SetType.WARMUP -> "Warm-up"
     SetType.WORKING -> "Set"
     SetType.EXTRA -> "Extra"
     SetType.AMRAP -> "AMRAP"
@@ -838,17 +838,17 @@ private fun SessionSetStatus.displayName(): String = when (this) {
 }
 
 private fun SessionSetEntity.headerText(): String =
-    if (setType == SetType.DROP) {
-        "${setType.displayName()} ${setOrder + 1} | Drop from previous | ${status.displayName()}"
-    } else {
-        "${setType.displayName()} ${setOrder + 1} | ${status.displayName()}"
+    when (setType) {
+        SetType.WARMUP -> "${setType.displayName()} | ${status.displayName()}"
+        SetType.DROP -> "${setType.displayName()} ${setOrder + 1} | Drop from previous | ${status.displayName()}"
+        else -> "${setType.displayName()} ${setOrder + 1} | ${status.displayName()}"
     }
 
 private fun SessionSetEntity.collapsedLabel(): String =
-    if (setType == SetType.DROP) {
-        "${setType.displayName()} ${setOrder + 1} | Drop"
-    } else {
-        "${setType.displayName()} ${setOrder + 1}"
+    when (setType) {
+        SetType.WARMUP -> setType.displayName()
+        SetType.DROP -> "${setType.displayName()} ${setOrder + 1} | Drop"
+        else -> "${setType.displayName()} ${setOrder + 1}"
     }
 
 private sealed interface ActiveWorkoutDisplayBlock {
@@ -908,8 +908,8 @@ private fun WorkoutSessionWithDetails.shouldCollapseSet(
 private fun WorkoutSessionWithDetails.progressionReviewItems(): List<FinishProgressionReviewItem> =
     exercises
         .sortedBy { it.exercise.sortOrderSnapshot }
-        .mapNotNull { exercise ->
-            val changedSets = exercise.sets
+        .flatMap { exercise ->
+            exercise.sets
                 .filter {
                     it.countsForProgression &&
                         it.status == SessionSetStatus.COMPLETED &&
@@ -917,32 +917,25 @@ private fun WorkoutSessionWithDetails.progressionReviewItems(): List<FinishProgr
                             it.actualReps != it.prescribedReps)
                 }
                 .sortedBy { it.setOrder }
-            if (changedSets.isEmpty()) return@mapNotNull null
-
-            val bestSet = changedSets.maxWith(
-                compareBy<SessionSetEntity> { it.actualWeightCentiKg ?: 0 }
-                    .thenBy { it.actualReps ?: 0 }
-                    .thenBy { it.setOrder },
-            )
-            FinishProgressionReviewItem(
-                sessionExerciseId = exercise.exercise.id,
-                exerciseName = exercise.exercise.exerciseNameSnapshot,
-                changedSetsText = changedSets.joinToString { set ->
-                    "${set.setOrder + 1}: ${formatCentiKg(set.prescribedWeightCentiKg ?: 0)} kg x " +
-                        "${set.prescribedReps ?: "-"} -> " +
-                        "${formatCentiKg(set.actualWeightCentiKg ?: 0)} kg x ${set.actualReps ?: "-"}"
-                },
-                loggedTargetWeightCentiKg = bestSet.actualWeightCentiKg
-                    ?: exercise.exercise.prescribedWeightCentiKgSnapshot,
-                loggedTargetReps = (bestSet.actualReps ?: exercise.exercise.targetRepsSnapshot)
-                    .coerceIn(exercise.exercise.repMinSnapshot, exercise.exercise.repMaxSnapshot),
-            )
+                .map { set ->
+                    FinishProgressionReviewItem(
+                        sessionSetId = set.id,
+                        exerciseName = exercise.exercise.exerciseNameSnapshot,
+                        changedSetText = "Set ${set.setOrder + 1}: " +
+                            "${formatCentiKg(set.prescribedWeightCentiKg ?: 0)} kg x " +
+                            "${set.prescribedReps ?: "-"} -> " +
+                            "${formatCentiKg(set.actualWeightCentiKg ?: 0)} kg x ${set.actualReps ?: "-"}",
+                        loggedWeightCentiKg = set.actualWeightCentiKg
+                            ?: exercise.exercise.prescribedWeightCentiKgSnapshot,
+                        loggedReps = set.actualReps ?: exercise.exercise.targetRepsSnapshot,
+                    )
+                }
         }
 
 private data class FinishProgressionReviewItem(
-    val sessionExerciseId: Long,
+    val sessionSetId: Long,
     val exerciseName: String,
-    val changedSetsText: String,
-    val loggedTargetWeightCentiKg: Int,
-    val loggedTargetReps: Int,
+    val changedSetText: String,
+    val loggedWeightCentiKg: Int,
+    val loggedReps: Int,
 )

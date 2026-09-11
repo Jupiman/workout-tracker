@@ -253,6 +253,7 @@ private fun historySummary(sessionDetails: WorkoutSessionWithDetails): String {
 
 private fun SessionSetEntity.historyLine(): String {
     val label = when (setType) {
+        SetType.WARMUP -> "WARM-UP "
         SetType.WORKING -> if (isPlanned) "" else "EXTRA "
         SetType.EXTRA -> "EXTRA "
         SetType.AMRAP -> "AMRAP "

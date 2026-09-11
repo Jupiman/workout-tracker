@@ -17,6 +17,8 @@ class AppContainer(context: Context) {
         "workout_tracker.db",
     )
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_1_2)
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_2_3)
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_3_4)
         .build()
 
     val exerciseRepository = ExerciseRepository(database.exerciseDao())
@@ -25,6 +27,8 @@ class AppContainer(context: Context) {
         programDao = database.programDao(),
         workoutTemplateDao = database.workoutTemplateDao(),
         workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+        workoutTemplateSetTargetDao = database.workoutTemplateSetTargetDao(),
+        workoutTemplateWarmupSetDao = database.workoutTemplateWarmupSetDao(),
         progressionStateDao = database.progressionStateDao(),
         supersetGroupDao = database.supersetGroupDao(),
         exerciseDao = database.exerciseDao(),
@@ -37,6 +41,8 @@ class AppContainer(context: Context) {
         programDao = database.programDao(),
         workoutTemplateDao = database.workoutTemplateDao(),
         workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+        workoutTemplateSetTargetDao = database.workoutTemplateSetTargetDao(),
+        workoutTemplateWarmupSetDao = database.workoutTemplateWarmupSetDao(),
         progressionStateDao = database.progressionStateDao(),
         supersetGroupDao = database.supersetGroupDao(),
         restTimerScheduler = restTimerScheduler,

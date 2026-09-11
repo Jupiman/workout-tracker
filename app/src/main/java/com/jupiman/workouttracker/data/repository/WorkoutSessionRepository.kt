@@ -10,18 +10,22 @@ import com.jupiman.workouttracker.data.local.dao.SupersetGroupDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutSessionDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateExerciseDao
+import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateSetTargetDao
+import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateWarmupSetDao
 import com.jupiman.workouttracker.data.local.entity.SessionExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.domain.progression.ProgressionConfig
 import com.jupiman.workouttracker.domain.progression.ProgressionEngine
 import com.jupiman.workouttracker.domain.progression.ProgressionSet
 import com.jupiman.workouttracker.notification.RestTimerScheduler
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -31,6 +35,8 @@ class WorkoutSessionRepository(
     private val programDao: ProgramDao,
     private val workoutTemplateDao: WorkoutTemplateDao,
     private val workoutTemplateExerciseDao: WorkoutTemplateExerciseDao,
+    private val workoutTemplateSetTargetDao: WorkoutTemplateSetTargetDao,
+    private val workoutTemplateWarmupSetDao: WorkoutTemplateWarmupSetDao,
     private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
     private val restTimerScheduler: RestTimerScheduler,
@@ -89,15 +95,41 @@ class WorkoutSessionRepository(
                 ),
             )
 
+            val warmupSets = workoutTemplateWarmupSetDao
+                .getForTemplateExercise(templateExercise.id)
+            val generatedWarmupSets = warmupSets.mapIndexed { index, warmupSet ->
+                SessionSetEntity(
+                    sessionExerciseId = sessionExerciseId,
+                    setOrder = index - warmupSets.size,
+                    setType = SetType.WARMUP,
+                    isPlanned = true,
+                    countsForProgression = false,
+                    prescribedWeightCentiKg = warmupWeightCentiKg(
+                        workingWeightCentiKg = templateExercise.currentWeightCentiKg,
+                        percent = warmupSet.percentOfWorkingWeight,
+                    ),
+                    prescribedReps = warmupSet.reps,
+                )
+            }
+            if (generatedWarmupSets.isNotEmpty()) {
+                sessionSetDao.insertAll(generatedWarmupSets)
+            }
+
+            val setTargetsByOrder = workoutTemplateSetTargetDao
+                .getForTemplateExercise(templateExercise.id)
+                .associateBy { it.setOrder }
             val plannedSets = (0 until templateExercise.plannedWorkingSets).map { setIndex ->
+                val setTarget = setTargetsByOrder[setIndex]
                 SessionSetEntity(
                     sessionExerciseId = sessionExerciseId,
                     setOrder = setIndex,
                     setType = SetType.WORKING,
                     isPlanned = true,
-                    countsForProgression = true,
-                    prescribedWeightCentiKg = templateExercise.currentWeightCentiKg,
-                    prescribedReps = templateExercise.currentTargetReps,
+                    countsForProgression = setTarget?.countsForProgression ?: true,
+                    prescribedWeightCentiKg = setTarget?.prescribedWeightCentiKg
+                        ?: templateExercise.currentWeightCentiKg,
+                    prescribedReps = setTarget?.prescribedReps
+                        ?: templateExercise.currentTargetReps,
                 )
             }
             sessionSetDao.insertAll(plannedSets)
@@ -155,7 +187,9 @@ class WorkoutSessionRepository(
         sessionExerciseId: Long,
         setType: SetType,
     ): Long = database.withTransaction {
-        require(setType != SetType.WORKING) { "Only session-only sets can be added." }
+        require(setType != SetType.WORKING && setType != SetType.WARMUP) {
+            "Only session-only sets can be added."
+        }
         val sessionExercise = sessionExerciseDao.getById(sessionExerciseId)
             ?: error("Session exercise not found.")
         val session = workoutSessionDao.getById(sessionExercise.sessionId)
@@ -170,12 +204,14 @@ class WorkoutSessionRepository(
             SetType.DROP -> previousSet?.actualWeightCentiKg
                 ?: previousSet?.prescribedWeightCentiKg
                 ?: sessionExercise.prescribedWeightCentiKgSnapshot
+            SetType.WARMUP,
             SetType.WORKING -> error("Working sets are generated from templates.")
         }
         val defaultReps = when (setType) {
             SetType.EXTRA -> sessionExercise.targetRepsSnapshot
             SetType.AMRAP,
             SetType.DROP -> null
+            SetType.WARMUP,
             SetType.WORKING -> error("Working sets are generated from templates.")
         }
 
@@ -244,7 +280,7 @@ class WorkoutSessionRepository(
             }
             val allPlannedSetsCompleted = setsByExerciseId.values
                 .flatten()
-                .filter { it.isPlanned }
+                .filter { it.isPlanned && it.setType != SetType.WARMUP }
                 .all { it.status == SessionSetStatus.COMPLETED }
 
             if (!allPlannedSetsCompleted && !allowPartial) {
@@ -254,7 +290,9 @@ class WorkoutSessionRepository(
             val completedAt = System.currentTimeMillis()
             val finalSetsByExerciseId = setsByExerciseId.mapValues { (_, exerciseSets) ->
                 exerciseSets.map { set ->
-                    if (!allPlannedSetsCompleted && allowPartial && set.status == SessionSetStatus.PENDING) {
+                    if (set.status == SessionSetStatus.PENDING &&
+                        (set.setType == SetType.WARMUP || (!allPlannedSetsCompleted && allowPartial))
+                    ) {
                         val skippedSet = set.copy(
                             status = SessionSetStatus.SKIPPED,
                             actualWeightCentiKg = null,
@@ -275,20 +313,39 @@ class WorkoutSessionRepository(
                 val progressionState = progressionStateDao.getForTemplateExercise(sourceTemplateExerciseId)
                     ?: return@forEach
                 val exerciseSets = finalSetsByExerciseId.getValue(sessionExercise.id)
-                when (progressionChoices[sessionExercise.id] ?: ProgressionFinishChoice.AUTOMATIC) {
-                    ProgressionFinishChoice.NO_PROGRESSION -> return@forEach
-                    ProgressionFinishChoice.SET_TARGET_FROM_LOGGED -> {
-                        val target = exerciseSets.loggedProgressionTarget(sessionExercise)
-                        progressionStateDao.update(
-                            progressionState.copy(
-                                currentWeightCentiKg = target.weightCentiKg,
-                                currentTargetReps = target.targetReps,
-                                updatedAt = System.currentTimeMillis(),
-                            ),
-                        )
-                        return@forEach
+                val changedProgressionSets = exerciseSets.changedProgressionSets()
+                if (changedProgressionSets.isNotEmpty()) {
+                    changedProgressionSets.forEach { changedSet ->
+                        when (progressionChoices[changedSet.id] ?: ProgressionFinishChoice.NO_CHANGE) {
+                            ProgressionFinishChoice.NO_CHANGE -> Unit
+                            ProgressionFinishChoice.CHANGE_THIS_SET -> {
+                                upsertTemplateSetTarget(
+                                    workoutTemplateExerciseId = sourceTemplateExerciseId,
+                                    set = changedSet,
+                                    fallbackWeightCentiKg = sessionExercise.prescribedWeightCentiKgSnapshot,
+                                    fallbackReps = sessionExercise.targetRepsSnapshot,
+                                )
+                            }
+                            ProgressionFinishChoice.SET_TARGET_FOR_EXERCISE -> {
+                                val target = changedSet.loggedTarget(
+                                    fallbackWeightCentiKg = sessionExercise.prescribedWeightCentiKgSnapshot,
+                                    fallbackReps = sessionExercise.targetRepsSnapshot,
+                                )
+                                workoutTemplateSetTargetDao.deleteForTemplateExercise(sourceTemplateExerciseId)
+                                progressionStateDao.update(
+                                    progressionState.copy(
+                                        currentWeightCentiKg = target.weightCentiKg,
+                                        currentTargetReps = target.targetReps.coerceIn(
+                                            sessionExercise.repMinSnapshot,
+                                            sessionExercise.repMaxSnapshot,
+                                        ),
+                                        updatedAt = System.currentTimeMillis(),
+                                    ),
+                                )
+                            }
+                        }
                     }
-                    ProgressionFinishChoice.AUTOMATIC -> Unit
+                    return@forEach
                 }
 
                 val result = ProgressionEngine.evaluate(
@@ -394,26 +451,62 @@ class WorkoutSessionRepository(
         }
     }
 
-    private fun List<SessionSetEntity>.loggedProgressionTarget(
-        sessionExercise: SessionExerciseEntity,
-    ): LoggedProgressionTarget {
-        val bestSet = filter {
+    private fun warmupWeightCentiKg(
+        workingWeightCentiKg: Int,
+        percent: Int,
+    ): Int {
+        if (workingWeightCentiKg <= 0 || percent <= 0) return 0
+        val rawWarmupCentiKg = workingWeightCentiKg * percent / 100.0
+        val fiveKgCentiKg = 500
+        val rounded = (rawWarmupCentiKg / fiveKgCentiKg).roundToInt() * fiveKgCentiKg
+        return rounded.coerceIn(0, workingWeightCentiKg)
+    }
+
+    private fun List<SessionSetEntity>.changedProgressionSets(): List<SessionSetEntity> =
+        filter {
             it.countsForProgression &&
                 it.status == SessionSetStatus.COMPLETED &&
-                it.actualWeightCentiKg != null &&
-                it.actualReps != null
-        }.maxWithOrNull(
-            compareBy<SessionSetEntity> { it.actualWeightCentiKg ?: 0 }
-                .thenBy { it.actualReps ?: 0 }
-                .thenBy { it.setOrder },
-        ) ?: error("No completed planned set can become the next target.")
+                (it.actualWeightCentiKg != it.prescribedWeightCentiKg ||
+                    it.actualReps != it.prescribedReps)
+        }.sortedBy { it.setOrder }
 
-        return LoggedProgressionTarget(
-            weightCentiKg = bestSet.actualWeightCentiKg ?: sessionExercise.prescribedWeightCentiKgSnapshot,
-            targetReps = (bestSet.actualReps ?: sessionExercise.targetRepsSnapshot)
-                .coerceIn(sessionExercise.repMinSnapshot, sessionExercise.repMaxSnapshot),
+    private suspend fun upsertTemplateSetTarget(
+        workoutTemplateExerciseId: Long,
+        set: SessionSetEntity,
+        fallbackWeightCentiKg: Int,
+        fallbackReps: Int,
+    ) {
+        val existingTarget = workoutTemplateSetTargetDao.getForTemplateExerciseSetOrder(
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            setOrder = set.setOrder,
         )
+        val target = set.loggedTarget(
+            fallbackWeightCentiKg = fallbackWeightCentiKg,
+            fallbackReps = fallbackReps,
+        )
+        val entity = WorkoutTemplateSetTargetEntity(
+            id = existingTarget?.id ?: 0,
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            setOrder = set.setOrder,
+            prescribedWeightCentiKg = target.weightCentiKg,
+            prescribedReps = target.targetReps,
+            countsForProgression = set.countsForProgression,
+        )
+        if (existingTarget == null) {
+            workoutTemplateSetTargetDao.insert(entity)
+        } else {
+            workoutTemplateSetTargetDao.update(entity)
+        }
     }
+
+    private fun SessionSetEntity.loggedTarget(
+        fallbackWeightCentiKg: Int,
+        fallbackReps: Int,
+    ): LoggedProgressionTarget =
+        LoggedProgressionTarget(
+            weightCentiKg = actualWeightCentiKg ?: prescribedWeightCentiKg ?: fallbackWeightCentiKg,
+            targetReps = actualReps ?: prescribedReps ?: fallbackReps,
+        )
 
     private data class LoggedProgressionTarget(
         val weightCentiKg: Int,

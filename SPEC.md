@@ -2105,6 +2105,18 @@ Progression rules must remain explicit.
 
 Do not silently infer that a changed weight or changed reps should become the new baseline.
 
+Phase 54D implementation:
+
+- add `WorkoutTemplateSetTarget` rows for optional per-set future targets
+- keep exercise-level progression state as the default when no per-set target exists
+- snapshot per-set targets into `SessionSet.prescribedWeightCentiKg` and `SessionSet.prescribedReps`
+- provide a compact Program tab set-target selector where one set target can be edited at a time
+- key finish-workout review decisions by changed set
+- default changed sets to `No change`
+- `Change only this set` stores a target override for the matching future set order
+- `Set target for all sets` updates the exercise-level progression target and clears per-set overrides
+- unchanged workouts continue using automatic progression
+
 ---
 
 ## 54.6 Superset and drop-set visualization
@@ -2178,6 +2190,16 @@ Data model:
 - add warm-up scheme configuration to the exercise instance/template side
 - snapshot generated warm-up sets into the session when starting a workout
 - do not reconstruct historical warm-ups from the current template
+
+Phase 54E implementation:
+
+- add `WorkoutTemplateWarmupSet` rows with reps, percentage, and order
+- provide a Program tab control to enable the default `10 @ 30%`, `3 @ 70%`, `3 @ 75%` scheme or clear it
+- generate `WARMUP` session sets before working sets when a workout starts
+- keep working set order stable for per-set targets by ordering warm-ups before zero
+- warm-up sets do not count for progression
+- pending warm-up sets are stored as skipped when the workout is finished
+- completed working sets can still finish as `COMPLETED` even if warm-ups were left pending
 
 ---
 

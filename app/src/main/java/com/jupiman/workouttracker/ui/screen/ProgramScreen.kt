@@ -48,6 +48,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
@@ -563,6 +565,11 @@ private fun TemplateExerciseEditor(
     var currentTargetReps by remember(item) { mutableStateOf(item.currentTargetReps.toString()) }
     var increment by remember(item) { mutableStateOf(formatCentiKg(item.incrementCentiKg)) }
     var restSeconds by remember(item) { mutableStateOf(item.restSeconds.toString()) }
+    val setTargetsFlow = remember(item.id) { viewModel.templateSetTargets(item.id) }
+    val setTargets by setTargetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
+    val warmupSets by warmupSetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val visibleSetCount = sets.trim().toIntOrNull()?.coerceAtLeast(1) ?: item.plannedWorkingSets
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -604,6 +611,33 @@ private fun TemplateExerciseEditor(
                 SmallNumberField("Increment kg", increment, { increment = it }, Modifier.weight(1f), decimal = true)
             }
             SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.fillMaxWidth())
+            TemplateSetTargetsEditor(
+                setTargets = setTargets,
+                setCount = visibleSetCount,
+                defaultWeight = currentWeight,
+                defaultReps = currentTargetReps,
+                increment = increment,
+                fallbackIncrementCentiKg = item.incrementCentiKg,
+                onSaveSetTarget = { setOrder, weight, reps ->
+                    viewModel.updateTemplateSetTarget(
+                        workoutTemplateExerciseId = item.id,
+                        setOrder = setOrder,
+                        prescribedWeight = weight,
+                        prescribedReps = reps,
+                    )
+                },
+                onResetSetTarget = { setOrder ->
+                    viewModel.resetTemplateSetTarget(item.id, setOrder)
+                },
+                onResetAllSetTargets = {
+                    viewModel.resetTemplateSetTargets(item.id)
+                },
+            )
+            WarmupSchemeEditor(
+                warmupSets = warmupSets,
+                onEnableDefault = { viewModel.enableDefaultWarmupScheme(item.id) },
+                onClear = { viewModel.clearWarmupScheme(item.id) },
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     onClick = {
@@ -647,6 +681,148 @@ private fun TemplateExerciseEditor(
                     enabled = item.supersetGroupId != null,
                 ) {
                     Text("Remove superset")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WarmupSchemeEditor(
+    warmupSets: List<WorkoutTemplateWarmupSetEntity>,
+    onEnableDefault: () -> Unit,
+    onClear: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Text(
+            text = "Warm-up",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (warmupSets.isEmpty()) {
+            Text(
+                text = "No warm-up sets",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(onClick = onEnableDefault, modifier = Modifier.fillMaxWidth()) {
+                Text("Use default warm-up")
+            }
+        } else {
+            Text(
+                text = warmupSets.joinToString { warmup ->
+                    "${warmup.reps} @ ${warmup.percentOfWorkingWeight}%"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onEnableDefault,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Reset default")
+                }
+                OutlinedButton(
+                    onClick = onClear,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Clear")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemplateSetTargetsEditor(
+    setTargets: List<WorkoutTemplateSetTargetEntity>,
+    setCount: Int,
+    defaultWeight: String,
+    defaultReps: String,
+    increment: String,
+    fallbackIncrementCentiKg: Int,
+    onSaveSetTarget: (Int, String, String) -> Unit,
+    onResetSetTarget: (Int) -> Unit,
+    onResetAllSetTargets: () -> Unit,
+) {
+    var selectedSetOrder by remember(setCount) { mutableStateOf<Int?>(null) }
+    val selectedTarget = selectedSetOrder?.let { setOrder ->
+        setTargets.firstOrNull { it.setOrder == setOrder }
+    }
+    val selectedDefaultWeight = selectedTarget?.prescribedWeightCentiKg?.let(::formatCentiKg) ?: defaultWeight
+    val selectedDefaultReps = selectedTarget?.prescribedReps?.toString() ?: defaultReps
+    var selectedWeight by remember(selectedSetOrder, selectedDefaultWeight) {
+        mutableStateOf(selectedDefaultWeight)
+    }
+    var selectedReps by remember(selectedSetOrder, selectedDefaultReps) {
+        mutableStateOf(selectedDefaultReps)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HorizontalDivider()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "Set targets",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(
+                onClick = onResetAllSetTargets,
+                enabled = setTargets.isNotEmpty(),
+            ) {
+                Text("Reset all")
+            }
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            (0 until setCount).forEach { setOrder ->
+                val setTarget = setTargets.firstOrNull { it.setOrder == setOrder }
+                val repsLabel = setTarget?.prescribedReps?.toString() ?: defaultReps
+                val weightLabel = setTarget?.prescribedWeightCentiKg?.let(::formatCentiKg) ?: defaultWeight
+                val label = "Set ${setOrder + 1}: $repsLabel @ ${weightLabel}kg"
+                if (selectedSetOrder == setOrder) {
+                    Button(onClick = { selectedSetOrder = null }) {
+                        Text(label)
+                    }
+                } else {
+                    OutlinedButton(onClick = { selectedSetOrder = setOrder }) {
+                        Text(label)
+                    }
+                }
+            }
+        }
+
+        selectedSetOrder?.let { setOrder ->
+            WeightAdjuster(
+                label = "Set ${setOrder + 1} weight kg",
+                value = selectedWeight,
+                onValueChange = { selectedWeight = it },
+                incrementCentiKg = increment.toPositiveCentiKgOrDefault(fallbackIncrementCentiKg),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = selectedReps,
+                onValueChange = { selectedReps = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Set ${setOrder + 1} reps") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onSaveSetTarget(setOrder, selectedWeight, selectedReps) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Save set target")
+                }
+                OutlinedButton(
+                    onClick = { onResetSetTarget(setOrder) },
+                    modifier = Modifier.weight(1f),
+                    enabled = selectedTarget != null,
+                ) {
+                    Text("Reset set")
                 }
             }
         }

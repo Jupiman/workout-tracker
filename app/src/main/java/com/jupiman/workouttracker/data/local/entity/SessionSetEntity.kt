@@ -6,6 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 enum class SetType {
+    WARMUP,
     WORKING,
     EXTRA,
     AMRAP,

@@ -8,12 +8,16 @@ import com.jupiman.workouttracker.data.local.dao.ProgressionStateDao
 import com.jupiman.workouttracker.data.local.dao.SupersetGroupDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateExerciseDao
+import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateSetTargetDao
+import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateWarmupSetDao
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SupersetGroupEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 
 class ProgramRepository(
@@ -21,6 +25,8 @@ class ProgramRepository(
     private val programDao: ProgramDao,
     private val workoutTemplateDao: WorkoutTemplateDao,
     private val workoutTemplateExerciseDao: WorkoutTemplateExerciseDao,
+    private val workoutTemplateSetTargetDao: WorkoutTemplateSetTargetDao,
+    private val workoutTemplateWarmupSetDao: WorkoutTemplateWarmupSetDao,
     private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
     private val exerciseDao: ExerciseDao,
@@ -34,6 +40,12 @@ class ProgramRepository(
 
     fun templateExercises(workoutTemplateId: Long) =
         workoutTemplateExerciseDao.observeEditorItemsForWorkoutTemplate(workoutTemplateId)
+
+    fun templateSetTargets(workoutTemplateExerciseId: Long) =
+        workoutTemplateSetTargetDao.observeForTemplateExercise(workoutTemplateExerciseId)
+
+    fun templateWarmupSets(workoutTemplateExerciseId: Long) =
+        workoutTemplateWarmupSetDao.observeForTemplateExercise(workoutTemplateExerciseId)
 
     suspend fun createProgram(name: String): Long {
         val trimmedName = name.trim()
@@ -224,6 +236,10 @@ class ProgramRepository(
                     restSeconds = validConfig.restSeconds,
                 ),
             )
+            workoutTemplateSetTargetDao.deleteFromSetOrder(
+                workoutTemplateExerciseId = item.id,
+                setOrder = validConfig.plannedWorkingSets,
+            )
 
             val existingState = progressionStateDao.getForTemplateExercise(item.id)
             val state = ProgressionStateEntity(
@@ -238,6 +254,64 @@ class ProgramRepository(
                 progressionStateDao.update(state)
             }
         }
+    }
+
+    suspend fun updateTemplateSetTarget(
+        workoutTemplateExerciseId: Long,
+        setOrder: Int,
+        prescribedWeightCentiKg: Int,
+        prescribedReps: Int,
+        countsForProgression: Boolean = true,
+    ) {
+        require(setOrder >= 0) { "Set number must be valid." }
+        require(prescribedWeightCentiKg >= 0) { "Set weight cannot be negative." }
+        require(prescribedReps >= 1) { "Set reps must be at least 1." }
+
+        database.withTransaction {
+            val templateExercise = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
+                ?: error("Workout exercise not found.")
+            require(setOrder < templateExercise.plannedWorkingSets) {
+                "Set target must match an existing working set."
+            }
+
+            upsertTemplateSetTarget(
+                workoutTemplateExerciseId = workoutTemplateExerciseId,
+                setOrder = setOrder,
+                prescribedWeightCentiKg = prescribedWeightCentiKg,
+                prescribedReps = prescribedReps,
+                countsForProgression = countsForProgression,
+            )
+        }
+    }
+
+    suspend fun resetTemplateSetTarget(workoutTemplateExerciseId: Long, setOrder: Int) {
+        workoutTemplateSetTargetDao.deleteForTemplateExerciseSetOrder(workoutTemplateExerciseId, setOrder)
+    }
+
+    suspend fun resetTemplateSetTargets(workoutTemplateExerciseId: Long) {
+        workoutTemplateSetTargetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
+    }
+
+    suspend fun enableDefaultWarmupScheme(workoutTemplateExerciseId: Long) {
+        database.withTransaction {
+            workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
+                ?: error("Workout exercise not found.")
+            workoutTemplateWarmupSetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
+            workoutTemplateWarmupSetDao.insertAll(
+                DefaultWarmupScheme.mapIndexed { index, warmup ->
+                    WorkoutTemplateWarmupSetEntity(
+                        workoutTemplateExerciseId = workoutTemplateExerciseId,
+                        sortOrder = index,
+                        reps = warmup.reps,
+                        percentOfWorkingWeight = warmup.percentOfWorkingWeight,
+                    )
+                },
+            )
+        }
+    }
+
+    suspend fun clearWarmupScheme(workoutTemplateExerciseId: Long) {
+        workoutTemplateWarmupSetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
     }
 
     suspend fun removeTemplateExercise(workoutTemplateExerciseId: Long) {
@@ -375,5 +449,44 @@ class ProgramRepository(
                 workoutTemplateExerciseDao.update(exercise.copy(sortOrder = sortOrder))
             }
         }
+    }
+
+    private suspend fun upsertTemplateSetTarget(
+        workoutTemplateExerciseId: Long,
+        setOrder: Int,
+        prescribedWeightCentiKg: Int,
+        prescribedReps: Int,
+        countsForProgression: Boolean,
+    ) {
+        val existingTarget = workoutTemplateSetTargetDao.getForTemplateExerciseSetOrder(
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            setOrder = setOrder,
+        )
+        val target = WorkoutTemplateSetTargetEntity(
+            id = existingTarget?.id ?: 0,
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            setOrder = setOrder,
+            prescribedWeightCentiKg = prescribedWeightCentiKg,
+            prescribedReps = prescribedReps,
+            countsForProgression = countsForProgression,
+        )
+        if (existingTarget == null) {
+            workoutTemplateSetTargetDao.insert(target)
+        } else {
+            workoutTemplateSetTargetDao.update(target)
+        }
+    }
+
+    private data class DefaultWarmupSet(
+        val reps: Int,
+        val percentOfWorkingWeight: Int,
+    )
+
+    private companion object {
+        val DefaultWarmupScheme = listOf(
+            DefaultWarmupSet(reps = 10, percentOfWorkingWeight = 30),
+            DefaultWarmupSet(reps = 3, percentOfWorkingWeight = 70),
+            DefaultWarmupSet(reps = 3, percentOfWorkingWeight = 75),
+        )
     }
 }

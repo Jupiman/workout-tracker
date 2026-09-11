@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
@@ -47,6 +49,12 @@ class ProgramViewModel(
 
     fun templateExercises(workoutTemplateId: Long): Flow<List<WorkoutTemplateExerciseEditorItem>> =
         programRepository.templateExercises(workoutTemplateId)
+
+    fun templateSetTargets(workoutTemplateExerciseId: Long): Flow<List<WorkoutTemplateSetTargetEntity>> =
+        programRepository.templateSetTargets(workoutTemplateExerciseId)
+
+    fun templateWarmupSets(workoutTemplateExerciseId: Long): Flow<List<WorkoutTemplateWarmupSetEntity>> =
+        programRepository.templateWarmupSets(workoutTemplateExerciseId)
 
     fun clearMessage() {
         _message.value = null
@@ -176,6 +184,40 @@ class ProgramViewModel(
     fun removeTemplateExercise(id: Long) = launchOperation("Exercise removed from workout.") {
         programRepository.removeTemplateExercise(id)
     }
+
+    fun updateTemplateSetTarget(
+        workoutTemplateExerciseId: Long,
+        setOrder: Int,
+        prescribedWeight: String,
+        prescribedReps: String,
+    ) = launchOperation("Set target saved.") {
+        programRepository.updateTemplateSetTarget(
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            setOrder = setOrder,
+            prescribedWeightCentiKg = parseCentiKg(prescribedWeight),
+            prescribedReps = prescribedReps.toPositiveInt("Set reps"),
+        )
+    }
+
+    fun resetTemplateSetTarget(workoutTemplateExerciseId: Long, setOrder: Int) =
+        launchOperation("Set target reset.") {
+            programRepository.resetTemplateSetTarget(workoutTemplateExerciseId, setOrder)
+        }
+
+    fun resetTemplateSetTargets(workoutTemplateExerciseId: Long) =
+        launchOperation("Set targets reset.") {
+            programRepository.resetTemplateSetTargets(workoutTemplateExerciseId)
+        }
+
+    fun enableDefaultWarmupScheme(workoutTemplateExerciseId: Long) =
+        launchOperation("Warm-up scheme enabled.") {
+            programRepository.enableDefaultWarmupScheme(workoutTemplateExerciseId)
+        }
+
+    fun clearWarmupScheme(workoutTemplateExerciseId: Long) =
+        launchOperation("Warm-up scheme cleared.") {
+            programRepository.clearWarmupScheme(workoutTemplateExerciseId)
+        }
 
     fun moveTemplateExercise(workoutTemplateId: Long, id: Long, offset: Int) =
         launchOperation("Exercise reordered.") {
