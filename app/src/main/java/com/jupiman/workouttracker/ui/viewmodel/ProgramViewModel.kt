@@ -182,6 +182,14 @@ class ProgramViewModel(
             programRepository.moveTemplateExercise(workoutTemplateId, id, offset)
         }
 
+    fun supersetWithPrevious(workoutTemplateId: Long, id: Long) = launchOperation("Superset updated.") {
+        programRepository.supersetWithPrevious(workoutTemplateId, id)
+    }
+
+    fun removeFromSuperset(id: Long) = launchOperation("Superset updated.") {
+        programRepository.removeFromSuperset(id)
+    }
+
     private fun templateExerciseConfig(
         sets: String,
         repMin: String,

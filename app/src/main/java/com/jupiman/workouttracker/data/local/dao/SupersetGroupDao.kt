@@ -13,6 +13,9 @@ interface SupersetGroupDao {
     @Query("SELECT * FROM superset_groups WHERE workoutTemplateId = :workoutTemplateId")
     fun observeForWorkoutTemplate(workoutTemplateId: Long): Flow<List<SupersetGroupEntity>>
 
+    @Query("SELECT * FROM superset_groups WHERE workoutTemplateId = :workoutTemplateId")
+    suspend fun getForWorkoutTemplate(workoutTemplateId: Long): List<SupersetGroupEntity>
+
     @Query("SELECT * FROM superset_groups WHERE id = :id")
     suspend fun getById(id: Long): SupersetGroupEntity?
 
@@ -21,5 +24,7 @@ interface SupersetGroupDao {
 
     @Update
     suspend fun update(group: SupersetGroupEntity)
-}
 
+    @Query("DELETE FROM superset_groups WHERE id = :id")
+    suspend fun deleteById(id: Long)
+}

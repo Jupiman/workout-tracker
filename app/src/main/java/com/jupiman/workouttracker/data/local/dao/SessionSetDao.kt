@@ -16,6 +16,9 @@ interface SessionSetDao {
     @Query("SELECT * FROM session_sets WHERE sessionExerciseId = :sessionExerciseId ORDER BY setOrder")
     suspend fun getForSessionExercise(sessionExerciseId: Long): List<SessionSetEntity>
 
+    @Query("SELECT COUNT(*) FROM session_sets WHERE sessionExerciseId = :sessionExerciseId")
+    suspend fun countForSessionExercise(sessionExerciseId: Long): Int
+
     @Query("SELECT * FROM session_sets WHERE id = :id")
     suspend fun getById(id: Long): SessionSetEntity?
 

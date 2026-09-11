@@ -5,11 +5,13 @@ import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.local.dao.ExerciseDao
 import com.jupiman.workouttracker.data.local.dao.ProgramDao
 import com.jupiman.workouttracker.data.local.dao.ProgressionStateDao
+import com.jupiman.workouttracker.data.local.dao.SupersetGroupDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateDao
 import com.jupiman.workouttracker.data.local.dao.WorkoutTemplateExerciseDao
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
+import com.jupiman.workouttracker.data.local.entity.SupersetGroupEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
@@ -20,6 +22,7 @@ class ProgramRepository(
     private val workoutTemplateDao: WorkoutTemplateDao,
     private val workoutTemplateExerciseDao: WorkoutTemplateExerciseDao,
     private val progressionStateDao: ProgressionStateDao,
+    private val supersetGroupDao: SupersetGroupDao,
     private val exerciseDao: ExerciseDao,
 ) {
     val activeProgram = programDao.observeActive()
@@ -262,6 +265,53 @@ class ProgramRepository(
             }
             reordered.forEachIndexed { sortOrder, exercise ->
                 workoutTemplateExerciseDao.update(exercise.copy(sortOrder = sortOrder))
+            }
+        }
+    }
+
+    suspend fun supersetWithPrevious(workoutTemplateId: Long, workoutTemplateExerciseId: Long) {
+        database.withTransaction {
+            val exercises = workoutTemplateExerciseDao.getForWorkoutTemplate(workoutTemplateId)
+            val currentIndex = exercises.indexOfFirst { it.id == workoutTemplateExerciseId }
+            require(currentIndex > 0) { "Choose an exercise below another exercise first." }
+
+            val previous = exercises[currentIndex - 1]
+            val current = exercises[currentIndex]
+            require(previous.plannedWorkingSets == current.plannedWorkingSets) {
+                "Superset exercises must have the same number of working sets."
+            }
+
+            val groupId = previous.supersetGroupId ?: supersetGroupDao.insert(
+                SupersetGroupEntity(
+                    workoutTemplateId = workoutTemplateId,
+                    restSeconds = previous.restSeconds,
+                ),
+            ).also { newGroupId ->
+                workoutTemplateExerciseDao.update(previous.copy(supersetGroupId = newGroupId))
+            }
+
+            val existingGroupMembers = exercises.filter { it.supersetGroupId == groupId }
+            require(existingGroupMembers.all { it.plannedWorkingSets == current.plannedWorkingSets }) {
+                "Superset exercises must have the same number of working sets."
+            }
+
+            workoutTemplateExerciseDao.update(current.copy(supersetGroupId = groupId))
+        }
+    }
+
+    suspend fun removeFromSuperset(workoutTemplateExerciseId: Long) {
+        database.withTransaction {
+            val current = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
+                ?: return@withTransaction
+            val groupId = current.supersetGroupId ?: return@withTransaction
+
+            workoutTemplateExerciseDao.update(current.copy(supersetGroupId = null))
+
+            val remainingMembers = workoutTemplateExerciseDao
+                .getForWorkoutTemplate(current.workoutTemplateId)
+                .filter { it.supersetGroupId == groupId }
+            if (remainingMembers.size < 2) {
+                supersetGroupDao.deleteById(groupId)
             }
         }
     }

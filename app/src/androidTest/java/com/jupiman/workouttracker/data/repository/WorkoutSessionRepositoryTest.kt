@@ -9,6 +9,7 @@ import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
+import com.jupiman.workouttracker.data.local.entity.SupersetGroupEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
@@ -18,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -150,6 +152,99 @@ class WorkoutSessionRepositoryTest {
         assertNull(skipped.actualWeightCentiKg)
         assertNull(skipped.actualReps)
         assertNotNull(skipped.completedAt)
+    }
+
+    @Test
+    fun addSessionSetCreatesExtraSetWithDefaultsOutsideProgression() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+
+        val extraSetId = repository.addSessionSet(sessionExercise.id, SetType.EXTRA)
+        val extraSet = database.sessionSetDao().getById(extraSetId)!!
+
+        assertEquals(3, extraSet.setOrder)
+        assertEquals(SetType.EXTRA, extraSet.setType)
+        assertEquals(false, extraSet.isPlanned)
+        assertEquals(false, extraSet.countsForProgression)
+        assertEquals(7000, extraSet.prescribedWeightCentiKg)
+        assertEquals(10, extraSet.prescribedReps)
+
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+        repository.completeSet(extraSetId, actualWeightCentiKg = 7000, actualReps = 1)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(11, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun addSessionSetCreatesAmrapSetWithWeightAndBlankReps() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+
+        val amrapSetId = repository.addSessionSet(sessionExercise.id, SetType.AMRAP)
+        val amrapSet = database.sessionSetDao().getById(amrapSetId)!!
+
+        assertEquals(SetType.AMRAP, amrapSet.setType)
+        assertEquals(false, amrapSet.isPlanned)
+        assertEquals(false, amrapSet.countsForProgression)
+        assertEquals(7000, amrapSet.prescribedWeightCentiKg)
+        assertNull(amrapSet.prescribedReps)
+    }
+
+    @Test
+    fun addSessionSetCreatesDropSetFromPreviousActualWeight() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val plannedSets = database.sessionSetDao().getForSessionExercise(sessionExercise.id)
+        repository.completeSet(plannedSets.last().id, actualWeightCentiKg = 6500, actualReps = 8)
+
+        val dropSetId = repository.addSessionSet(sessionExercise.id, SetType.DROP)
+        val dropSet = database.sessionSetDao().getById(dropSetId)!!
+
+        assertEquals(SetType.DROP, dropSet.setType)
+        assertEquals(false, dropSet.isPlanned)
+        assertEquals(false, dropSet.countsForProgression)
+        assertEquals(6500, dropSet.prescribedWeightCentiKg)
+        assertNull(dropSet.prescribedReps)
+    }
+
+    @Test
+    fun supersetRestsOnlyAfterLastExerciseInGroup() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val groupId = database.supersetGroupDao().insert(
+            SupersetGroupEntity(
+                workoutTemplateId = seed.templateId,
+                restSeconds = 90,
+            ),
+        )
+        val firstTemplateExercise = database.workoutTemplateExerciseDao()
+            .getById(seed.firstTemplateExerciseId)!!
+        val secondTemplateExercise = database.workoutTemplateExerciseDao()
+            .getById(seed.secondTemplateExerciseId)!!
+        database.workoutTemplateExerciseDao().update(firstTemplateExercise.copy(supersetGroupId = groupId))
+        database.workoutTemplateExerciseDao().update(secondTemplateExercise.copy(supersetGroupId = groupId))
+        val sessionId = repository.startWorkout(seed.templateId)
+        val sessionExercises = database.sessionExerciseDao().getForSession(sessionId)
+        val firstExerciseSets = database.sessionSetDao().getForSessionExercise(sessionExercises[0].id)
+        val secondExerciseSets = database.sessionSetDao().getForSessionExercise(sessionExercises[1].id)
+
+        repository.completeSet(firstExerciseSets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+
+        assertNull(database.workoutSessionDao().getById(sessionId)?.restEndsAt)
+        assertEquals(true, restTimerScheduler.cancelled)
+
+        val before = System.currentTimeMillis()
+        repository.completeSet(secondExerciseSets[0].id, actualWeightCentiKg = 5000, actualReps = 12)
+        val after = System.currentTimeMillis()
+
+        val restEndsAt = database.workoutSessionDao().getById(sessionId)?.restEndsAt
+        assertNotNull(restEndsAt)
+        assertEquals(restEndsAt, restTimerScheduler.scheduledRestEndsAt)
+        assertTrue(restEndsAt!! >= before + 90_000L)
+        assertTrue(restEndsAt <= after + 90_000L)
     }
 
     @Test

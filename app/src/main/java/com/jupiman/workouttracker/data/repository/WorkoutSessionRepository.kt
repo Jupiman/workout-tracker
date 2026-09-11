@@ -131,17 +131,64 @@ class WorkoutSessionRepository(
                     completedAt = now,
                 ),
             )
-            if (set.setType == SetType.WORKING && sessionExercise.restSecondsSnapshot > 0) {
-                val restEndsAt = now + sessionExercise.restSecondsSnapshot * 1_000L
+
+            val restSeconds = restSecondsAfterCompletedWorkingSet(
+                completedSet = set,
+                sessionExercise = sessionExercise,
+                sessionExercises = sessionExerciseDao.getForSession(session.id),
+            )
+            if (restSeconds != null && restSeconds > 0) {
+                val restEndsAt = now + restSeconds * 1_000L
                 workoutSessionDao.update(session.copy(restEndsAt = restEndsAt))
                 restEndsAtToSchedule = restEndsAt
-            } else if (set.setType == SetType.WORKING) {
+            } else if (restSeconds != null) {
                 workoutSessionDao.update(session.copy(restEndsAt = null))
                 shouldCancelRest = true
             }
         }
         restEndsAtToSchedule?.let(restTimerScheduler::schedule)
         if (shouldCancelRest) restTimerScheduler.cancel()
+    }
+
+    suspend fun addSessionSet(
+        sessionExerciseId: Long,
+        setType: SetType,
+    ): Long = database.withTransaction {
+        require(setType != SetType.WORKING) { "Only session-only sets can be added." }
+        val sessionExercise = sessionExerciseDao.getById(sessionExerciseId)
+            ?: error("Session exercise not found.")
+        val session = workoutSessionDao.getById(sessionExercise.sessionId)
+            ?: error("Workout session not found.")
+        require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+
+        val existingSets = sessionSetDao.getForSessionExercise(sessionExerciseId)
+        val previousSet = existingSets.maxByOrNull { it.setOrder }
+        val defaultWeight = when (setType) {
+            SetType.EXTRA,
+            SetType.AMRAP -> sessionExercise.prescribedWeightCentiKgSnapshot
+            SetType.DROP -> previousSet?.actualWeightCentiKg
+                ?: previousSet?.prescribedWeightCentiKg
+                ?: sessionExercise.prescribedWeightCentiKgSnapshot
+            SetType.WORKING -> error("Working sets are generated from templates.")
+        }
+        val defaultReps = when (setType) {
+            SetType.EXTRA -> sessionExercise.targetRepsSnapshot
+            SetType.AMRAP,
+            SetType.DROP -> null
+            SetType.WORKING -> error("Working sets are generated from templates.")
+        }
+
+        sessionSetDao.insert(
+            SessionSetEntity(
+                sessionExerciseId = sessionExerciseId,
+                setOrder = sessionSetDao.countForSessionExercise(sessionExerciseId),
+                setType = setType,
+                isPlanned = false,
+                countsForProgression = false,
+                prescribedWeightCentiKg = defaultWeight,
+                prescribedReps = defaultReps,
+            ),
+        )
     }
 
     suspend fun uncompleteSet(setId: Long) {
@@ -282,6 +329,29 @@ class WorkoutSessionRepository(
             restTimerScheduler.schedule(restEndsAt)
         } else {
             restTimerScheduler.cancel()
+        }
+    }
+
+    private fun restSecondsAfterCompletedWorkingSet(
+        completedSet: SessionSetEntity,
+        sessionExercise: SessionExerciseEntity,
+        sessionExercises: List<SessionExerciseEntity>,
+    ): Int? {
+        if (completedSet.setType != SetType.WORKING) return null
+
+        val supersetGroupId = sessionExercise.supersetGroupSnapshot
+        if (supersetGroupId == null) return sessionExercise.restSecondsSnapshot
+
+        val groupExercises = sessionExercises
+            .filter { it.supersetGroupSnapshot == supersetGroupId }
+            .sortedBy { it.sortOrderSnapshot }
+        if (groupExercises.isEmpty()) return sessionExercise.restSecondsSnapshot
+
+        val isLastExerciseInSuperset = groupExercises.last().id == sessionExercise.id
+        return if (isLastExerciseInSuperset) {
+            sessionExercise.supersetRestSecondsSnapshot ?: sessionExercise.restSecondsSnapshot
+        } else {
+            0
         }
     }
 }

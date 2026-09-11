@@ -2,6 +2,7 @@ package com.jupiman.workouttracker.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
@@ -107,6 +108,13 @@ class HomeViewModel(
 
     fun skipRest() = launchOperation("Rest skipped.") {
         workoutSessionRepository.skipRest()
+    }
+
+    fun addSessionSet(sessionExerciseId: Long, setType: SetType) = launchOperation("Set added.") {
+        workoutSessionRepository.addSessionSet(
+            sessionExerciseId = sessionExerciseId,
+            setType = setType,
+        )
     }
 
     private fun launchOperation(

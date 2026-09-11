@@ -472,6 +472,12 @@ private fun TemplateExerciseEditor(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
+        item.supersetGroupId?.let {
+            Text(
+                text = "Superset group $it",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SmallNumberField("Sets", sets, { sets = it }, Modifier.weight(1f))
             SmallNumberField("Rep min", repMin, { repMin = it }, Modifier.weight(1f))
@@ -516,6 +522,18 @@ private fun TemplateExerciseEditor(
             }
             TextButton(onClick = { viewModel.removeTemplateExercise(item.id) }) {
                 Text("Remove")
+            }
+            TextButton(
+                onClick = { viewModel.supersetWithPrevious(item.workoutTemplateId, item.id) },
+                enabled = !isFirst,
+            ) {
+                Text("Superset previous")
+            }
+            TextButton(
+                onClick = { viewModel.removeFromSuperset(item.id) },
+                enabled = item.supersetGroupId != null,
+            ) {
+                Text("Remove superset")
             }
         }
     }

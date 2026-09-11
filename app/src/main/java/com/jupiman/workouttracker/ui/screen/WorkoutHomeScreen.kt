@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
+import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
@@ -104,6 +105,7 @@ fun WorkoutHomeScreen(
                     onFinishWorkout = viewModel::finishActiveWorkout,
                     onAddRestTime = viewModel::addRestTime,
                     onSkipRest = viewModel::skipRest,
+                    onAddSessionSet = viewModel::addSessionSet,
                 )
             }
         }
@@ -187,6 +189,7 @@ private fun ActiveWorkoutPanel(
     onFinishWorkout: (Boolean) -> Unit,
     onAddRestTime: (Int) -> Unit,
     onSkipRest: () -> Unit,
+    onAddSessionSet: (Long, SetType) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
     var confirmingPartialFinish by remember { mutableStateOf(false) }
@@ -227,6 +230,7 @@ private fun ActiveWorkoutPanel(
                     onCompleteSet = onCompleteSet,
                     onUncompleteSet = onUncompleteSet,
                     onSkipSet = onSkipSet,
+                    onAddSessionSet = onAddSessionSet,
                 )
             }
 
@@ -367,6 +371,7 @@ private fun SessionExerciseCard(
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
+    onAddSessionSet: (Long, SetType) -> Unit,
 ) {
     val snapshot = exercise.exercise
 
@@ -402,6 +407,28 @@ private fun SessionExerciseCard(
                         onSkipSet = onSkipSet,
                     )
                 }
+
+            HorizontalDivider()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { onAddSessionSet(snapshot.id, SetType.EXTRA) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Normal")
+                }
+                OutlinedButton(
+                    onClick = { onAddSessionSet(snapshot.id, SetType.AMRAP) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("AMRAP")
+                }
+                OutlinedButton(
+                    onClick = { onAddSessionSet(snapshot.id, SetType.DROP) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Drop")
+                }
+            }
         }
     }
 }
@@ -414,12 +441,12 @@ private fun SessionSetRow(
     onSkipSet: (Long) -> Unit,
 ) {
     val defaultWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
-    val defaultReps = set.actualReps ?: set.prescribedReps ?: 0
+    val defaultReps = set.actualReps ?: set.prescribedReps
     var weight by remember(set.id, set.actualWeightCentiKg, set.prescribedWeightCentiKg) {
         mutableStateOf(formatCentiKg(defaultWeight))
     }
     var reps by remember(set.id, set.actualReps, set.prescribedReps) {
-        mutableStateOf(defaultReps.toString())
+        mutableStateOf(defaultReps?.toString().orEmpty())
     }
 
     Column(
@@ -429,7 +456,7 @@ private fun SessionSetRow(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "Set ${set.setOrder + 1} ${set.status.name.lowercase()}",
+            text = "${set.setType.displayName()} ${set.setOrder + 1} ${set.status.name.lowercase()}",
             style = MaterialTheme.typography.labelLarge,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -502,4 +529,11 @@ private fun SessionSetRow(
             }
         }
     }
+}
+
+private fun SetType.displayName(): String = when (this) {
+    SetType.WORKING -> "Set"
+    SetType.EXTRA -> "Extra"
+    SetType.AMRAP -> "AMRAP"
+    SetType.DROP -> "Drop"
 }
