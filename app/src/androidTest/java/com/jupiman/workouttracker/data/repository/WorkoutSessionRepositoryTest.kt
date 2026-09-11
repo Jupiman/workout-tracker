@@ -12,6 +12,7 @@ import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
+import com.jupiman.workouttracker.notification.RestTimerScheduler
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -24,6 +25,7 @@ import org.junit.Test
 class WorkoutSessionRepositoryTest {
     private lateinit var database: WorkoutTrackerDatabase
     private lateinit var repository: WorkoutSessionRepository
+    private lateinit var restTimerScheduler: FakeRestTimerScheduler
 
     @Before
     fun createDatabase() {
@@ -31,6 +33,7 @@ class WorkoutSessionRepositoryTest {
         database = Room.inMemoryDatabaseBuilder(context, WorkoutTrackerDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+        restTimerScheduler = FakeRestTimerScheduler()
         repository = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
@@ -41,6 +44,7 @@ class WorkoutSessionRepositoryTest {
             workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
             progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
+            restTimerScheduler = restTimerScheduler,
         )
     }
 
@@ -146,6 +150,53 @@ class WorkoutSessionRepositoryTest {
         assertNull(skipped.actualWeightCentiKg)
         assertNull(skipped.actualReps)
         assertNotNull(skipped.completedAt)
+    }
+
+    @Test
+    fun completingWorkingSetStoresRestDeadlineAndSchedulesNotification() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val set = firstSessionSets(sessionId).first()
+
+        repository.completeSet(set.id, actualWeightCentiKg = 7000, actualReps = 10)
+
+        val session = database.workoutSessionDao().getById(sessionId)
+        assertNotNull(session?.restEndsAt)
+        assertEquals(session?.restEndsAt, restTimerScheduler.scheduledRestEndsAt)
+    }
+
+    @Test
+    fun addRestTimeExtendsPersistedDeadlineAndReschedulesNotification() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        repository.completeSet(firstSessionSets(sessionId).first().id, actualWeightCentiKg = 7000, actualReps = 10)
+        val originalRestEndsAt = database.workoutSessionDao().getById(sessionId)?.restEndsAt!!
+
+        repository.addRestTime(30)
+
+        val updatedRestEndsAt = database.workoutSessionDao().getById(sessionId)?.restEndsAt!!
+        assertEquals(originalRestEndsAt + 30_000L, updatedRestEndsAt)
+        assertEquals(updatedRestEndsAt, restTimerScheduler.scheduledRestEndsAt)
+    }
+
+    @Test
+    fun skipRestClearsDeadlineAndCancelsNotification() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        repository.completeSet(firstSessionSets(sessionId).first().id, actualWeightCentiKg = 7000, actualReps = 10)
+
+        repository.skipRest()
+
+        assertNull(database.workoutSessionDao().getById(sessionId)?.restEndsAt)
+        assertEquals(true, restTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun finishingWorkoutCancelsRestNotification() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        assertNull(database.workoutSessionDao().getById(sessionId)?.restEndsAt)
+        assertEquals(true, restTimerScheduler.cancelled)
     }
 
     @Test
@@ -385,4 +436,20 @@ class WorkoutSessionRepositoryTest {
         val firstTemplateExerciseId: Long,
         val secondTemplateExerciseId: Long,
     )
+
+    private class FakeRestTimerScheduler : RestTimerScheduler {
+        var scheduledRestEndsAt: Long? = null
+            private set
+        var cancelled: Boolean = false
+            private set
+
+        override fun schedule(restEndsAt: Long) {
+            scheduledRestEndsAt = restEndsAt
+            cancelled = false
+        }
+
+        override fun cancel() {
+            cancelled = true
+        }
+    }
 }

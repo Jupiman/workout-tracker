@@ -37,6 +37,8 @@ import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.viewmodel.HomeUiState
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
+import kotlinx.coroutines.delay
+import kotlin.math.max
 
 @Composable
 fun WorkoutHomeScreen(
@@ -100,6 +102,8 @@ fun WorkoutHomeScreen(
                     onSkipSet = viewModel::skipSet,
                     onDiscardWorkout = viewModel::discardActiveWorkout,
                     onFinishWorkout = viewModel::finishActiveWorkout,
+                    onAddRestTime = viewModel::addRestTime,
+                    onSkipRest = viewModel::skipRest,
                 )
             }
         }
@@ -181,6 +185,8 @@ private fun ActiveWorkoutPanel(
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
     onFinishWorkout: (Boolean) -> Unit,
+    onAddRestTime: (Int) -> Unit,
+    onSkipRest: () -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
     var confirmingPartialFinish by remember { mutableStateOf(false) }
@@ -205,6 +211,12 @@ private fun ActiveWorkoutPanel(
         Text(
             text = activeWorkout.session.programNameSnapshot,
             style = MaterialTheme.typography.bodyMedium,
+        )
+
+        RestTimerBanner(
+            restEndsAt = activeWorkout.session.restEndsAt,
+            onAddRestTime = onAddRestTime,
+            onSkipRest = onSkipRest,
         )
 
         activeWorkout.exercises
@@ -288,6 +300,61 @@ private fun ActiveWorkoutPanel(
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("Keep")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RestTimerBanner(
+    restEndsAt: Long?,
+    onAddRestTime: (Int) -> Unit,
+    onSkipRest: () -> Unit,
+) {
+    if (restEndsAt == null) return
+
+    var now by remember(restEndsAt) { mutableStateOf(System.currentTimeMillis()) }
+
+    androidx.compose.runtime.LaunchedEffect(restEndsAt) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1_000)
+        }
+    }
+
+    val remainingMillis = max(0L, restEndsAt - now)
+    val remainingSeconds = remainingMillis / 1_000L
+    val minutes = remainingSeconds / 60
+    val seconds = remainingSeconds % 60
+    val timerText = if (remainingMillis == 0L) {
+        "Rest finished"
+    } else {
+        "Rest %02d:%02d".format(minutes, seconds)
+    }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = timerText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onAddRestTime(30) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("+30 sec")
+                }
+                OutlinedButton(
+                    onClick = onSkipRest,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Skip")
                 }
             }
         }

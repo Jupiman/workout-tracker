@@ -54,6 +54,12 @@ class HomeViewModel(
         initialValue = HomeUiState(),
     )
 
+    init {
+        viewModelScope.launch {
+            workoutSessionRepository.syncRestTimerAlarm()
+        }
+    }
+
     fun clearMessage() {
         _message.value = null
     }
@@ -93,6 +99,14 @@ class HomeViewModel(
 
     fun finishActiveWorkout(allowPartial: Boolean) = launchOperation("Workout finished.") {
         workoutSessionRepository.finishActiveWorkout(allowPartial = allowPartial)
+    }
+
+    fun addRestTime(seconds: Int) = launchOperation("Rest extended.") {
+        workoutSessionRepository.addRestTime(seconds)
+    }
+
+    fun skipRest() = launchOperation("Rest skipped.") {
+        workoutSessionRepository.skipRest()
     }
 
     private fun launchOperation(

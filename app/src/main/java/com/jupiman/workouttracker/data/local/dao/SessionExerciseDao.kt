@@ -15,7 +15,9 @@ interface SessionExerciseDao {
     @Query("SELECT * FROM session_exercises WHERE sessionId = :sessionId ORDER BY sortOrderSnapshot")
     suspend fun getForSession(sessionId: Long): List<SessionExerciseEntity>
 
+    @Query("SELECT * FROM session_exercises WHERE id = :id")
+    suspend fun getById(id: Long): SessionExerciseEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(exercise: SessionExerciseEntity): Long
 }
-

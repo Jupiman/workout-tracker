@@ -20,6 +20,8 @@ import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.domain.progression.ProgressionConfig
 import com.jupiman.workouttracker.domain.progression.ProgressionEngine
 import com.jupiman.workouttracker.domain.progression.ProgressionSet
+import com.jupiman.workouttracker.notification.RestTimerScheduler
+import kotlin.math.max
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -31,6 +33,7 @@ class WorkoutSessionRepository(
     private val workoutTemplateExerciseDao: WorkoutTemplateExerciseDao,
     private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
+    private val restTimerScheduler: RestTimerScheduler,
 ) {
     val activeSession = workoutSessionDao.observeActive()
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
@@ -110,17 +113,35 @@ class WorkoutSessionRepository(
         require(actualWeightCentiKg >= 0) { "Weight cannot be negative." }
         require(actualReps >= 0) { "Reps cannot be negative." }
 
+        var restEndsAtToSchedule: Long? = null
+        var shouldCancelRest = false
         database.withTransaction {
             val set = sessionSetDao.getById(setId) ?: error("Set not found.")
+            val sessionExercise = sessionExerciseDao.getById(set.sessionExerciseId)
+                ?: error("Session exercise not found.")
+            val session = workoutSessionDao.getById(sessionExercise.sessionId)
+                ?: error("Workout session not found.")
+            require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+            val now = System.currentTimeMillis()
             sessionSetDao.update(
                 set.copy(
                     actualWeightCentiKg = actualWeightCentiKg,
                     actualReps = actualReps,
                     status = SessionSetStatus.COMPLETED,
-                    completedAt = System.currentTimeMillis(),
+                    completedAt = now,
                 ),
             )
+            if (set.setType == SetType.WORKING && sessionExercise.restSecondsSnapshot > 0) {
+                val restEndsAt = now + sessionExercise.restSecondsSnapshot * 1_000L
+                workoutSessionDao.update(session.copy(restEndsAt = restEndsAt))
+                restEndsAtToSchedule = restEndsAt
+            } else if (set.setType == SetType.WORKING) {
+                workoutSessionDao.update(session.copy(restEndsAt = null))
+                shouldCancelRest = true
+            }
         }
+        restEndsAtToSchedule?.let(restTimerScheduler::schedule)
+        if (shouldCancelRest) restTimerScheduler.cancel()
     }
 
     suspend fun uncompleteSet(setId: Long) {
@@ -157,6 +178,7 @@ class WorkoutSessionRepository(
                 workoutSessionDao.deleteActiveById(activeSession.id)
             }
         }
+        restTimerScheduler.cancel()
     }
 
     suspend fun finishActiveWorkout(allowPartial: Boolean) {
@@ -226,6 +248,40 @@ class WorkoutSessionRepository(
                     progressionApplied = true,
                 ),
             )
+        }
+        restTimerScheduler.cancel()
+    }
+
+    suspend fun addRestTime(seconds: Int) {
+        require(seconds > 0) { "Rest time adjustment must be positive." }
+        val restEndsAt = database.withTransaction {
+            val activeSession = workoutSessionDao.getActive()
+                ?: error("No active workout.")
+            val now = System.currentTimeMillis()
+            val updatedRestEndsAt = max(activeSession.restEndsAt ?: now, now) + seconds * 1_000L
+            workoutSessionDao.update(activeSession.copy(restEndsAt = updatedRestEndsAt))
+            updatedRestEndsAt
+        }
+        restTimerScheduler.schedule(restEndsAt)
+    }
+
+    suspend fun skipRest() {
+        database.withTransaction {
+            workoutSessionDao.getActive()?.let { activeSession ->
+                workoutSessionDao.update(activeSession.copy(restEndsAt = null))
+            }
+        }
+        restTimerScheduler.cancel()
+    }
+
+    suspend fun syncRestTimerAlarm() {
+        val restEndsAt = database.withTransaction {
+            workoutSessionDao.getActive()?.restEndsAt
+        }
+        if (restEndsAt != null && restEndsAt > System.currentTimeMillis()) {
+            restTimerScheduler.schedule(restEndsAt)
+        } else {
+            restTimerScheduler.cancel()
         }
     }
 }

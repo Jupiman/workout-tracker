@@ -6,8 +6,11 @@ import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
+import com.jupiman.workouttracker.notification.AndroidRestTimerScheduler
 
 class AppContainer(context: Context) {
+    private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
+
     val database: WorkoutTrackerDatabase = Room.databaseBuilder(
         context.applicationContext,
         WorkoutTrackerDatabase::class.java,
@@ -35,5 +38,6 @@ class AppContainer(context: Context) {
         workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
         progressionStateDao = database.progressionStateDao(),
         supersetGroupDao = database.supersetGroupDao(),
+        restTimerScheduler = restTimerScheduler,
     )
 }
