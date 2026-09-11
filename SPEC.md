@@ -1891,10 +1891,13 @@ Phase 54E - warm-up schemes:
 - generate warm-up session sets from percentages
 - snapshot warm-ups into workout history
 
-Phase 54F - program editor ergonomics:
+Phase 54F - program builder UX and reorder polish:
 
-- replace exercise Up/Down controls with drag-and-drop ordering
-- keep the staged Program -> Training Day -> Edit Day flow
+- replace the staged Program -> Training Day -> Edit Day navigation with an in-place builder inside the Program destination
+- split program management and the exercise library into `Programs` and `Exercises` subtabs
+- use a program selector plus horizontally scrollable Training Day tabs instead of `Open` / `Back` navigation
+- show exercises as compact summary cards and edit one exercise at a time in a modal bottom sheet
+- replace Up/Down controls and long-press reorder behavior with direct drag-handle reordering and animated item movement
 
 Phase 54G - wearable readiness:
 
@@ -1903,46 +1906,331 @@ Phase 54G - wearable readiness:
 
 ---
 
-## 54.1 Program editor progressive-disclosure flow
+## 54.1 Program builder UX redesign
 
-The Program tab must not be one long editor page.
+The Program destination must feel like a focused builder, not like a chain of form pages or one long administration screen.
 
-Use a staged flow:
+The existing staged navigation:
 
-1. Programs list
-2. Training Days list
-3. Edit Day
+`Programs list -> Open program -> Training Days list -> Edit day -> Back`
 
-Programs list:
+must be replaced for normal editing.
 
-- choose/open a program
-- create a program
-- rename a program
-- set a program active
-- archive a program
+The primary goals are:
 
-Training Days list:
+- eliminate routine `Open` / `Back` navigation while building a program
+- minimize vertical scrolling
+- avoid showing editable text fields for every exercise at the same time
+- make the current Program and Training Day context obvious
+- keep common actions fast while moving destructive or uncommon actions out of the main visual hierarchy
+- preserve all existing business rules, persistence, progression behavior, and historical snapshot behavior
 
-- show only days for the selected program
-- use the term `Training Day` or `Day`, not `Workout Template`, in the UI
-- add a day
-- rename a day
-- reorder days
-- remove a day
+### Program destination information architecture
 
-Edit Day:
+Keep the existing bottom navigation:
 
-- show only exercises for the selected day
-- add exercises through an inline dialog or sheet
-- edit exercise configuration in place
-- keep large tap targets
-- avoid exposing unrelated program-level controls
+- `Workout`
+- `Program`
+- `History`
 
-Exercise ordering:
+Inside the `Program` destination, add two top-level subtabs:
 
-- replace Up/Down buttons with drag-and-drop reordering when practical
-- persist the resulting `sortOrder`
-- history must remain unchanged after reordering
+1. `Programs`
+2. `Exercises`
+
+Use a Material 3 tab/segmented control appropriate for two sibling views.
+
+Do not create another bottom-navigation destination for the exercise library.
+
+The selected subtab should remain selected while the user stays in the Program destination.
+
+### Programs subtab
+
+The Programs subtab is the main program builder.
+
+At the top, show a compact program selector for all non-archived programs.
+
+Example:
+
+`[ Test v ]    Active`
+
+Requirements:
+
+- the active program should be clearly marked
+- selecting a program only selects it for editing; it must NOT implicitly make it active
+- provide program-level actions through a nearby overflow/menu or compact secondary action:
+  - create new program
+  - rename selected program
+  - set selected program active
+  - archive selected program
+- creating or renaming a program should use a small dialog or modal bottom sheet
+- do not keep a permanent `Program name` TextField visible on the main builder screen
+- do not require an `Open` button
+
+When entering the Programs subtab:
+
+- select the active program by default if one exists
+- otherwise select the first available non-archived program
+- if no program exists, show a clear empty state with a primary `Create program` action
+
+### Training Day selector
+
+Below the program selector, show the selected program's Training Days as a horizontally scrollable tab/chip row.
+
+Use the user-facing term `Day` or `Training Day`.
+
+Do NOT expose the internal term `Workout Template` in the UI.
+
+Example:
+
+`[ Day 1 ] [ Day 2 ] [ Day 3 ] [ + ]`
+
+Requirements:
+
+- tapping a Day selects it and immediately changes the editor content below
+- no `Open day` action
+- no `Back` button is needed to move between Days
+- the final `+` action creates a new Training Day
+- creating a Day should use a small dialog or modal bottom sheet for its name
+- newly created Days should become selected automatically
+- if the selected program has no Days, show a clear empty state and `Add training day`
+
+The selected Day should remain selected while switching between `Programs` and `Exercises` and back when practical.
+
+### Training Day header
+
+The selected Day content should start with a compact header.
+
+Show:
+
+- Day name
+- optional small edit/rename action
+- optional overflow menu for secondary actions
+
+Day-level secondary actions:
+
+- rename
+- reorder Days
+- remove Day
+
+Do not keep the Day name as a permanently expanded TextField.
+
+Do not show permanent `Save`, `Move up`, `Move down`, or `Remove` text actions in the normal Day header.
+
+Renaming should happen through a small dialog or bottom sheet.
+
+### Reordering Training Days
+
+Do not require Up/Down buttons.
+
+Because Days are displayed as horizontal tabs, do not force complex drag behavior directly on the tabs for v1.1.
+
+Provide a `Reorder days` action from the Day/program overflow menu.
+
+`Reorder days` opens a compact modal bottom sheet containing the Days as a vertical draggable list.
+
+The reorder sheet must use the same animated drag behavior described in Phase 54F:
+
+- drag from a visible handle
+- no long press
+- surrounding rows animate out of the way
+- persist `sortOrder` after drop
+
+After dismissing the reorder sheet, the horizontal Day tabs must reflect the new order.
+
+### Exercise list inside a Training Day
+
+Below the Day header, show a primary `Add exercise` action followed by the ordered exercises.
+
+Do NOT render every exercise as a permanently expanded form.
+
+Each exercise should normally render as a compact summary card.
+
+Example:
+
+`Bench Press`
+
+`3 x 8-12  •  70 kg  •  target 8`
+
+`+2.5 kg  •  Rest 180s`
+
+Possible small badges/metadata:
+
+- `Superset`
+- warm-up enabled
+- custom per-set targets
+
+Requirements:
+
+- the exercise name must be visually dominant
+- important training configuration should be readable without opening the editor
+- avoid multiple rows of outlined TextFields on the main Day screen
+- tapping the card body opens that exercise's editor
+- the drag handle is dedicated to reordering and must not open the editor
+- destructive actions should not occupy permanent primary-button space
+
+### Adding an exercise
+
+Tapping `Add exercise` opens a modal bottom sheet or dialog.
+
+The flow must allow:
+
+- selecting an existing Exercise from the exercise library
+- creating a new Exercise without leaving the flow
+
+After an Exercise is selected/created:
+
+- show the exercise configuration editor
+- save it into the currently selected Training Day
+- return to the Day builder with the new exercise visible
+
+Do not navigate to a separate full-screen Exercise Library page merely to add an exercise.
+
+### Exercise editor
+
+Tapping an exercise card opens a Material 3 `ModalBottomSheet` or equivalent focused editor.
+
+Only one exercise should be edited at a time.
+
+The editor contains the existing configuration controls, including where applicable:
+
+- sets
+- rep minimum
+- rep maximum
+- current/progression weight
+- target reps
+- increment
+- rest
+- per-set target configuration
+- warm-up configuration
+- superset membership/actions
+
+Use the weight control defined in section 54.3.
+
+Group related controls visually instead of presenting one uninterrupted stack of unrelated fields.
+
+The editor should have clear `Save` and dismiss/cancel behavior.
+
+Closing the editor without saving must not silently persist partial edits unless that field is intentionally auto-saved.
+
+Removing an exercise should be a secondary/destructive action inside the editor or overflow menu and should require confirmation when accidental removal would be costly.
+
+### Exercise card actions
+
+The normal collapsed card should expose only:
+
+- the card body for Edit
+- a visible drag handle
+- optionally a compact overflow icon if required
+
+Do not permanently show text actions such as:
+
+- `Save`
+- `Up`
+- `Down`
+- `Remove`
+- `Superset previous`
+- `Remove superset`
+
+Move uncommon actions to the editor or overflow menu.
+
+### Supersets in the Day builder
+
+Superset exercises must be visually grouped rather than only repeating a text label.
+
+For editing/reordering:
+
+- exercises in the same superset must remain contiguous
+- a superset group should render as one visible grouped container
+- the group may have its own drag handle so the entire superset can move as one unit
+- if individual member reordering is supported, keep members constrained inside the group
+- moving an exercise into or out of a superset should happen through an explicit superset action, not accidentally through drag-and-drop
+
+This keeps reordering predictable and avoids silently changing superset semantics.
+
+### Exercises subtab
+
+The `Exercises` subtab contains the reusable exercise library only.
+
+Show a clean list of non-archived exercises with actions to:
+
+- create
+- rename
+- archive
+
+Do not mix Program creation, Training Day editing, or Day-specific progression controls into this subtab.
+
+Creating and renaming an Exercise should use a dialog or modal bottom sheet rather than permanent inline TextFields for every row.
+
+If the list grows large, a simple search/filter field may be added, but search is not required for v1.1.
+
+### Visual design requirements
+
+The Program builder should look like a consumer mobile application rather than an administration form.
+
+Prefer:
+
+- compact cards
+- clear typographic hierarchy
+- Material 3 tabs/chips
+- icon buttons for secondary actions
+- bottom sheets/dialogs for focused editing
+- consistent spacing
+- subtle tonal surfaces instead of borders around every piece of information
+- concise metadata lines
+- restrained motion that communicates state changes
+
+Avoid:
+
+- large numbers of permanently visible outlined TextFields
+- large empty cards containing only one or two actions
+- repetitive `Save` buttons on every row
+- `Open` / `Back` buttons for routine navigation between Program and Day
+- Up/Down text buttons for ordering
+
+### Navigation and state rules
+
+This redesign is primarily a UI/navigation refactor.
+
+Do NOT change Room entities or business logic solely to support the new Program builder unless a real persistence requirement demands it.
+
+Reuse existing:
+
+- Program entities
+- WorkoutTemplate/Training Day entities
+- Exercise entities
+- ProgressionState
+- SupersetGroup
+- repositories
+- `sortOrder`
+
+The UI may maintain transient state for:
+
+- selected Program
+- selected Training Day
+- selected Program/Exercises subtab
+- currently open editor sheet
+
+Historical session data must remain completely unchanged.
+
+Reordering or renaming Programs, Days, or exercises affects future configuration only and must never rewrite history.
+
+### Program builder acceptance criteria
+
+The redesign is accepted when all of the following are true:
+
+1. From the `Program` bottom-nav destination, the user can switch between `Programs` and `Exercises` without leaving that destination.
+2. The user can switch between existing Programs without an `Open` button.
+3. The user can switch between Training Days with one tap on a horizontal Day tab/chip.
+4. Switching Day does not require pressing `Back`.
+5. The main Day view shows compact exercise summaries rather than all fields expanded.
+6. Tapping an exercise opens one focused editor surface.
+7. Adding an exercise does not require navigating away from the selected Day.
+8. Program, Day, and Exercise creation/rename no longer depend on permanent inline creation TextFields.
+9. Exercise ordering uses direct drag-handle interaction and animated movement.
+10. Training Day ordering is available through a dedicated reorder sheet rather than Up/Down buttons.
+11. Existing progression, supersets, per-set targets, warm-ups, history snapshots, and persistence behavior continue to work.
+12. No existing user data is lost as part of this UI refactor.
 
 ---
 
@@ -2203,12 +2491,60 @@ Phase 54E implementation:
 
 Phase 54F implementation:
 
-- show a drag handle on each exercise card in the Edit Day screen
-- show the same drag handle on each Training Day row in the Program screen
-- long-pressing and dragging the handle up/down reuses the repository reorder operation one slot at a time
-- highlight the active card while it is being dragged
-- remove the per-row Up/Down buttons from the editor action rows
-- keep stored Training Day and exercise `sortOrder` values compact after reorder
+Program builder navigation:
+
+- implement the `Programs` / `Exercises` subtabs described in section 54.1
+- replace the current Program -> Open -> Training Day -> Edit Day -> Back flow with the in-place Program builder
+- use a program selector plus horizontally scrollable Day tabs/chips
+- keep the currently selected Program and Day as UI state; selecting them must not mutate which Program is active unless the user explicitly chooses `Set active`
+- replace always-expanded Program/Day/Exercise form fields with compact summaries plus dialogs or modal bottom sheets for focused editing
+
+Exercise drag-and-drop:
+
+- show a dedicated drag handle on each standalone exercise card
+- dragging must start directly from the handle when the user begins dragging; do NOT require a long press
+- while dragging, visually lift the dragged card using elevation/tonal treatment and a subtle scale change where appropriate
+- animate surrounding list items smoothly into their new positions while the dragged item moves
+- support automatic scrolling when the dragged item approaches the top or bottom edge of a long list
+- provide subtle haptic feedback on pickup/drop when supported without introducing a hard dependency
+- persist the final order after drop using the existing repository/sortOrder logic
+- keep `sortOrder` values compact after reorder
+- tapping the card body must continue to open Edit and must not start dragging
+- remove Up/Down ordering buttons from exercise cards/editors
+
+Superset drag behavior:
+
+- render a superset as a visually grouped unit
+- provide a group drag handle that moves the entire superset as one unit
+- do not allow ordinary drag-and-drop to accidentally add an exercise to or remove it from a superset
+- if reordering members within a superset is supported, constrain those members to the same group
+- preserve group contiguity and existing SupersetGroup semantics
+
+Training Day drag-and-drop:
+
+- Day tabs themselves do not need direct drag support in v1.1
+- provide a `Reorder days` action that opens a vertical modal bottom sheet
+- each Day row in that sheet has a dedicated drag handle
+- use the same immediate-drag, animated-placement, autoscroll, and persistence behavior as exercise reordering
+- after the sheet closes, refresh the horizontal Day tab order immediately
+
+Animation rules:
+
+- use motion to communicate reordering, selection, expansion, and sheet transitions
+- prefer short Material-style animations rather than decorative motion
+- avoid animations that delay taps or make workout/program editing feel slower
+- no animation may change business state before the underlying action succeeds
+
+Acceptance criteria:
+
+- no reorder action requires a long press
+- an exercise follows the pointer/finger while being dragged
+- surrounding cards visibly animate out of the way
+- long exercise lists can autoscroll during drag
+- dropping an item persists the correct order after app restart
+- card taps and drag-handle gestures do not conflict
+- superset membership cannot be changed accidentally by reordering
+- Day reorder persists and the Day tabs immediately reflect the new order
 
 ---
 

@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -28,6 +30,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,6 +38,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -64,6 +69,11 @@ import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import kotlinx.coroutines.flow.flowOf
 
+private enum class ProgramDestinationTab(val label: String) {
+    Programs("Programs"),
+    Exercises("Exercises"),
+}
+
 @Composable
 fun ProgramScreen(
     viewModel: ProgramViewModel,
@@ -74,8 +84,11 @@ fun ProgramScreen(
     val exercises by viewModel.exercises.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var selectedTab by rememberSaveable { mutableStateOf(ProgramDestinationTab.Programs) }
     var selectedProgramId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectedDayId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var selectNewestProgramWhenAvailable by rememberSaveable { mutableStateOf(false) }
+    var selectNewestDayWhenAvailable by rememberSaveable { mutableStateOf(false) }
 
     val selectedProgram = programs.firstOrNull { it.id == selectedProgramId }
     val templatesFlow = remember(selectedProgramId) {
@@ -91,62 +104,643 @@ fun ProgramScreen(
     }
 
     LaunchedEffect(programs, selectedProgramId) {
-        if (selectedProgramId != null && selectedProgram == null) {
-            selectedProgramId = null
-            selectedDayId = null
+        when {
+            selectNewestProgramWhenAvailable && programs.isNotEmpty() -> {
+                selectedProgramId = programs.maxBy { it.createdAt }.id
+                selectedDayId = null
+                selectNewestProgramWhenAvailable = false
+            }
+            selectedProgramId == null -> {
+                selectedProgramId = activeProgram?.id ?: programs.firstOrNull()?.id
+            }
+            selectedProgram == null -> {
+                selectedProgramId = activeProgram?.id ?: programs.firstOrNull()?.id
+                selectedDayId = null
+            }
         }
     }
 
     LaunchedEffect(templates, selectedDayId) {
-        if (selectedDayId != null && selectedDay == null) {
-            selectedDayId = null
+        when {
+            selectNewestDayWhenAvailable && templates.isNotEmpty() -> {
+                selectedDayId = templates.last().id
+                selectNewestDayWhenAvailable = false
+            }
+            selectedDayId == null -> {
+                selectedDayId = templates.firstOrNull()?.id
+            }
+            selectedDay == null -> {
+                selectedDayId = templates.firstOrNull()?.id
+            }
         }
-    }
-
-    when {
-        selectedDay != null -> BackHandler { selectedDayId = null }
-        selectedProgram != null -> BackHandler { selectedProgramId = null }
     }
 
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
-        when {
-            selectedDay != null && selectedProgram != null -> {
-                EditDayScreen(
-                    program = selectedProgram,
-                    day = selectedDay,
-                    isFirst = templates.firstOrNull()?.id == selectedDay.id,
-                    isLast = templates.lastOrNull()?.id == selectedDay.id,
-                    exercises = exercises,
-                    viewModel = viewModel,
-                    onBack = { selectedDayId = null },
-                    modifier = Modifier.padding(innerPadding),
-                )
-            }
-            selectedProgram != null -> {
-                TrainingDaysScreen(
-                    program = selectedProgram,
-                    activeProgram = activeProgram,
-                    templates = templates,
-                    viewModel = viewModel,
-                    onBack = { selectedProgramId = null },
-                    onSelectDay = { selectedDayId = it },
-                    modifier = Modifier.padding(innerPadding),
-                )
-            }
-            else -> {
-                ProgramListScreen(
+        Column(
+            modifier = Modifier
+                .padding(innerPadding)
+                .fillMaxSize(),
+        ) {
+            ProgramDestinationTabs(
+                selectedTab = selectedTab,
+                onSelectTab = { selectedTab = it },
+            )
+            when (selectedTab) {
+                ProgramDestinationTab.Programs -> ProgramBuilderScreen(
                     programs = programs,
                     activeProgram = activeProgram,
+                    selectedProgram = selectedProgram,
+                    templates = templates,
+                    selectedDay = selectedDay,
+                    exercises = exercises,
                     viewModel = viewModel,
-                    onSelectProgram = { selectedProgramId = it },
-                    modifier = Modifier.padding(innerPadding),
+                    onSelectProgram = {
+                        selectedProgramId = it
+                        selectedDayId = null
+                    },
+                    onCreateProgram = { name ->
+                        selectNewestProgramWhenAvailable = true
+                        viewModel.createProgram(name)
+                    },
+                    onSelectDay = { selectedDayId = it },
+                    onCreateDay = { programId, name ->
+                        selectNewestDayWhenAvailable = true
+                        viewModel.createWorkoutTemplate(programId, name)
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                ProgramDestinationTab.Exercises -> ExerciseLibraryScreen(
+                    exercises = exercises,
+                    viewModel = viewModel,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }
     }
+}
+
+@Composable
+private fun ProgramDestinationTabs(
+    selectedTab: ProgramDestinationTab,
+    onSelectTab: (ProgramDestinationTab) -> Unit,
+) {
+    TabRow(selectedTabIndex = selectedTab.ordinal) {
+        ProgramDestinationTab.entries.forEach { tab ->
+            Tab(
+                selected = selectedTab == tab,
+                onClick = { onSelectTab(tab) },
+                text = { Text(tab.label) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProgramBuilderScreen(
+    programs: List<ProgramEntity>,
+    activeProgram: ProgramEntity?,
+    selectedProgram: ProgramEntity?,
+    templates: List<WorkoutTemplateEntity>,
+    selectedDay: WorkoutTemplateEntity?,
+    exercises: List<ExerciseEntity>,
+    viewModel: ProgramViewModel,
+    onSelectProgram: (Long) -> Unit,
+    onCreateProgram: (String) -> Unit,
+    onSelectDay: (Long) -> Unit,
+    onCreateDay: (Long, String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showCreateProgramDialog by rememberSaveable { mutableStateOf(false) }
+    var showRenameProgramDialog by rememberSaveable(selectedProgram?.id) { mutableStateOf(false) }
+    var showAddDayDialog by rememberSaveable(selectedProgram?.id) { mutableStateOf(false) }
+    var showRenameDayDialog by rememberSaveable(selectedDay?.id) { mutableStateOf(false) }
+
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            ScreenHeader(title = "Program builder")
+        }
+
+        if (programs.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    title = "No programs yet",
+                    body = "Create a program to start building training days.",
+                    actionLabel = "Create program",
+                    onAction = { showCreateProgramDialog = true },
+                )
+            }
+        } else {
+            item {
+                ProgramSelectorPanel(
+                    programs = programs,
+                    activeProgram = activeProgram,
+                    selectedProgram = selectedProgram,
+                    onSelectProgram = onSelectProgram,
+                    onCreateProgram = { showCreateProgramDialog = true },
+                    onRenameProgram = { showRenameProgramDialog = true },
+                    onActivateProgram = {
+                        selectedProgram?.let { viewModel.activateProgram(it.id) }
+                    },
+                    onArchiveProgram = {
+                        selectedProgram?.let { viewModel.archiveProgram(it.id) }
+                    },
+                )
+            }
+
+            selectedProgram?.let { program ->
+                item {
+                    TrainingDayChipRow(
+                        templates = templates,
+                        selectedDay = selectedDay,
+                        onSelectDay = onSelectDay,
+                        onAddDay = { showAddDayDialog = true },
+                    )
+                }
+
+                if (templates.isEmpty()) {
+                    item {
+                        EmptyStateCard(
+                            title = "No training days",
+                            body = "Add a day to start arranging exercises for this program.",
+                            actionLabel = "Add training day",
+                            onAction = { showAddDayDialog = true },
+                        )
+                    }
+                } else if (selectedDay != null) {
+                    item {
+                        SelectedDayHeader(
+                            day = selectedDay,
+                            exerciseCount = null,
+                            onRename = { showRenameDayDialog = true },
+                            onRemove = { viewModel.deleteWorkoutTemplate(selectedDay.id) },
+                        )
+                    }
+                    item {
+                        SelectedDayExerciseList(
+                            program = program,
+                            day = selectedDay,
+                            exercises = exercises,
+                            viewModel = viewModel,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    if (showCreateProgramDialog) {
+        NameDialog(
+            title = "Create program",
+            label = "Program name",
+            confirmLabel = "Create",
+            initialValue = "",
+            onDismiss = { showCreateProgramDialog = false },
+            onConfirm = { name ->
+                onCreateProgram(name)
+                showCreateProgramDialog = false
+            },
+        )
+    }
+
+    selectedProgram?.let { program ->
+        if (showRenameProgramDialog) {
+            NameDialog(
+                title = "Rename program",
+                label = "Program name",
+                confirmLabel = "Save",
+                initialValue = program.name,
+                onDismiss = { showRenameProgramDialog = false },
+                onConfirm = { name ->
+                    viewModel.renameProgram(program.id, name)
+                    showRenameProgramDialog = false
+                },
+            )
+        }
+
+        if (showAddDayDialog) {
+            NameDialog(
+                title = "Add training day",
+                label = "Training day name",
+                confirmLabel = "Add",
+                initialValue = "",
+                onDismiss = { showAddDayDialog = false },
+                onConfirm = { name ->
+                    onCreateDay(program.id, name)
+                    showAddDayDialog = false
+                },
+            )
+        }
+    }
+
+    selectedDay?.let { day ->
+        if (showRenameDayDialog) {
+            NameDialog(
+                title = "Rename training day",
+                label = "Training day name",
+                confirmLabel = "Save",
+                initialValue = day.name,
+                onDismiss = { showRenameDayDialog = false },
+                onConfirm = { name ->
+                    viewModel.renameWorkoutTemplate(day.id, name)
+                    showRenameDayDialog = false
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProgramSelectorPanel(
+    programs: List<ProgramEntity>,
+    activeProgram: ProgramEntity?,
+    selectedProgram: ProgramEntity?,
+    onSelectProgram: (Long) -> Unit,
+    onCreateProgram: () -> Unit,
+    onRenameProgram: () -> Unit,
+    onActivateProgram: () -> Unit,
+    onArchiveProgram: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Program",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(selectedProgram?.name ?: "Select program")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        programs.forEach { program ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (activeProgram?.id == program.id) {
+                                            "${program.name} - Active"
+                                        } else {
+                                            program.name
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    onSelectProgram(program.id)
+                                    menuExpanded = false
+                                },
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = if (activeProgram?.id == selectedProgram?.id) "Active" else "Inactive",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (activeProgram?.id == selectedProgram?.id) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCreateProgram) {
+                    Text("New")
+                }
+                TextButton(onClick = onRenameProgram, enabled = selectedProgram != null) {
+                    Text("Rename")
+                }
+                TextButton(
+                    onClick = onActivateProgram,
+                    enabled = selectedProgram != null && activeProgram?.id != selectedProgram.id,
+                ) {
+                    Text("Set active")
+                }
+                TextButton(onClick = onArchiveProgram, enabled = selectedProgram != null) {
+                    Text("Archive")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrainingDayChipRow(
+    templates: List<WorkoutTemplateEntity>,
+    selectedDay: WorkoutTemplateEntity?,
+    onSelectDay: (Long) -> Unit,
+    onAddDay: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        templates.forEachIndexed { index, template ->
+            FilterChip(
+                selected = selectedDay?.id == template.id,
+                onClick = { onSelectDay(template.id) },
+                label = { Text("Day ${index + 1}: ${template.name}") },
+            )
+        }
+        OutlinedButton(onClick = onAddDay) {
+            Text("+")
+        }
+    }
+}
+
+@Composable
+private fun SelectedDayHeader(
+    day: WorkoutTemplateEntity,
+    exerciseCount: Int?,
+    onRename: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = day.name,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            exerciseCount?.let {
+                Text(
+                    text = "$it exercises",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onRename) {
+                    Text("Rename")
+                }
+                TextButton(onClick = onRemove) {
+                    Text("Remove")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelectedDayExerciseList(
+    program: ProgramEntity,
+    day: WorkoutTemplateEntity,
+    exercises: List<ExerciseEntity>,
+    viewModel: ProgramViewModel,
+) {
+    val itemsFlow = remember(day.id) { viewModel.templateExercises(day.id) }
+    val templateExercises by itemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var showAddExerciseDialog by rememberSaveable(day.id) { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Button(
+            onClick = { showAddExerciseDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Add exercise")
+        }
+
+        if (templateExercises.isEmpty()) {
+            Text("No exercises in this day.", style = MaterialTheme.typography.bodyLarge)
+        } else {
+            templateExercises.programExerciseDisplayBlocks().forEach { block ->
+                when (block) {
+                    is ProgramExerciseDisplayBlock.SingleExercise -> {
+                        TemplateExerciseEditor(
+                            item = block.exercise.item,
+                            isFirst = block.exercise.index == 0,
+                            isLast = block.exercise.index == templateExercises.lastIndex,
+                            viewModel = viewModel,
+                            onDragStep = { offset ->
+                                viewModel.moveTemplateExercise(day.id, block.exercise.item.id, offset)
+                            },
+                        )
+                    }
+                    is ProgramExerciseDisplayBlock.Superset -> {
+                        ProgramSupersetGroup(
+                            block = block,
+                            lastIndex = templateExercises.lastIndex,
+                            viewModel = viewModel,
+                            onDragStep = { exerciseId, offset ->
+                                viewModel.moveTemplateExercise(day.id, exerciseId, offset)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddExerciseDialog) {
+        AddExerciseDialog(
+            workoutTemplateId = day.id,
+            exercises = exercises,
+            viewModel = viewModel,
+            onDismiss = { showAddExerciseDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun ExerciseLibraryScreen(
+    exercises: List<ExerciseEntity>,
+    viewModel: ProgramViewModel,
+    modifier: Modifier = Modifier,
+) {
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    var exerciseToRename by rememberSaveable { mutableStateOf<Long?>(null) }
+    val renameExercise = exercises.firstOrNull { it.id == exerciseToRename }
+
+    LazyColumn(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            ScreenHeader(title = "Exercise library")
+        }
+        item {
+            Button(
+                onClick = { showCreateDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Create exercise")
+            }
+        }
+        if (exercises.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    title = "No exercises yet",
+                    body = "Create reusable exercises, then add them to any training day.",
+                    actionLabel = "Create exercise",
+                    onAction = { showCreateDialog = true },
+                )
+            }
+        } else {
+            exercises.forEach { exercise ->
+                item(key = exercise.id) {
+                    ExerciseLibraryRow(
+                        exercise = exercise,
+                        onRename = { exerciseToRename = exercise.id },
+                        onArchive = { viewModel.archiveExercise(exercise.id) },
+                    )
+                }
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    if (showCreateDialog) {
+        NameDialog(
+            title = "Create exercise",
+            label = "Exercise name",
+            confirmLabel = "Create",
+            initialValue = "",
+            onDismiss = { showCreateDialog = false },
+            onConfirm = { name ->
+                viewModel.createExercise(name)
+                showCreateDialog = false
+            },
+        )
+    }
+
+    renameExercise?.let { exercise ->
+        NameDialog(
+            title = "Rename exercise",
+            label = "Exercise name",
+            confirmLabel = "Save",
+            initialValue = exercise.name,
+            onDismiss = { exerciseToRename = null },
+            onConfirm = { name ->
+                viewModel.renameExercise(exercise.id, name)
+                exerciseToRename = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun ExerciseLibraryRow(
+    exercise: ExerciseEntity,
+    onRename: () -> Unit,
+    onArchive: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = exercise.name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onRename) {
+                    Text("Rename")
+                }
+                TextButton(onClick = onArchive) {
+                    Text("Archive")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyStateCard(
+    title: String,
+    body: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(onClick = onAction) {
+                Text(actionLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NameDialog(
+    title: String,
+    label: String,
+    confirmLabel: String,
+    initialValue: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by rememberSaveable(initialValue) { mutableStateOf(initialValue) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(label) },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(name) }) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable
