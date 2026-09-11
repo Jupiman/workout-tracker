@@ -46,6 +46,7 @@ import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
+import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.viewmodel.HomeUiState
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
@@ -547,6 +548,7 @@ private fun SessionExerciseCard(
                     SessionSetRow(
                         set = set,
                         collapseCompleted = shouldCollapseSet(set),
+                        weightIncrementCentiKg = snapshot.incrementCentiKgSnapshot,
                         onCompleteSet = onCompleteSet,
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
@@ -582,6 +584,7 @@ private fun SessionExerciseCard(
 private fun SessionSetRow(
     set: SessionSetEntity,
     collapseCompleted: Boolean,
+    weightIncrementCentiKg: Int,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
@@ -634,13 +637,12 @@ private fun SessionSetRow(
             color = rowContentColor,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(
+            WeightAdjuster(
+                label = "kg",
                 value = weight,
                 onValueChange = { weight = it },
                 modifier = Modifier.weight(1f),
-                label = { Text("kg") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                incrementCentiKg = weightIncrementCentiKg,
             )
             OutlinedTextField(
                 value = reps,

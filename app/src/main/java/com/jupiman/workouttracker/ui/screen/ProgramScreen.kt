@@ -47,6 +47,8 @@ import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.ui.component.WeightAdjuster
+import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import kotlinx.coroutines.flow.flowOf
 
@@ -533,14 +535,18 @@ private fun TemplateExerciseEditor(
                 SmallNumberField("Rep min", repMin, { repMin = it }, Modifier.weight(1f))
                 SmallNumberField("Rep max", repMax, { repMax = it }, Modifier.weight(1f))
             }
+            WeightAdjuster(
+                label = "Weight kg",
+                value = currentWeight,
+                onValueChange = { currentWeight = it },
+                incrementCentiKg = increment.toPositiveCentiKgOrDefault(item.incrementCentiKg),
+                modifier = Modifier.fillMaxWidth(),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SmallNumberField("Weight kg", currentWeight, { currentWeight = it }, Modifier.weight(1f), decimal = true)
                 SmallNumberField("Target reps", currentTargetReps, { currentTargetReps = it }, Modifier.weight(1f))
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallNumberField("Increment kg", increment, { increment = it }, Modifier.weight(1f), decimal = true)
-                SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.weight(1f))
             }
+            SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.fillMaxWidth())
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(
                     onClick = {
@@ -777,11 +783,17 @@ private fun AddExerciseDialogContent(
             SmallNumberField("Rep max", repMax, onRepMaxChange, Modifier.weight(1f))
             SmallNumberField("Target", currentTargetReps, onCurrentTargetRepsChange, Modifier.weight(1f))
         }
+        WeightAdjuster(
+            label = "Weight kg",
+            value = currentWeight,
+            onValueChange = onCurrentWeightChange,
+            incrementCentiKg = increment.toPositiveCentiKgOrDefault(250),
+            modifier = Modifier.fillMaxWidth(),
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallNumberField("Weight kg", currentWeight, onCurrentWeightChange, Modifier.weight(1f), decimal = true)
             SmallNumberField("Inc kg", increment, onIncrementChange, Modifier.weight(1f), decimal = true)
+            SmallNumberField("Rest sec", restSeconds, onRestSecondsChange, Modifier.weight(1f))
         }
-        SmallNumberField("Rest sec", restSeconds, onRestSecondsChange, Modifier.fillMaxWidth())
     }
 }
 

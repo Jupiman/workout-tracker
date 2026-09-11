@@ -2006,6 +2006,12 @@ Requirements:
 - typed values and stepper/slider values must stay in sync
 - prevent negative weights
 - keep the control usable with one hand during a workout
+- keep slider mapping linear
+- default slider upper bound to `150 kg`
+- use adaptive upper-bound buckets of `100 kg`, `150 kg`, `200 kg`, `300 kg`, and `500 kg`
+- expand to the next upper-bound bucket when a manually entered or stepped weight exceeds the current range
+- do not dynamically rescale the slider while the user is dragging it
+- keep the numeric field as the authoritative precision input
 
 For working-set logging, prefer compact controls:
 
@@ -2014,6 +2020,13 @@ For working-set logging, prefer compact controls:
 - `+`
 
 A full slider is acceptable in dialogs or program-edit screens where space is less constrained.
+
+Phase 54B implementation:
+
+- active workout rows use a text field, slider, and `-`/`+` buttons for weight
+- program exercise rows use the same weight control
+- add-exercise dialogs use the same weight control
+- controls step by the configured exercise increment where available
 
 ---
 
