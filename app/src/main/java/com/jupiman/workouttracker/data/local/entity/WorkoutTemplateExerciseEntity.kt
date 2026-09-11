@@ -1,0 +1,49 @@
+package com.jupiman.workouttracker.data.local.entity
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+@Entity(
+    tableName = "workout_template_exercises",
+    foreignKeys = [
+        ForeignKey(
+            entity = WorkoutTemplateEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["workoutTemplateId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = ExerciseEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["exerciseId"],
+            onDelete = ForeignKey.NO_ACTION,
+        ),
+        ForeignKey(
+            entity = SupersetGroupEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["supersetGroupId"],
+            onDelete = ForeignKey.SET_NULL,
+        ),
+    ],
+    indices = [
+        Index(value = ["workoutTemplateId"]),
+        Index(value = ["exerciseId"]),
+        Index(value = ["supersetGroupId"]),
+        Index(value = ["workoutTemplateId", "sortOrder"], unique = true),
+    ],
+)
+data class WorkoutTemplateExerciseEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val workoutTemplateId: Long,
+    val exerciseId: Long,
+    val sortOrder: Int,
+    val plannedWorkingSets: Int,
+    val repMin: Int,
+    val repMax: Int,
+    val incrementCentiKg: Int,
+    val restSeconds: Int,
+    val supersetGroupId: Long? = null,
+)
+
