@@ -22,6 +22,10 @@ interface WorkoutSessionDao {
     @Query("SELECT * FROM workout_sessions WHERE status != 'ACTIVE' ORDER BY completedAt DESC, startedAt DESC")
     fun observeHistory(): Flow<List<WorkoutSessionEntity>>
 
+    @Transaction
+    @Query("SELECT * FROM workout_sessions WHERE status != 'ACTIVE' ORDER BY completedAt DESC, startedAt DESC")
+    fun observeHistoryWithDetails(): Flow<List<WorkoutSessionWithDetails>>
+
     @Query(
         """
         SELECT ws.* FROM workout_sessions AS ws

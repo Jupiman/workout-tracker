@@ -39,6 +39,7 @@ class WorkoutSessionRepository(
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
     val latestFinishedSessionForActiveProgram = workoutSessionDao.observeLatestFinishedForActiveProgram()
     val history = workoutSessionDao.observeHistory()
+    val historyWithDetails = workoutSessionDao.observeHistoryWithDetails()
 
     fun sessionExercises(sessionId: Long) = sessionExerciseDao.observeForSession(sessionId)
 

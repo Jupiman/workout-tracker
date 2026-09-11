@@ -14,6 +14,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.notification.RestTimerScheduler
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -292,6 +293,66 @@ class WorkoutSessionRepositoryTest {
 
         assertNull(database.workoutSessionDao().getById(sessionId)?.restEndsAt)
         assertEquals(true, restTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun finishedWorkoutAppearsInHistoryWithDetails() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val sets = database.sessionSetDao().getForSessionExercise(sessionExercise.id)
+        repository.completeSet(sets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[1].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[2].id, actualWeightCentiKg = 7000, actualReps = 9)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val history = database.workoutSessionDao().observeHistoryWithDetails().first()
+        val historicalSession = history.single()
+        val historicalExercise = historicalSession.exercises.single()
+        val historicalSets = historicalExercise.sets.sortedBy { it.setOrder }
+
+        assertEquals(sessionId, historicalSession.session.id)
+        assertEquals(WorkoutSessionStatus.COMPLETED, historicalSession.session.status)
+        assertEquals("Day A", historicalSession.session.workoutNameSnapshot)
+        assertEquals("Bench Press", historicalExercise.exercise.exerciseNameSnapshot)
+        assertEquals(listOf(10, 10, 9), historicalSets.map { it.actualReps })
+    }
+
+    @Test
+    fun historyDetailsRemainSnapshotsAfterSourceEdits() = runTest {
+        val templateId = seedBenchWorkout()
+        val templateExercise = database.workoutTemplateExerciseDao()
+            .getForWorkoutTemplate(templateId)
+            .single()
+        val exercise = database.exerciseDao().getById(templateExercise.exerciseId)!!
+        val template = database.workoutTemplateDao().getById(templateId)!!
+        val sessionId = repository.startWorkout(templateId)
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        database.exerciseDao().update(exercise.copy(name = "Barbell Bench Press"))
+        database.workoutTemplateDao().update(template.copy(name = "Renamed Day"))
+        database.workoutTemplateExerciseDao().update(
+            templateExercise.copy(
+                plannedWorkingSets = 1,
+                repMin = 3,
+                repMax = 5,
+                restSeconds = 30,
+            ),
+        )
+
+        val historicalSession = database.workoutSessionDao()
+            .observeHistoryWithDetails()
+            .first()
+            .single()
+        val historicalExercise = historicalSession.exercises.single().exercise
+
+        assertEquals("Day A", historicalSession.session.workoutNameSnapshot)
+        assertEquals("Bench Press", historicalExercise.exerciseNameSnapshot)
+        assertEquals(3, historicalExercise.plannedSetCountSnapshot)
+        assertEquals(8, historicalExercise.repMinSnapshot)
+        assertEquals(12, historicalExercise.repMaxSnapshot)
+        assertEquals(180, historicalExercise.restSecondsSnapshot)
     }
 
     @Test
