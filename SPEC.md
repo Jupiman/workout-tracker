@@ -2019,10 +2019,10 @@ A full slider is acceptable in dialogs or program-edit screens where space is le
 
 ## 54.4 Pending sets on workout finish
 
-If the user finishes a workout while planned sets are still pending:
+If the user finishes a workout while sets are still pending:
 
 - ask for confirmation as today
-- mark those pending planned sets as skipped before storing history
+- mark those pending sets as skipped before storing history
 - store them in history as skipped
 - keep the workout status as `PARTIAL`
 - do not count skipped sets for progression
