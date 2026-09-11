@@ -14,14 +14,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,70 +55,61 @@ fun WorkoutHomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Workout",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+    LaunchedEffect(message) {
+        val currentMessage = message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(currentMessage)
+        viewModel.clearMessage()
+    }
 
-        message?.let { currentMessage ->
+    Scaffold(
+        modifier = modifier,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             item {
-                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = currentMessage,
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        TextButton(onClick = viewModel::clearMessage) {
-                            Text("Dismiss")
-                        }
-                    }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Workout",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            val activeWorkout = uiState.activeWorkout
+            if (activeWorkout == null) {
+                item {
+                    StartWorkoutPanel(
+                        uiState = uiState,
+                        onStartWorkout = viewModel::startWorkout,
+                    )
+                }
+            } else {
+                item {
+                    ActiveWorkoutPanel(
+                        activeWorkout = activeWorkout,
+                        onCompleteSet = viewModel::completeSet,
+                        onUncompleteSet = viewModel::uncompleteSet,
+                        onSkipSet = viewModel::skipSet,
+                        onDiscardWorkout = viewModel::discardActiveWorkout,
+                        onFinishWorkout = viewModel::finishActiveWorkout,
+                        onAddRestTime = viewModel::addRestTime,
+                        onSkipRest = viewModel::skipRest,
+                        onAddSessionSet = viewModel::addSessionSet,
+                    )
                 }
             }
-        }
 
-        val activeWorkout = uiState.activeWorkout
-        if (activeWorkout == null) {
             item {
-                StartWorkoutPanel(
-                    uiState = uiState,
-                    onStartWorkout = viewModel::startWorkout,
-                )
+                Spacer(modifier = Modifier.height(16.dp))
             }
-        } else {
-            item {
-                ActiveWorkoutPanel(
-                    activeWorkout = activeWorkout,
-                    onCompleteSet = viewModel::completeSet,
-                    onUncompleteSet = viewModel::uncompleteSet,
-                    onSkipSet = viewModel::skipSet,
-                    onDiscardWorkout = viewModel::discardActiveWorkout,
-                    onFinishWorkout = viewModel::finishActiveWorkout,
-                    onAddRestTime = viewModel::addRestTime,
-                    onSkipRest = viewModel::skipRest,
-                    onAddSessionSet = viewModel::addSessionSet,
-                )
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
@@ -377,8 +373,16 @@ private fun SessionExerciseCard(
     onAddSessionSet: (Long, SetType) -> Unit,
 ) {
     val snapshot = exercise.exercise
+    val isSuperset = snapshot.supersetGroupSnapshot != null
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = if (isSuperset) {
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+        } else {
+            CardDefaults.cardColors()
+        },
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -468,11 +472,12 @@ private fun SessionSetRow(
         SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.onPrimaryContainer
         SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.onErrorContainer
     }
+    val startPadding = if (set.setType == SetType.DROP) 24.dp else 0.dp
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
+            .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
             .background(rowColor, RoundedCornerShape(8.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
