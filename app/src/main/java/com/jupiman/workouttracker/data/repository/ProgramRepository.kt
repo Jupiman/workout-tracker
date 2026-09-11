@@ -211,6 +211,10 @@ class ProgramRepository(
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(item.id)
                 ?: error("Workout exercise not found.")
+            requireSupersetSetCountMatches(
+                templateExercise = templateExercise,
+                plannedWorkingSets = validConfig.plannedWorkingSets,
+            )
             workoutTemplateExerciseDao.update(
                 templateExercise.copy(
                     plannedWorkingSets = validConfig.plannedWorkingSets,
@@ -240,8 +244,13 @@ class ProgramRepository(
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
                 ?: return@withTransaction
+            val supersetGroupId = templateExercise.supersetGroupId
             workoutTemplateExerciseDao.deleteById(workoutTemplateExerciseId)
             compactExerciseSortOrders(templateExercise.workoutTemplateId)
+            pruneSupersetGroupIfNeeded(
+                workoutTemplateId = templateExercise.workoutTemplateId,
+                supersetGroupId = supersetGroupId,
+            )
         }
     }
 
@@ -281,7 +290,9 @@ class ProgramRepository(
                 "Superset exercises must have the same number of working sets."
             }
 
-            val groupId = previous.supersetGroupId ?: supersetGroupDao.insert(
+            val previousGroupId = previous.supersetGroupId
+            val currentGroupId = current.supersetGroupId
+            val groupId = previousGroupId ?: supersetGroupDao.insert(
                 SupersetGroupEntity(
                     workoutTemplateId = workoutTemplateId,
                     restSeconds = previous.restSeconds,
@@ -290,12 +301,20 @@ class ProgramRepository(
                 workoutTemplateExerciseDao.update(previous.copy(supersetGroupId = newGroupId))
             }
 
-            val existingGroupMembers = exercises.filter { it.supersetGroupId == groupId }
+            val existingGroupMembers = workoutTemplateExerciseDao
+                .getForWorkoutTemplate(workoutTemplateId)
+                .filter { it.supersetGroupId == groupId }
             require(existingGroupMembers.all { it.plannedWorkingSets == current.plannedWorkingSets }) {
                 "Superset exercises must have the same number of working sets."
             }
 
             workoutTemplateExerciseDao.update(current.copy(supersetGroupId = groupId))
+            if (currentGroupId != null && currentGroupId != groupId) {
+                pruneSupersetGroupIfNeeded(
+                    workoutTemplateId = workoutTemplateId,
+                    supersetGroupId = currentGroupId,
+                )
+            }
         }
     }
 
@@ -313,6 +332,32 @@ class ProgramRepository(
             if (remainingMembers.size < 2) {
                 supersetGroupDao.deleteById(groupId)
             }
+        }
+    }
+
+    private suspend fun requireSupersetSetCountMatches(
+        templateExercise: WorkoutTemplateExerciseEntity,
+        plannedWorkingSets: Int,
+    ) {
+        val groupId = templateExercise.supersetGroupId ?: return
+        val groupMembers = workoutTemplateExerciseDao
+            .getForWorkoutTemplate(templateExercise.workoutTemplateId)
+            .filter { it.supersetGroupId == groupId && it.id != templateExercise.id }
+        require(groupMembers.all { it.plannedWorkingSets == plannedWorkingSets }) {
+            "Superset exercises must have the same number of working sets."
+        }
+    }
+
+    private suspend fun pruneSupersetGroupIfNeeded(
+        workoutTemplateId: Long,
+        supersetGroupId: Long?,
+    ) {
+        if (supersetGroupId == null) return
+        val remainingMembers = workoutTemplateExerciseDao
+            .getForWorkoutTemplate(workoutTemplateId)
+            .filter { it.supersetGroupId == supersetGroupId }
+        if (remainingMembers.size < 2) {
+            supersetGroupDao.deleteById(supersetGroupId)
         }
     }
 

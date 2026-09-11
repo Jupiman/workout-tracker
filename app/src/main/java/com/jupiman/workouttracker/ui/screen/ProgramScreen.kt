@@ -472,10 +472,11 @@ private fun TemplateExerciseEditor(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
-        item.supersetGroupId?.let {
+        if (item.supersetGroupId != null) {
             Text(
-                text = "Superset group $it",
+                text = "Superset",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

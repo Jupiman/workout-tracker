@@ -217,6 +217,13 @@ private fun HistoryExerciseCard(
                     "${formatCentiKg(exercise.exercise.prescribedWeightCentiKgSnapshot)} kg",
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (exercise.exercise.supersetGroupSnapshot != null) {
+                Text(
+                    text = "Superset",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             HorizontalDivider()
             exercise.sets
                 .sortedBy { it.setOrder }

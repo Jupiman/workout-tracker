@@ -274,6 +274,40 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
+    fun activeWorkoutStateSurvivesRepositoryRecreation() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val firstSet = firstSessionSets(sessionId).first()
+        repository.completeSet(firstSet.id, actualWeightCentiKg = 7000, actualReps = 10)
+
+        val restartedScheduler = FakeRestTimerScheduler()
+        val restartedRepository = WorkoutSessionRepository(
+            database = database,
+            workoutSessionDao = database.workoutSessionDao(),
+            sessionExerciseDao = database.sessionExerciseDao(),
+            sessionSetDao = database.sessionSetDao(),
+            programDao = database.programDao(),
+            workoutTemplateDao = database.workoutTemplateDao(),
+            workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+            progressionStateDao = database.progressionStateDao(),
+            supersetGroupDao = database.supersetGroupDao(),
+            restTimerScheduler = restartedScheduler,
+        )
+
+        val activeWorkout = restartedRepository.activeSessionWithDetails.first()!!
+        val activeSets = activeWorkout.exercises.single().sets.sortedBy { it.setOrder }
+
+        assertEquals(sessionId, activeWorkout.session.id)
+        assertNotNull(activeWorkout.session.restEndsAt)
+        assertEquals(SessionSetStatus.COMPLETED, activeSets[0].status)
+        assertEquals(SessionSetStatus.PENDING, activeSets[1].status)
+        assertEquals(SessionSetStatus.PENDING, activeSets[2].status)
+
+        restartedRepository.syncRestTimerAlarm()
+
+        assertEquals(activeWorkout.session.restEndsAt, restartedScheduler.scheduledRestEndsAt)
+    }
+
+    @Test
     fun skipRestClearsDeadlineAndCancelsNotification() = runTest {
         val sessionId = repository.startWorkout(seedBenchWorkout())
         repository.completeSet(firstSessionSets(sessionId).first().id, actualWeightCentiKg = 7000, actualReps = 10)
@@ -353,6 +387,32 @@ class WorkoutSessionRepositoryTest {
         assertEquals(8, historicalExercise.repMinSnapshot)
         assertEquals(12, historicalExercise.repMaxSnapshot)
         assertEquals(180, historicalExercise.restSecondsSnapshot)
+    }
+
+    @Test
+    fun historySurvivesSourceArchivingAndTemplateDeletion() = runTest {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateDao().getById(templateId)!!
+        val templateExercise = database.workoutTemplateExerciseDao()
+            .getForWorkoutTemplate(templateId)
+            .single()
+        val sessionId = repository.startWorkout(templateId)
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        database.exerciseDao().archive(templateExercise.exerciseId)
+        database.workoutTemplateDao().deleteById(templateId)
+        database.programDao().archive(template.programId)
+
+        val historicalSession = database.workoutSessionDao()
+            .observeHistoryWithDetails()
+            .first()
+            .single()
+
+        assertEquals(sessionId, historicalSession.session.id)
+        assertEquals("Day A", historicalSession.session.workoutNameSnapshot)
+        assertEquals("Bench Press", historicalSession.exercises.single().exercise.exerciseNameSnapshot)
+        assertEquals(3, historicalSession.exercises.single().sets.size)
     }
 
     @Test

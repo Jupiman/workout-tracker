@@ -9,6 +9,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -67,7 +68,55 @@ class ProgramRepositoryTest {
         assertEquals(emptyList<Long>(), database.supersetGroupDao().getForWorkoutTemplate(seed.templateId).map { it.id })
     }
 
-    private suspend fun seedTwoExerciseTemplate(): TwoExerciseTemplateSeed {
+    @Test
+    fun supersetWithPreviousRejectsMismatchedWorkingSetCounts() = runTest {
+        val seed = seedTwoExerciseTemplate(secondPlannedWorkingSets = 2)
+
+        try {
+            repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+            fail("Expected mismatched set counts to be rejected.")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Superset exercises must have the same number of working sets.", expected.message)
+        }
+
+        assertEquals(emptyList<Long>(), database.supersetGroupDao().getForWorkoutTemplate(seed.templateId).map { it.id })
+    }
+
+    @Test
+    fun updatingSupersetMemberToMismatchedWorkingSetCountFails() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+        val secondEditorItem = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.secondTemplateExerciseId }
+
+        try {
+            repository.updateTemplateExercise(
+                item = secondEditorItem,
+                config = config(plannedWorkingSets = 2, restSeconds = 120),
+            )
+            fail("Expected mismatched set count update to be rejected.")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals("Superset exercises must have the same number of working sets.", expected.message)
+        }
+
+        val second = database.workoutTemplateExerciseDao().getById(seed.secondTemplateExerciseId)!!
+        assertEquals(3, second.plannedWorkingSets)
+    }
+
+    @Test
+    fun removingTemplateExercisePrunesOrphanedSupersetGroup() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+
+        repository.removeTemplateExercise(seed.secondTemplateExerciseId)
+
+        val first = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+        assertNull(first.supersetGroupId)
+        assertEquals(emptyList<Long>(), database.supersetGroupDao().getForWorkoutTemplate(seed.templateId).map { it.id })
+    }
+
+    private suspend fun seedTwoExerciseTemplate(secondPlannedWorkingSets: Int = 3): TwoExerciseTemplateSeed {
         val programId = repository.createProgram("Current Program")
         val templateId = repository.createWorkoutTemplate(programId, "Day A")
         val firstTemplateExerciseId = repository.createExerciseAndAddToWorkout(
@@ -78,7 +127,7 @@ class ProgramRepositoryTest {
         val secondTemplateExerciseId = repository.createExerciseAndAddToWorkout(
             workoutTemplateId = templateId,
             exerciseName = "Machine Row",
-            config = config(restSeconds = 120),
+            config = config(plannedWorkingSets = secondPlannedWorkingSets, restSeconds = 120),
         )
 
         return TwoExerciseTemplateSeed(
@@ -88,8 +137,11 @@ class ProgramRepositoryTest {
         )
     }
 
-    private fun config(restSeconds: Int) = TemplateExerciseConfig(
-        plannedWorkingSets = 3,
+    private fun config(
+        plannedWorkingSets: Int = 3,
+        restSeconds: Int,
+    ) = TemplateExerciseConfig(
+        plannedWorkingSets = plannedWorkingSets,
         repMin = 8,
         repMax = 12,
         incrementCentiKg = 250,

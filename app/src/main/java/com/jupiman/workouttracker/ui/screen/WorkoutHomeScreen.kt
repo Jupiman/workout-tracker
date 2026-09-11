@@ -1,5 +1,6 @@
 package com.jupiman.workouttracker.ui.screen
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -203,8 +205,9 @@ private fun ActiveWorkoutPanel(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            text = "Active workout",
-            style = MaterialTheme.typography.labelLarge,
+            text = "Resume workout",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
         )
         Text(
             text = activeWorkout.session.workoutNameSnapshot,
@@ -396,6 +399,13 @@ private fun SessionExerciseCard(
                 text = "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} | Rest ${snapshot.restSecondsSnapshot}s",
                 style = MaterialTheme.typography.bodySmall,
             )
+            if (snapshot.supersetGroupSnapshot != null) {
+                Text(
+                    text = "Superset | Group rest ${snapshot.supersetRestSecondsSnapshot ?: snapshot.restSecondsSnapshot}s",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
 
             exercise.sets
                 .sortedBy { it.setOrder }
@@ -414,7 +424,7 @@ private fun SessionExerciseCard(
                     onClick = { onAddSessionSet(snapshot.id, SetType.EXTRA) },
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text("Normal")
+                    Text("Extra")
                 }
                 OutlinedButton(
                     onClick = { onAddSessionSet(snapshot.id, SetType.AMRAP) },
@@ -448,16 +458,29 @@ private fun SessionSetRow(
     var reps by remember(set.id, set.actualReps, set.prescribedReps) {
         mutableStateOf(defaultReps?.toString().orEmpty())
     }
+    val rowColor = when (set.status) {
+        SessionSetStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
+        SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.primaryContainer
+        SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.errorContainer
+    }
+    val rowContentColor = when (set.status) {
+        SessionSetStatus.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant
+        SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.onPrimaryContainer
+        SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.onErrorContainer
+    }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            .background(rowColor, RoundedCornerShape(8.dp))
+            .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "${set.setType.displayName()} ${set.setOrder + 1} ${set.status.name.lowercase()}",
+            text = "${set.setType.displayName()} ${set.setOrder + 1} | ${set.status.displayName()}",
             style = MaterialTheme.typography.labelLarge,
+            color = rowContentColor,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -536,4 +559,10 @@ private fun SetType.displayName(): String = when (this) {
     SetType.EXTRA -> "Extra"
     SetType.AMRAP -> "AMRAP"
     SetType.DROP -> "Drop"
+}
+
+private fun SessionSetStatus.displayName(): String = when (this) {
+    SessionSetStatus.PENDING -> "Pending"
+    SessionSetStatus.COMPLETED -> "Completed"
+    SessionSetStatus.SKIPPED -> "Skipped"
 }
