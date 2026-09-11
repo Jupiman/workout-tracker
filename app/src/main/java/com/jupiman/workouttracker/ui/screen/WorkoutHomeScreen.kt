@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -231,6 +232,7 @@ private fun ActiveWorkoutPanel(
             .forEach { exercise ->
                 SessionExerciseCard(
                     exercise = exercise,
+                    shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
                     onCompleteSet = onCompleteSet,
                     onUncompleteSet = onUncompleteSet,
                     onSkipSet = onSkipSet,
@@ -494,6 +496,7 @@ private fun ProgressionChoiceButton(
 @Composable
 private fun SessionExerciseCard(
     exercise: SessionExerciseWithSets,
+    shouldCollapseSet: (SessionSetEntity) -> Boolean,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
@@ -543,6 +546,7 @@ private fun SessionExerciseCard(
                 .forEach { set ->
                     SessionSetRow(
                         set = set,
+                        collapseCompleted = shouldCollapseSet(set),
                         onCompleteSet = onCompleteSet,
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
@@ -577,6 +581,7 @@ private fun SessionExerciseCard(
 @Composable
 private fun SessionSetRow(
     set: SessionSetEntity,
+    collapseCompleted: Boolean,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
@@ -600,6 +605,20 @@ private fun SessionSetRow(
         SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.onErrorContainer
     }
     val startPadding = if (set.setType == SetType.DROP) 24.dp else 0.dp
+    var expanded by remember(set.id, set.status, set.completedAt, collapseCompleted) {
+        mutableStateOf(!collapseCompleted)
+    }
+
+    if (!expanded) {
+        CollapsedSessionSetRow(
+            set = set,
+            rowColor = rowColor,
+            rowContentColor = rowContentColor,
+            startPadding = startPadding,
+            onExpand = { expanded = true },
+        )
+        return
+    }
 
     Column(
         modifier = Modifier
@@ -686,6 +705,39 @@ private fun SessionSetRow(
     }
 }
 
+@Composable
+private fun CollapsedSessionSetRow(
+    set: SessionSetEntity,
+    rowColor: androidx.compose.ui.graphics.Color,
+    rowContentColor: androidx.compose.ui.graphics.Color,
+    startPadding: androidx.compose.ui.unit.Dp,
+    onExpand: () -> Unit,
+) {
+    val loggedWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
+    val loggedReps = set.actualReps ?: set.prescribedReps
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
+            .background(rowColor, RoundedCornerShape(8.dp))
+            .clickable(onClick = onExpand)
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = "${set.setType.displayName()} ${set.setOrder + 1}",
+            style = MaterialTheme.typography.labelLarge,
+            color = rowContentColor,
+        )
+        Text(
+            text = "${formatCentiKg(loggedWeight)} kg x ${loggedReps ?: "-"}",
+            style = MaterialTheme.typography.labelLarge,
+            color = rowContentColor,
+        )
+    }
+}
+
 private fun SetType.displayName(): String = when (this) {
     SetType.WORKING -> "Set"
     SetType.EXTRA -> "Extra"
@@ -697,6 +749,26 @@ private fun SessionSetStatus.displayName(): String = when (this) {
     SessionSetStatus.PENDING -> "Pending"
     SessionSetStatus.COMPLETED -> "Completed"
     SessionSetStatus.SKIPPED -> "Skipped"
+}
+
+private fun WorkoutSessionWithDetails.shouldCollapseSet(
+    exercise: SessionExerciseWithSets,
+    set: SessionSetEntity,
+): Boolean {
+    if (set.status != SessionSetStatus.COMPLETED) return false
+    if (!set.isPlanned) return true
+
+    val supersetGroup = exercise.exercise.supersetGroupSnapshot ?: return true
+    val groupExercises = exercises.filter { it.exercise.supersetGroupSnapshot == supersetGroup }
+    if (groupExercises.size < 2) return true
+
+    return groupExercises.all { groupExercise ->
+        groupExercise.sets.any { groupSet ->
+            groupSet.isPlanned &&
+                groupSet.setOrder == set.setOrder &&
+                groupSet.status == SessionSetStatus.COMPLETED
+        }
+    }
 }
 
 private fun WorkoutSessionWithDetails.progressionReviewItems(): List<FinishProgressionReviewItem> =

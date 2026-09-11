@@ -552,6 +552,33 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
+    fun finishPartialWorkoutStoresPendingSetsAsSkippedInHistory() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout(targetReps = 10))
+        val sets = firstSessionSets(sessionId)
+        repository.completeSet(sets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = true)
+
+        val historicalSets = database.workoutSessionDao()
+            .observeHistoryWithDetails()
+            .first()
+            .single()
+            .exercises
+            .single()
+            .sets
+            .sortedBy { it.setOrder }
+
+        assertEquals(WorkoutSessionStatus.PARTIAL, database.workoutSessionDao().getById(sessionId)?.status)
+        assertEquals(SessionSetStatus.COMPLETED, historicalSets[0].status)
+        assertEquals(SessionSetStatus.SKIPPED, historicalSets[1].status)
+        assertEquals(SessionSetStatus.SKIPPED, historicalSets[2].status)
+        assertNull(historicalSets[1].actualWeightCentiKg)
+        assertNull(historicalSets[1].actualReps)
+        assertNull(historicalSets[2].actualWeightCentiKg)
+        assertNull(historicalSets[2].actualReps)
+    }
+
+    @Test
     fun skippedSetFinishesPartialAndDoesNotProgressThatExercise() = runTest {
         val templateId = seedBenchWorkout(targetReps = 10)
         val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id

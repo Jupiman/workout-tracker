@@ -251,12 +251,30 @@ class WorkoutSessionRepository(
                 throw IllegalStateException("Some planned sets are incomplete.")
             }
 
+            val completedAt = System.currentTimeMillis()
+            val finalSetsByExerciseId = setsByExerciseId.mapValues { (_, exerciseSets) ->
+                exerciseSets.map { set ->
+                    if (!allPlannedSetsCompleted && allowPartial && set.status == SessionSetStatus.PENDING) {
+                        val skippedSet = set.copy(
+                            status = SessionSetStatus.SKIPPED,
+                            actualWeightCentiKg = null,
+                            actualReps = null,
+                            completedAt = completedAt,
+                        )
+                        sessionSetDao.update(skippedSet)
+                        skippedSet
+                    } else {
+                        set
+                    }
+                }
+            }
+
             sessionExercises.forEach { sessionExercise ->
                 val sourceTemplateExerciseId = sessionExercise.sourceWorkoutTemplateExerciseId
                     ?: return@forEach
                 val progressionState = progressionStateDao.getForTemplateExercise(sourceTemplateExerciseId)
                     ?: return@forEach
-                val exerciseSets = setsByExerciseId.getValue(sessionExercise.id)
+                val exerciseSets = finalSetsByExerciseId.getValue(sessionExercise.id)
                 when (progressionChoices[sessionExercise.id] ?: ProgressionFinishChoice.AUTOMATIC) {
                     ProgressionFinishChoice.NO_PROGRESSION -> return@forEach
                     ProgressionFinishChoice.SET_TARGET_FROM_LOGGED -> {
@@ -306,7 +324,7 @@ class WorkoutSessionRepository(
 
             workoutSessionDao.update(
                 activeSession.copy(
-                    completedAt = System.currentTimeMillis(),
+                    completedAt = completedAt,
                     status = if (allPlannedSetsCompleted) {
                         WorkoutSessionStatus.COMPLETED
                     } else {
