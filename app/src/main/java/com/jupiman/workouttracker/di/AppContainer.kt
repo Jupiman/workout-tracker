@@ -12,7 +12,9 @@ class AppContainer(context: Context) {
         context.applicationContext,
         WorkoutTrackerDatabase::class.java,
         "workout_tracker.db",
-    ).build()
+    )
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_1_2)
+        .build()
 
     val exerciseRepository = ExerciseRepository(database.exerciseDao())
     val programRepository = ProgramRepository(
@@ -31,6 +33,7 @@ class AppContainer(context: Context) {
         programDao = database.programDao(),
         workoutTemplateDao = database.workoutTemplateDao(),
         workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+        progressionStateDao = database.progressionStateDao(),
         supersetGroupDao = database.supersetGroupDao(),
     )
 }

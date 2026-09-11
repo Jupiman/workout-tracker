@@ -1,8 +1,10 @@
 package com.jupiman.workouttracker.data.local
 
 import androidx.room.Database
+import androidx.room.migration.Migration
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.jupiman.workouttracker.data.local.dao.ExerciseDao
 import com.jupiman.workouttracker.data.local.dao.ProgramDao
 import com.jupiman.workouttracker.data.local.dao.ProgressionStateDao
@@ -34,7 +36,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntit
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -48,5 +50,31 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
     abstract fun workoutSessionDao(): WorkoutSessionDao
     abstract fun sessionExerciseDao(): SessionExerciseDao
     abstract fun sessionSetDao(): SessionSetDao
-}
 
+    companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_workout_templates_programId_sortOrder")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workout_templates_programId_sortOrder " +
+                        "ON workout_templates (programId, sortOrder)",
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_workout_template_exercises_workoutTemplateId_sortOrder")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workout_template_exercises_workoutTemplateId_sortOrder " +
+                        "ON workout_template_exercises (workoutTemplateId, sortOrder)",
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_session_exercises_sessionId_sortOrderSnapshot")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_session_exercises_sessionId_sortOrderSnapshot " +
+                        "ON session_exercises (sessionId, sortOrderSnapshot)",
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_session_sets_sessionExerciseId_setOrder")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_session_sets_sessionExerciseId_setOrder " +
+                        "ON session_sets (sessionExerciseId, setOrder)",
+                )
+            }
+        }
+    }
+}

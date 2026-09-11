@@ -9,6 +9,7 @@ import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
+import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import kotlinx.coroutines.test.runTest
@@ -38,6 +39,7 @@ class WorkoutSessionRepositoryTest {
             programDao = database.programDao(),
             workoutTemplateDao = database.workoutTemplateDao(),
             workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+            progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
         )
     }
@@ -146,7 +148,144 @@ class WorkoutSessionRepositoryTest {
         assertNotNull(skipped.completedAt)
     }
 
-    private suspend fun seedBenchWorkout(): Long {
+    @Test
+    fun finishCompletedWorkoutAppliesSuccessfulProgression() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val session = database.workoutSessionDao().getById(sessionId)
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(WorkoutSessionStatus.COMPLETED, session?.status)
+        assertEquals(true, session?.progressionApplied)
+        assertEquals(7000, progression?.currentWeightCentiKg)
+        assertEquals(11, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finishCompletedWorkoutAtRepMaxIncrementsWeightAndResetsReps() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 12)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        repository.startWorkout(templateId).also { sessionId ->
+            completeAllSets(sessionId, actualWeight = 7000, actualReps = 12)
+        }
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(7250, progression?.currentWeightCentiKg)
+        assertEquals(8, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finishCompletedWorkoutWithFailedSetDoesNotProgress() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sets = firstSessionSets(sessionId)
+
+        repository.completeSet(sets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[1].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[2].id, actualWeightCentiKg = 7000, actualReps = 9)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(7000, progression?.currentWeightCentiKg)
+        assertEquals(10, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finishPartialWorkoutAppliesOnlyCompletedExercises() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val sessionId = repository.startWorkout(seed.templateId)
+        val sessionExercises = database.sessionExerciseDao().getForSession(sessionId)
+        val firstExerciseSets = database.sessionSetDao().getForSessionExercise(sessionExercises[0].id)
+        val secondExerciseSets = database.sessionSetDao().getForSessionExercise(sessionExercises[1].id)
+
+        firstExerciseSets.forEach { set ->
+            repository.completeSet(set.id, actualWeightCentiKg = 7000, actualReps = 10)
+        }
+        repository.completeSet(secondExerciseSets[0].id, actualWeightCentiKg = 5000, actualReps = 12)
+
+        try {
+            repository.finishActiveWorkout(allowPartial = false)
+            fail("Expected incomplete workout to require partial confirmation.")
+        } catch (expected: IllegalStateException) {
+            assertEquals("Some planned sets are incomplete.", expected.message)
+        }
+
+        repository.finishActiveWorkout(allowPartial = true)
+
+        val session = database.workoutSessionDao().getById(sessionId)
+        val firstProgression = database.progressionStateDao().getForTemplateExercise(seed.firstTemplateExerciseId)
+        val secondProgression = database.progressionStateDao().getForTemplateExercise(seed.secondTemplateExerciseId)
+        assertEquals(WorkoutSessionStatus.PARTIAL, session?.status)
+        assertEquals(11, firstProgression?.currentTargetReps)
+        assertEquals(12, secondProgression?.currentTargetReps)
+    }
+
+    @Test
+    fun skippedSetFinishesPartialAndDoesNotProgressThatExercise() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sets = firstSessionSets(sessionId)
+        repository.completeSet(sets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[1].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.skipSet(sets[2].id)
+
+        repository.finishActiveWorkout(allowPartial = true)
+
+        val session = database.workoutSessionDao().getById(sessionId)
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(WorkoutSessionStatus.PARTIAL, session?.status)
+        assertEquals(10, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun progressionCannotBeAppliedTwice() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        try {
+            repository.finishActiveWorkout(allowPartial = false)
+            fail("Expected second finish to fail because there is no active workout.")
+        } catch (expected: IllegalStateException) {
+            assertEquals("No active workout to finish.", expected.message)
+        }
+
+        val session = database.workoutSessionDao().getById(sessionId)
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(true, session?.progressionApplied)
+        assertEquals(11, progression?.currentTargetReps)
+    }
+
+    private suspend fun completeAllSets(
+        sessionId: Long,
+        actualWeight: Int,
+        actualReps: Int,
+    ) {
+        val sessionExercises = database.sessionExerciseDao().getForSession(sessionId)
+        sessionExercises.forEach { sessionExercise ->
+            database.sessionSetDao().getForSessionExercise(sessionExercise.id).forEach { set ->
+                repository.completeSet(set.id, actualWeightCentiKg = actualWeight, actualReps = actualReps)
+            }
+        }
+    }
+
+    private suspend fun firstSessionSets(sessionId: Long) =
+        database.sessionSetDao().getForSessionExercise(
+            database.sessionExerciseDao().getForSession(sessionId).first().id,
+        )
+
+    private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
         val now = 1_000L
         val programId = database.programDao().insert(
             ProgramEntity(name = "Current Program", active = true, createdAt = now),
@@ -173,10 +312,77 @@ class WorkoutSessionRepositoryTest {
             ProgressionStateEntity(
                 workoutTemplateExerciseId = templateExerciseId,
                 currentWeightCentiKg = 7000,
-                currentTargetReps = 10,
+                currentTargetReps = targetReps,
                 updatedAt = now,
             ),
         )
         return templateId
     }
+
+    private suspend fun seedTwoExerciseWorkout(): TwoExerciseSeed {
+        val now = 1_000L
+        val programId = database.programDao().insert(
+            ProgramEntity(name = "Current Program", active = true, createdAt = now),
+        )
+        val templateId = database.workoutTemplateDao().insert(
+            WorkoutTemplateEntity(programId = programId, name = "Day A", sortOrder = 0),
+        )
+        val benchId = database.exerciseDao().insert(
+            ExerciseEntity(name = "Bench Press", createdAt = now),
+        )
+        val rowId = database.exerciseDao().insert(
+            ExerciseEntity(name = "Machine Row", createdAt = now),
+        )
+        val firstTemplateExerciseId = database.workoutTemplateExerciseDao().insert(
+            WorkoutTemplateExerciseEntity(
+                workoutTemplateId = templateId,
+                exerciseId = benchId,
+                sortOrder = 0,
+                plannedWorkingSets = 3,
+                repMin = 8,
+                repMax = 12,
+                incrementCentiKg = 250,
+                restSeconds = 180,
+            ),
+        )
+        val secondTemplateExerciseId = database.workoutTemplateExerciseDao().insert(
+            WorkoutTemplateExerciseEntity(
+                workoutTemplateId = templateId,
+                exerciseId = rowId,
+                sortOrder = 1,
+                plannedWorkingSets = 3,
+                repMin = 12,
+                repMax = 15,
+                incrementCentiKg = 250,
+                restSeconds = 120,
+            ),
+        )
+        database.progressionStateDao().insert(
+            ProgressionStateEntity(
+                workoutTemplateExerciseId = firstTemplateExerciseId,
+                currentWeightCentiKg = 7000,
+                currentTargetReps = 10,
+                updatedAt = now,
+            ),
+        )
+        database.progressionStateDao().insert(
+            ProgressionStateEntity(
+                workoutTemplateExerciseId = secondTemplateExerciseId,
+                currentWeightCentiKg = 5000,
+                currentTargetReps = 12,
+                updatedAt = now,
+            ),
+        )
+        return TwoExerciseSeed(
+            templateId = templateId,
+            firstTemplateExerciseId = firstTemplateExerciseId,
+            secondTemplateExerciseId = secondTemplateExerciseId,
+        )
+    }
+
+    private data class TwoExerciseSeed(
+        val templateId: Long,
+        val firstTemplateExerciseId: Long,
+        val secondTemplateExerciseId: Long,
+    )
 }

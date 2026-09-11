@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.data.repository
 import androidx.room.withTransaction
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.local.dao.ProgramDao
+import com.jupiman.workouttracker.data.local.dao.ProgressionStateDao
 import com.jupiman.workouttracker.data.local.dao.SessionExerciseDao
 import com.jupiman.workouttracker.data.local.dao.SessionSetDao
 import com.jupiman.workouttracker.data.local.dao.SupersetGroupDao
@@ -14,7 +15,11 @@ import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
+import com.jupiman.workouttracker.domain.progression.ProgressionConfig
+import com.jupiman.workouttracker.domain.progression.ProgressionEngine
+import com.jupiman.workouttracker.domain.progression.ProgressionSet
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -24,10 +29,12 @@ class WorkoutSessionRepository(
     private val programDao: ProgramDao,
     private val workoutTemplateDao: WorkoutTemplateDao,
     private val workoutTemplateExerciseDao: WorkoutTemplateExerciseDao,
+    private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
 ) {
     val activeSession = workoutSessionDao.observeActive()
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
+    val latestFinishedSessionForActiveProgram = workoutSessionDao.observeLatestFinishedForActiveProgram()
     val history = workoutSessionDao.observeHistory()
 
     fun sessionExercises(sessionId: Long) = sessionExerciseDao.observeForSession(sessionId)
@@ -149,6 +156,76 @@ class WorkoutSessionRepository(
             workoutSessionDao.getActive()?.let { activeSession ->
                 workoutSessionDao.deleteActiveById(activeSession.id)
             }
+        }
+    }
+
+    suspend fun finishActiveWorkout(allowPartial: Boolean) {
+        database.withTransaction {
+            val activeSession = workoutSessionDao.getActive()
+                ?: error("No active workout to finish.")
+            require(!activeSession.progressionApplied) { "Progression has already been applied." }
+
+            val sessionExercises = sessionExerciseDao.getForSession(activeSession.id)
+            val setsByExerciseId = sessionExercises.associate { sessionExercise ->
+                sessionExercise.id to sessionSetDao.getForSessionExercise(sessionExercise.id)
+            }
+            val allPlannedSetsCompleted = setsByExerciseId.values
+                .flatten()
+                .filter { it.isPlanned }
+                .all { it.status == SessionSetStatus.COMPLETED }
+
+            if (!allPlannedSetsCompleted && !allowPartial) {
+                throw IllegalStateException("Some planned sets are incomplete.")
+            }
+
+            sessionExercises.forEach { sessionExercise ->
+                val sourceTemplateExerciseId = sessionExercise.sourceWorkoutTemplateExerciseId
+                    ?: return@forEach
+                val progressionState = progressionStateDao.getForTemplateExercise(sourceTemplateExerciseId)
+                    ?: return@forEach
+                val result = ProgressionEngine.evaluate(
+                    config = ProgressionConfig(
+                        currentWeightCentiKg = sessionExercise.prescribedWeightCentiKgSnapshot,
+                        currentTargetReps = sessionExercise.targetRepsSnapshot,
+                        repMin = sessionExercise.repMinSnapshot,
+                        repMax = sessionExercise.repMaxSnapshot,
+                        incrementCentiKg = sessionExercise.incrementCentiKgSnapshot,
+                    ),
+                    sets = setsByExerciseId.getValue(sessionExercise.id).map { set ->
+                        ProgressionSet(
+                            countsForProgression = set.countsForProgression,
+                            prescribedWeightCentiKg = set.prescribedWeightCentiKg,
+                            prescribedReps = set.prescribedReps,
+                            actualWeightCentiKg = set.actualWeightCentiKg,
+                            actualReps = set.actualReps,
+                            status = set.status,
+                        )
+                    },
+                )
+
+                if (result.progressed) {
+                    progressionStateDao.update(
+                        progressionState.copy(
+                            currentWeightCentiKg = result.nextWeightCentiKg,
+                            currentTargetReps = result.nextTargetReps,
+                            updatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }
+            }
+
+            workoutSessionDao.update(
+                activeSession.copy(
+                    completedAt = System.currentTimeMillis(),
+                    status = if (allPlannedSetsCompleted) {
+                        WorkoutSessionStatus.COMPLETED
+                    } else {
+                        WorkoutSessionStatus.PARTIAL
+                    },
+                    restEndsAt = null,
+                    progressionApplied = true,
+                ),
+            )
         }
     }
 }

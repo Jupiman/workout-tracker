@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.ProgramRepository
@@ -33,9 +34,13 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = combine(
         programRepository.activeProgram,
         workoutSessionRepository.activeSessionWithDetails,
-        programRepository.firstActiveProgramTemplate,
         programRepository.activeProgramTemplates,
-    ) { activeProgram, activeWorkout, nextTemplate, activeProgramTemplates ->
+        workoutSessionRepository.latestFinishedSessionForActiveProgram,
+    ) { activeProgram, activeWorkout, activeProgramTemplates, latestFinishedSession ->
+        val nextTemplate = recommendNextWorkoutTemplate(
+            templates = activeProgramTemplates,
+            latestFinishedSession = latestFinishedSession,
+        )
         HomeUiState(
             activeProgram = activeProgram,
             activeWorkout = activeWorkout,
@@ -86,6 +91,10 @@ class HomeViewModel(
         workoutSessionRepository.discardActiveWorkout()
     }
 
+    fun finishActiveWorkout(allowPartial: Boolean) = launchOperation("Workout finished.") {
+        workoutSessionRepository.finishActiveWorkout(allowPartial = allowPartial)
+    }
+
     private fun launchOperation(
         successMessage: String,
         block: suspend () -> Unit,
@@ -98,4 +107,17 @@ class HomeViewModel(
                 }
         }
     }
+}
+
+internal fun recommendNextWorkoutTemplate(
+    templates: List<WorkoutTemplateEntity>,
+    latestFinishedSession: WorkoutSessionEntity?,
+): WorkoutTemplateEntity? {
+    if (templates.isEmpty()) return null
+
+    val previousTemplateId = latestFinishedSession?.sourceWorkoutTemplateId
+    val previousIndex = templates.indexOfFirst { it.id == previousTemplateId }
+    if (previousIndex == -1) return templates.first()
+
+    return templates[(previousIndex + 1) % templates.size]
 }

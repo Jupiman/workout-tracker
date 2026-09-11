@@ -22,6 +22,19 @@ interface WorkoutSessionDao {
     @Query("SELECT * FROM workout_sessions WHERE status != 'ACTIVE' ORDER BY completedAt DESC, startedAt DESC")
     fun observeHistory(): Flow<List<WorkoutSessionEntity>>
 
+    @Query(
+        """
+        SELECT ws.* FROM workout_sessions AS ws
+        INNER JOIN programs AS p ON p.id = ws.sourceProgramId
+        WHERE p.active = 1
+            AND p.archived = 0
+            AND ws.status != 'ACTIVE'
+        ORDER BY ws.completedAt DESC, ws.startedAt DESC
+        LIMIT 1
+        """,
+    )
+    fun observeLatestFinishedForActiveProgram(): Flow<WorkoutSessionEntity?>
+
     @Query("SELECT * FROM workout_sessions WHERE status = 'ACTIVE' LIMIT 1")
     suspend fun getActive(): WorkoutSessionEntity?
 

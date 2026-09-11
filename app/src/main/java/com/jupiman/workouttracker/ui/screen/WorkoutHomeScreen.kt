@@ -99,6 +99,7 @@ fun WorkoutHomeScreen(
                     onUncompleteSet = viewModel::uncompleteSet,
                     onSkipSet = viewModel::skipSet,
                     onDiscardWorkout = viewModel::discardActiveWorkout,
+                    onFinishWorkout = viewModel::finishActiveWorkout,
                 )
             }
         }
@@ -179,8 +180,14 @@ private fun ActiveWorkoutPanel(
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
+    onFinishWorkout: (Boolean) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
+    var confirmingPartialFinish by remember { mutableStateOf(false) }
+    val allPlannedSetsCompleted = activeWorkout.exercises
+        .flatMap { it.sets }
+        .filter { it.isPlanned }
+        .all { it.status == SessionSetStatus.COMPLETED }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -210,6 +217,46 @@ private fun ActiveWorkoutPanel(
                     onSkipSet = onSkipSet,
                 )
             }
+
+        HorizontalDivider()
+
+        if (!confirmingPartialFinish) {
+            Button(
+                onClick = {
+                    if (allPlannedSetsCompleted) {
+                        onFinishWorkout(false)
+                    } else {
+                        confirmingPartialFinish = true
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Finish workout")
+            }
+        } else {
+            Text(
+                text = "Some planned sets are incomplete. Finish workout anyway?",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        confirmingPartialFinish = false
+                        onFinishWorkout(true)
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Finish partial")
+                }
+                OutlinedButton(
+                    onClick = { confirmingPartialFinish = false },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Keep logging")
+                }
+            }
+        }
 
         HorizontalDivider()
 
