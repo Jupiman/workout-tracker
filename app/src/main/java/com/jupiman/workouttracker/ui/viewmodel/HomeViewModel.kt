@@ -8,6 +8,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.ProgramRepository
+import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
 import com.jupiman.workouttracker.data.repository.parseCentiKg
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -98,8 +99,14 @@ class HomeViewModel(
         workoutSessionRepository.discardActiveWorkout()
     }
 
-    fun finishActiveWorkout(allowPartial: Boolean) = launchOperation("Workout finished.") {
-        workoutSessionRepository.finishActiveWorkout(allowPartial = allowPartial)
+    fun finishActiveWorkout(
+        allowPartial: Boolean,
+        progressionChoices: Map<Long, ProgressionFinishChoice> = emptyMap(),
+    ) = launchOperation("Workout finished.") {
+        workoutSessionRepository.finishActiveWorkout(
+            allowPartial = allowPartial,
+            progressionChoices = progressionChoices,
+        )
     }
 
     fun addRestTime(seconds: Int) = launchOperation("Rest extended.") {

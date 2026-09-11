@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,6 +44,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.ui.viewmodel.HomeUiState
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
 import kotlinx.coroutines.delay
@@ -184,13 +186,16 @@ private fun ActiveWorkoutPanel(
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
-    onFinishWorkout: (Boolean) -> Unit,
+    onFinishWorkout: (Boolean, Map<Long, ProgressionFinishChoice>) -> Unit,
     onAddRestTime: (Int) -> Unit,
     onSkipRest: () -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
     var confirmingPartialFinish by remember { mutableStateOf(false) }
+    var showingProgressionReview by remember { mutableStateOf(false) }
+    var pendingFinishAllowsPartial by remember { mutableStateOf(false) }
+    val progressionReviewItems = activeWorkout.progressionReviewItems()
     val allPlannedSetsCompleted = activeWorkout.exercises
         .flatMap { it.sets }
         .filter { it.isPlanned }
@@ -239,7 +244,12 @@ private fun ActiveWorkoutPanel(
             Button(
                 onClick = {
                     if (allPlannedSetsCompleted) {
-                        onFinishWorkout(false)
+                        if (progressionReviewItems.isEmpty()) {
+                            onFinishWorkout(false, emptyMap())
+                        } else {
+                            pendingFinishAllowsPartial = false
+                            showingProgressionReview = true
+                        }
                     } else {
                         confirmingPartialFinish = true
                     }
@@ -258,7 +268,12 @@ private fun ActiveWorkoutPanel(
                 Button(
                     onClick = {
                         confirmingPartialFinish = false
-                        onFinishWorkout(true)
+                        if (progressionReviewItems.isEmpty()) {
+                            onFinishWorkout(true, emptyMap())
+                        } else {
+                            pendingFinishAllowsPartial = true
+                            showingProgressionReview = true
+                        }
                     },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -305,6 +320,17 @@ private fun ActiveWorkoutPanel(
                     Text("Keep")
                 }
             }
+        }
+
+        if (showingProgressionReview) {
+            FinishProgressionReviewDialog(
+                items = progressionReviewItems,
+                onDismiss = { showingProgressionReview = false },
+                onFinish = { choices ->
+                    showingProgressionReview = false
+                    onFinishWorkout(pendingFinishAllowsPartial, choices)
+                },
+            )
         }
     }
 }
@@ -360,6 +386,107 @@ private fun RestTimerBanner(
                     Text("Skip")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FinishProgressionReviewDialog(
+    items: List<FinishProgressionReviewItem>,
+    onDismiss: () -> Unit,
+    onFinish: (Map<Long, ProgressionFinishChoice>) -> Unit,
+) {
+    var choices by remember(items) {
+        mutableStateOf(items.associate { it.sessionExerciseId to ProgressionFinishChoice.AUTOMATIC })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Review progression") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items.forEach { item ->
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = item.exerciseName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = item.changedSetsText,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "Logged target: ${formatCentiKg(item.loggedTargetWeightCentiKg)} kg x " +
+                                item.loggedTargetReps,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        ProgressionChoiceButtons(
+                            selected = choices.getValue(item.sessionExerciseId),
+                            onSelect = { choice ->
+                                choices = choices + (item.sessionExerciseId to choice)
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onFinish(choices) }) {
+                Text("Finish")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Keep logging")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ProgressionChoiceButtons(
+    selected: ProgressionFinishChoice,
+    onSelect: (ProgressionFinishChoice) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ProgressionChoiceButton(
+            label = "Automatic",
+            selected = selected == ProgressionFinishChoice.AUTOMATIC,
+            onClick = { onSelect(ProgressionFinishChoice.AUTOMATIC) },
+        )
+        ProgressionChoiceButton(
+            label = "No progression",
+            selected = selected == ProgressionFinishChoice.NO_PROGRESSION,
+            onClick = { onSelect(ProgressionFinishChoice.NO_PROGRESSION) },
+        )
+        ProgressionChoiceButton(
+            label = "Set new target",
+            selected = selected == ProgressionFinishChoice.SET_TARGET_FROM_LOGGED,
+            onClick = { onSelect(ProgressionFinishChoice.SET_TARGET_FROM_LOGGED) },
+        )
+    }
+}
+
+@Composable
+private fun ProgressionChoiceButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(label)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(label)
         }
     }
 }
@@ -571,3 +698,45 @@ private fun SessionSetStatus.displayName(): String = when (this) {
     SessionSetStatus.COMPLETED -> "Completed"
     SessionSetStatus.SKIPPED -> "Skipped"
 }
+
+private fun WorkoutSessionWithDetails.progressionReviewItems(): List<FinishProgressionReviewItem> =
+    exercises
+        .sortedBy { it.exercise.sortOrderSnapshot }
+        .mapNotNull { exercise ->
+            val changedSets = exercise.sets
+                .filter {
+                    it.countsForProgression &&
+                        it.status == SessionSetStatus.COMPLETED &&
+                        (it.actualWeightCentiKg != it.prescribedWeightCentiKg ||
+                            it.actualReps != it.prescribedReps)
+                }
+                .sortedBy { it.setOrder }
+            if (changedSets.isEmpty()) return@mapNotNull null
+
+            val bestSet = changedSets.maxWith(
+                compareBy<SessionSetEntity> { it.actualWeightCentiKg ?: 0 }
+                    .thenBy { it.actualReps ?: 0 }
+                    .thenBy { it.setOrder },
+            )
+            FinishProgressionReviewItem(
+                sessionExerciseId = exercise.exercise.id,
+                exerciseName = exercise.exercise.exerciseNameSnapshot,
+                changedSetsText = changedSets.joinToString { set ->
+                    "${set.setOrder + 1}: ${formatCentiKg(set.prescribedWeightCentiKg ?: 0)} kg x " +
+                        "${set.prescribedReps ?: "-"} -> " +
+                        "${formatCentiKg(set.actualWeightCentiKg ?: 0)} kg x ${set.actualReps ?: "-"}"
+                },
+                loggedTargetWeightCentiKg = bestSet.actualWeightCentiKg
+                    ?: exercise.exercise.prescribedWeightCentiKgSnapshot,
+                loggedTargetReps = (bestSet.actualReps ?: exercise.exercise.targetRepsSnapshot)
+                    .coerceIn(exercise.exercise.repMinSnapshot, exercise.exercise.repMaxSnapshot),
+            )
+        }
+
+private data class FinishProgressionReviewItem(
+    val sessionExerciseId: Long,
+    val exerciseName: String,
+    val changedSetsText: String,
+    val loggedTargetWeightCentiKg: Int,
+    val loggedTargetReps: Int,
+)

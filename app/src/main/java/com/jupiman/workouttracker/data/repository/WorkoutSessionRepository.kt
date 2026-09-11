@@ -229,7 +229,10 @@ class WorkoutSessionRepository(
         restTimerScheduler.cancel()
     }
 
-    suspend fun finishActiveWorkout(allowPartial: Boolean) {
+    suspend fun finishActiveWorkout(
+        allowPartial: Boolean,
+        progressionChoices: Map<Long, ProgressionFinishChoice> = emptyMap(),
+    ) {
         database.withTransaction {
             val activeSession = workoutSessionDao.getActive()
                 ?: error("No active workout to finish.")
@@ -253,6 +256,23 @@ class WorkoutSessionRepository(
                     ?: return@forEach
                 val progressionState = progressionStateDao.getForTemplateExercise(sourceTemplateExerciseId)
                     ?: return@forEach
+                val exerciseSets = setsByExerciseId.getValue(sessionExercise.id)
+                when (progressionChoices[sessionExercise.id] ?: ProgressionFinishChoice.AUTOMATIC) {
+                    ProgressionFinishChoice.NO_PROGRESSION -> return@forEach
+                    ProgressionFinishChoice.SET_TARGET_FROM_LOGGED -> {
+                        val target = exerciseSets.loggedProgressionTarget(sessionExercise)
+                        progressionStateDao.update(
+                            progressionState.copy(
+                                currentWeightCentiKg = target.weightCentiKg,
+                                currentTargetReps = target.targetReps,
+                                updatedAt = System.currentTimeMillis(),
+                            ),
+                        )
+                        return@forEach
+                    }
+                    ProgressionFinishChoice.AUTOMATIC -> Unit
+                }
+
                 val result = ProgressionEngine.evaluate(
                     config = ProgressionConfig(
                         currentWeightCentiKg = sessionExercise.prescribedWeightCentiKgSnapshot,
@@ -261,7 +281,7 @@ class WorkoutSessionRepository(
                         repMax = sessionExercise.repMaxSnapshot,
                         incrementCentiKg = sessionExercise.incrementCentiKgSnapshot,
                     ),
-                    sets = setsByExerciseId.getValue(sessionExercise.id).map { set ->
+                    sets = exerciseSets.map { set ->
                         ProgressionSet(
                             countsForProgression = set.countsForProgression,
                             prescribedWeightCentiKg = set.prescribedWeightCentiKg,
@@ -355,4 +375,30 @@ class WorkoutSessionRepository(
             0
         }
     }
+
+    private fun List<SessionSetEntity>.loggedProgressionTarget(
+        sessionExercise: SessionExerciseEntity,
+    ): LoggedProgressionTarget {
+        val bestSet = filter {
+            it.countsForProgression &&
+                it.status == SessionSetStatus.COMPLETED &&
+                it.actualWeightCentiKg != null &&
+                it.actualReps != null
+        }.maxWithOrNull(
+            compareBy<SessionSetEntity> { it.actualWeightCentiKg ?: 0 }
+                .thenBy { it.actualReps ?: 0 }
+                .thenBy { it.setOrder },
+        ) ?: error("No completed planned set can become the next target.")
+
+        return LoggedProgressionTarget(
+            weightCentiKg = bestSet.actualWeightCentiKg ?: sessionExercise.prescribedWeightCentiKgSnapshot,
+            targetReps = (bestSet.actualReps ?: sessionExercise.targetRepsSnapshot)
+                .coerceIn(sessionExercise.repMinSnapshot, sessionExercise.repMaxSnapshot),
+        )
+    }
+
+    private data class LoggedProgressionTarget(
+        val weightCentiKg: Int,
+        val targetReps: Int,
+    )
 }

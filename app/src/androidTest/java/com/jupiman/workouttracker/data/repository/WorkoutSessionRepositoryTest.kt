@@ -465,6 +465,63 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
+    fun finishWorkoutCanForceNoProgressionForSuccessfulExercise() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+
+        repository.finishActiveWorkout(
+            allowPartial = false,
+            progressionChoices = mapOf(sessionExercise.id to ProgressionFinishChoice.NO_PROGRESSION),
+        )
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(7000, progression?.currentWeightCentiKg)
+        assertEquals(10, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finishWorkoutCanSetProgressionTargetFromLoggedSet() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val sets = database.sessionSetDao().getForSessionExercise(sessionExercise.id)
+        repository.completeSet(sets[0].id, actualWeightCentiKg = 7000, actualReps = 10)
+        repository.completeSet(sets[1].id, actualWeightCentiKg = 7250, actualReps = 9)
+        repository.completeSet(sets[2].id, actualWeightCentiKg = 7250, actualReps = 8)
+
+        repository.finishActiveWorkout(
+            allowPartial = false,
+            progressionChoices = mapOf(sessionExercise.id to ProgressionFinishChoice.SET_TARGET_FROM_LOGGED),
+        )
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(7250, progression?.currentWeightCentiKg)
+        assertEquals(9, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finishWorkoutSetTargetFromLoggedClampsRepsToExerciseRange() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 12)
+        val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        val sessionId = repository.startWorkout(templateId)
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 20)
+
+        repository.finishActiveWorkout(
+            allowPartial = false,
+            progressionChoices = mapOf(sessionExercise.id to ProgressionFinishChoice.SET_TARGET_FROM_LOGGED),
+        )
+
+        val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals(7000, progression?.currentWeightCentiKg)
+        assertEquals(12, progression?.currentTargetReps)
+    }
+
+    @Test
     fun finishPartialWorkoutAppliesOnlyCompletedExercises() = runTest {
         val seed = seedTwoExerciseWorkout()
         val sessionId = repository.startWorkout(seed.templateId)
