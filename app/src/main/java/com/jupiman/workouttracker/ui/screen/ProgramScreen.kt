@@ -5,6 +5,8 @@ package com.jupiman.workouttracker.ui.screen
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +17,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
@@ -40,7 +44,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -354,16 +361,49 @@ private fun TrainingDayRow(
     onRemove: () -> Unit,
 ) {
     var name by remember(day) { mutableStateOf(day.name) }
+    var isDragging by remember(day.id) { mutableStateOf(false) }
+    val cardShape = RoundedCornerShape(12.dp)
+    val cardModifier = if (isDragging) {
+        Modifier
+            .fillMaxWidth()
+            .border(2.dp, MaterialTheme.colorScheme.primary, cardShape)
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = cardModifier,
+        shape = cardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDragging) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = "Day ${index + 1}",
-                style = MaterialTheme.typography.labelLarge,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Day ${index + 1}",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                ReorderDragHandle(
+                    canDragUp = !isFirst,
+                    canDragDown = !isLast,
+                    isDragging = isDragging,
+                    onDraggingChange = { isDragging = it },
+                    onDragStep = onMove,
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
@@ -379,12 +419,6 @@ private fun TrainingDayRow(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { onRename(name) }) {
                     Text("Save")
-                }
-                TextButton(onClick = { onMove(-1) }, enabled = !isFirst) {
-                    Text("Up")
-                }
-                TextButton(onClick = { onMove(1) }, enabled = !isLast) {
-                    Text("Down")
                 }
                 TextButton(onClick = onRemove) {
                     Text("Remove")
@@ -479,6 +513,9 @@ private fun EditDayScreen(
                                 isFirst = block.exercise.index == 0,
                                 isLast = block.exercise.index == templateExercises.lastIndex,
                                 viewModel = viewModel,
+                                onDragStep = { offset ->
+                                    viewModel.moveTemplateExercise(day.id, block.exercise.item.id, offset)
+                                },
                             )
                         }
                         is ProgramExerciseDisplayBlock.Superset -> {
@@ -486,6 +523,9 @@ private fun EditDayScreen(
                                 block = block,
                                 lastIndex = templateExercises.lastIndex,
                                 viewModel = viewModel,
+                                onDragStep = { exerciseId, offset ->
+                                    viewModel.moveTemplateExercise(day.id, exerciseId, offset)
+                                },
                             )
                         }
                     }
@@ -513,6 +553,7 @@ private fun ProgramSupersetGroup(
     block: ProgramExerciseDisplayBlock.Superset,
     lastIndex: Int,
     viewModel: ProgramViewModel,
+    onDragStep: (Long, Int) -> Unit,
 ) {
     val shape = RoundedCornerShape(12.dp)
 
@@ -545,6 +586,7 @@ private fun ProgramSupersetGroup(
                 isLast = exercise.index == lastIndex,
                 viewModel = viewModel,
                 showSupersetLabel = false,
+                onDragStep = { offset -> onDragStep(exercise.item.id, offset) },
             )
         }
     }
@@ -557,6 +599,7 @@ private fun TemplateExerciseEditor(
     isLast: Boolean,
     viewModel: ProgramViewModel,
     showSupersetLabel: Boolean = true,
+    onDragStep: (Int) -> Unit,
 ) {
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
     var repMin by remember(item) { mutableStateOf(item.repMin.toString()) }
@@ -570,17 +613,50 @@ private fun TemplateExerciseEditor(
     val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
     val warmupSets by warmupSetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val visibleSetCount = sets.trim().toIntOrNull()?.coerceAtLeast(1) ?: item.plannedWorkingSets
+    var isDragging by remember(item.id) { mutableStateOf(false) }
+    val cardShape = RoundedCornerShape(12.dp)
+    val cardModifier = if (isDragging) {
+        Modifier
+            .fillMaxWidth()
+            .border(2.dp, MaterialTheme.colorScheme.primary, cardShape)
+    } else {
+        Modifier.fillMaxWidth()
+    }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = cardModifier,
+        shape = cardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDragging) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = item.exerciseName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = item.exerciseName,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                ReorderDragHandle(
+                    canDragUp = !isFirst,
+                    canDragDown = !isLast,
+                    isDragging = isDragging,
+                    onDraggingChange = { isDragging = it },
+                    onDragStep = onDragStep,
+                )
+            }
             Text(
                 text = "${item.plannedWorkingSets} x ${item.repMin}-${item.repMax} | " +
                     "${formatCentiKg(item.currentWeightCentiKg)} kg | Rest ${item.restSeconds}s",
@@ -655,18 +731,6 @@ private fun TemplateExerciseEditor(
                 ) {
                     Text("Save")
                 }
-                TextButton(
-                    onClick = { viewModel.moveTemplateExercise(item.workoutTemplateId, item.id, -1) },
-                    enabled = !isFirst,
-                ) {
-                    Text("Up")
-                }
-                TextButton(
-                    onClick = { viewModel.moveTemplateExercise(item.workoutTemplateId, item.id, 1) },
-                    enabled = !isLast,
-                ) {
-                    Text("Down")
-                }
                 TextButton(onClick = { viewModel.removeTemplateExercise(item.id) }) {
                     Text("Remove")
                 }
@@ -683,6 +747,73 @@ private fun TemplateExerciseEditor(
                     Text("Remove superset")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReorderDragHandle(
+    canDragUp: Boolean,
+    canDragDown: Boolean,
+    isDragging: Boolean,
+    onDraggingChange: (Boolean) -> Unit,
+    onDragStep: (Int) -> Unit,
+) {
+    val handleColor = when {
+        isDragging -> MaterialTheme.colorScheme.onPrimaryContainer
+        canDragUp || canDragDown -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val thresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
+    var accumulatedDrag by remember { mutableStateOf(0f) }
+
+    Canvas(
+        modifier = Modifier
+            .size(44.dp)
+            .pointerInput(canDragUp, canDragDown, thresholdPx) {
+                if (!canDragUp && !canDragDown) return@pointerInput
+                detectDragGesturesAfterLongPress(
+                    onDragStart = {
+                        accumulatedDrag = 0f
+                        onDraggingChange(true)
+                    },
+                    onDragCancel = {
+                        accumulatedDrag = 0f
+                        onDraggingChange(false)
+                    },
+                    onDragEnd = {
+                        accumulatedDrag = 0f
+                        onDraggingChange(false)
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        accumulatedDrag += dragAmount.y
+
+                        while (accumulatedDrag <= -thresholdPx && canDragUp) {
+                            onDragStep(-1)
+                            accumulatedDrag += thresholdPx
+                        }
+                        while (accumulatedDrag >= thresholdPx && canDragDown) {
+                            onDragStep(1)
+                            accumulatedDrag -= thresholdPx
+                        }
+                    },
+                )
+            },
+    ) {
+        val centerX = size.width / 2f
+        val topY = size.height * 0.34f
+        val gapY = size.height * 0.16f
+        val halfWidth = size.width * 0.18f
+
+        repeat(3) { index ->
+            val y = topY + gapY * index
+            drawLine(
+                color = handleColor,
+                start = Offset(centerX - halfWidth, y),
+                end = Offset(centerX + halfWidth, y),
+                strokeWidth = if (isDragging) 4.dp.toPx() else 3.dp.toPx(),
+            )
         }
     }
 }

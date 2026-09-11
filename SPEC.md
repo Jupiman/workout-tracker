@@ -2201,6 +2201,15 @@ Phase 54E implementation:
 - pending warm-up sets are stored as skipped when the workout is finished
 - completed working sets can still finish as `COMPLETED` even if warm-ups were left pending
 
+Phase 54F implementation:
+
+- show a drag handle on each exercise card in the Edit Day screen
+- show the same drag handle on each Training Day row in the Program screen
+- long-pressing and dragging the handle up/down reuses the repository reorder operation one slot at a time
+- highlight the active card while it is being dragged
+- remove the per-row Up/Down buttons from the editor action rows
+- keep stored Training Day and exercise `sortOrder` values compact after reorder
+
 ---
 
 ## 54.8 Rest-complete in-app feedback

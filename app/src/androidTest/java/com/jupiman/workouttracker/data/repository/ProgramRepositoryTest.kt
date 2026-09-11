@@ -119,6 +119,80 @@ class ProgramRepositoryTest {
     }
 
     @Test
+    fun moveWorkoutTemplateReordersTrainingDaysAndCompactsSortOrders() = runTest {
+        val programId = repository.createProgram("Current Program")
+        val firstDayId = repository.createWorkoutTemplate(programId, "Day A")
+        repository.createWorkoutTemplate(programId, "Day B")
+        val thirdDayId = repository.createWorkoutTemplate(programId, "Day C")
+
+        repository.moveWorkoutTemplate(
+            programId = programId,
+            workoutTemplateId = firstDayId,
+            offset = 1,
+        )
+
+        assertEquals(
+            listOf("Day B", "Day A", "Day C"),
+            trainingDayNames(programId),
+        )
+
+        repository.moveWorkoutTemplate(
+            programId = programId,
+            workoutTemplateId = thirdDayId,
+            offset = -1,
+        )
+
+        assertEquals(
+            listOf("Day B", "Day C", "Day A"),
+            trainingDayNames(programId),
+        )
+        assertEquals(
+            listOf(0, 1, 2),
+            database.workoutTemplateDao()
+                .getForProgram(programId)
+                .map { it.sortOrder },
+        )
+    }
+
+    @Test
+    fun moveTemplateExerciseReordersExercisesAndCompactsSortOrders() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        val thirdTemplateExerciseId = repository.createExerciseAndAddToWorkout(
+            workoutTemplateId = seed.templateId,
+            exerciseName = "Overhead Press",
+            config = config(restSeconds = 150),
+        )
+
+        repository.moveTemplateExercise(
+            workoutTemplateId = seed.templateId,
+            workoutTemplateExerciseId = seed.firstTemplateExerciseId,
+            offset = 1,
+        )
+
+        assertEquals(
+            listOf("Machine Row", "Bench Press", "Overhead Press"),
+            editorExerciseNames(seed.templateId),
+        )
+
+        repository.moveTemplateExercise(
+            workoutTemplateId = seed.templateId,
+            workoutTemplateExerciseId = thirdTemplateExerciseId,
+            offset = -1,
+        )
+
+        assertEquals(
+            listOf("Machine Row", "Overhead Press", "Bench Press"),
+            editorExerciseNames(seed.templateId),
+        )
+        assertEquals(
+            listOf(0, 1, 2),
+            database.workoutTemplateExerciseDao()
+                .getForWorkoutTemplate(seed.templateId)
+                .map { it.sortOrder },
+        )
+    }
+
+    @Test
     fun setTargetsCanBeSavedAndReset() = runTest {
         val seed = seedTwoExerciseTemplate()
 
@@ -226,6 +300,16 @@ class ProgramRepositoryTest {
         currentWeightCentiKg = 7000,
         currentTargetReps = 10,
     )
+
+    private suspend fun editorExerciseNames(templateId: Long): List<String> =
+        database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(templateId)
+            .map { it.exerciseName }
+
+    private suspend fun trainingDayNames(programId: Long): List<String> =
+        database.workoutTemplateDao()
+            .getForProgram(programId)
+            .map { it.name }
 
     private data class TwoExerciseTemplateSeed(
         val templateId: Long,
