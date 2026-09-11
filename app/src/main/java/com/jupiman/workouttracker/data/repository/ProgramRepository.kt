@@ -25,6 +25,7 @@ class ProgramRepository(
     val activeProgram = programDao.observeActive()
     val programs = programDao.observeAllActive()
     val firstActiveProgramTemplate = workoutTemplateDao.observeFirstForActiveProgram()
+    val activeProgramTemplates = workoutTemplateDao.observeForActiveProgram()
 
     fun workoutTemplates(programId: Long) = workoutTemplateDao.observeForProgram(programId)
 

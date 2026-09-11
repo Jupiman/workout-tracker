@@ -24,8 +24,13 @@ class AppContainer(context: Context) {
         exerciseDao = database.exerciseDao(),
     )
     val workoutSessionRepository = WorkoutSessionRepository(
+        database = database,
         workoutSessionDao = database.workoutSessionDao(),
         sessionExerciseDao = database.sessionExerciseDao(),
         sessionSetDao = database.sessionSetDao(),
+        programDao = database.programDao(),
+        workoutTemplateDao = database.workoutTemplateDao(),
+        workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
+        supersetGroupDao = database.supersetGroupDao(),
     )
 }

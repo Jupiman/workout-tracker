@@ -42,6 +42,31 @@ interface WorkoutTemplateExerciseDao {
     @Query("SELECT * FROM workout_template_exercises WHERE workoutTemplateId = :workoutTemplateId ORDER BY sortOrder")
     suspend fun getForWorkoutTemplate(workoutTemplateId: Long): List<WorkoutTemplateExerciseEntity>
 
+    @Query(
+        """
+        SELECT 
+            wte.id,
+            wte.workoutTemplateId,
+            wte.exerciseId,
+            e.name AS exerciseName,
+            wte.sortOrder,
+            wte.plannedWorkingSets,
+            wte.repMin,
+            wte.repMax,
+            wte.incrementCentiKg,
+            wte.restSeconds,
+            wte.supersetGroupId,
+            ps.currentWeightCentiKg,
+            ps.currentTargetReps
+        FROM workout_template_exercises AS wte
+        INNER JOIN exercises AS e ON e.id = wte.exerciseId
+        INNER JOIN progression_states AS ps ON ps.workoutTemplateExerciseId = wte.id
+        WHERE wte.workoutTemplateId = :workoutTemplateId
+        ORDER BY wte.sortOrder
+        """,
+    )
+    suspend fun getEditorItemsForWorkoutTemplate(workoutTemplateId: Long): List<WorkoutTemplateExerciseEditorItem>
+
     @Query("SELECT * FROM workout_template_exercises WHERE id = :id")
     suspend fun getById(id: Long): WorkoutTemplateExerciseEntity?
 

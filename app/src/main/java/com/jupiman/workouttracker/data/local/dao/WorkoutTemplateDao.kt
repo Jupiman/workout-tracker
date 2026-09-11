@@ -24,6 +24,16 @@ interface WorkoutTemplateDao {
     )
     fun observeFirstForActiveProgram(): Flow<WorkoutTemplateEntity?>
 
+    @Query(
+        """
+        SELECT wt.* FROM workout_templates AS wt
+        INNER JOIN programs AS p ON p.id = wt.programId
+        WHERE p.active = 1 AND p.archived = 0
+        ORDER BY wt.sortOrder
+        """,
+    )
+    fun observeForActiveProgram(): Flow<List<WorkoutTemplateEntity>>
+
     @Query("SELECT * FROM workout_templates WHERE programId = :programId ORDER BY sortOrder")
     suspend fun getForProgram(programId: Long): List<WorkoutTemplateEntity>
 

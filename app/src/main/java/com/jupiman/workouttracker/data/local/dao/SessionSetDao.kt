@@ -16,6 +16,9 @@ interface SessionSetDao {
     @Query("SELECT * FROM session_sets WHERE sessionExerciseId = :sessionExerciseId ORDER BY setOrder")
     suspend fun getForSessionExercise(sessionExerciseId: Long): List<SessionSetEntity>
 
+    @Query("SELECT * FROM session_sets WHERE id = :id")
+    suspend fun getById(id: Long): SessionSetEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(set: SessionSetEntity): Long
 
@@ -25,4 +28,3 @@ interface SessionSetDao {
     @Update
     suspend fun update(set: SessionSetEntity)
 }
-
