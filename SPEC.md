@@ -2499,6 +2499,24 @@ Program builder navigation:
 - keep the currently selected Program and Day as UI state; selecting them must not mutate which Program is active unless the user explicitly chooses `Set active`
 - replace always-expanded Program/Day/Exercise form fields with compact summaries plus dialogs or modal bottom sheets for focused editing
 
+Implemented slices:
+
+- `Programs` / `Exercises` subtabs are available inside the Program destination
+- Program selection and Training Day selection happen in-place without routine `Open` / `Back` navigation
+- Program, Training Day, and Exercise creation/rename use dialogs instead of permanent inline creation fields
+- Training Day exercises render as compact summary cards in the main Day view
+- tapping an exercise card body opens a focused editor dialog that reuses the existing configuration controls
+- drag handles stay separate from card-body edit taps
+- exercise and Day reorder handles now start dragging immediately from the handle instead of requiring a long press
+- Training Day reordering is available through a dedicated `Reorder days` dialog rather than dragging horizontal Day chips
+- supersets render with one group-level drag handle and move as a contiguous block
+- individual superset member cards do not expose reorder handles in the Day builder
+- active reorder targets use a lifted tonal treatment with subtle scale animation
+- reorder gestures commit one slot on release so list recomposition does not interrupt the active pointer gesture
+- reorder handles provide subtle haptic feedback on pickup and drop when supported
+- Training Day reorder rows and Day exercise/superset items use keyed lazy placement animation when their order changes
+- Training Day removal and Day-exercise removal require confirmation before deleting future program configuration
+
 Exercise drag-and-drop:
 
 - show a dedicated drag handle on each standalone exercise card

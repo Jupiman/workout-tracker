@@ -3,11 +3,14 @@
 package com.jupiman.workouttracker.ui.screen
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,9 +20,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -52,7 +57,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -217,6 +225,17 @@ private fun ProgramBuilderScreen(
     var showRenameProgramDialog by rememberSaveable(selectedProgram?.id) { mutableStateOf(false) }
     var showAddDayDialog by rememberSaveable(selectedProgram?.id) { mutableStateOf(false) }
     var showRenameDayDialog by rememberSaveable(selectedDay?.id) { mutableStateOf(false) }
+    var showReorderDaysDialog by rememberSaveable(selectedProgram?.id) { mutableStateOf(false) }
+    var showAddExerciseDialog by rememberSaveable(selectedDay?.id) { mutableStateOf(false) }
+    var editingExerciseId by rememberSaveable(selectedDay?.id) { mutableStateOf<Long?>(null) }
+    var showRemoveDayConfirmation by rememberSaveable(selectedDay?.id) { mutableStateOf(false) }
+    val selectedDayExercisesFlow = remember(selectedDay?.id) {
+        selectedDay?.let { viewModel.templateExercises(it.id) } ?: flowOf(emptyList())
+    }
+    val selectedDayExercises by selectedDayExercisesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val editingExercise = editingExerciseId?.let { id ->
+        selectedDayExercises.firstOrNull { it.id == id }
+    }
 
     LazyColumn(
         modifier = modifier.padding(horizontal = 16.dp),
@@ -276,18 +295,56 @@ private fun ProgramBuilderScreen(
                     item {
                         SelectedDayHeader(
                             day = selectedDay,
-                            exerciseCount = null,
+                            exerciseCount = selectedDayExercises.size,
                             onRename = { showRenameDayDialog = true },
-                            onRemove = { viewModel.deleteWorkoutTemplate(selectedDay.id) },
+                            onReorder = { showReorderDaysDialog = true },
+                            onRemove = { showRemoveDayConfirmation = true },
                         )
                     }
                     item {
-                        SelectedDayExerciseList(
-                            program = program,
-                            day = selectedDay,
-                            exercises = exercises,
-                            viewModel = viewModel,
-                        )
+                        Button(
+                            onClick = { showAddExerciseDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Add exercise")
+                        }
+                    }
+                    if (selectedDayExercises.isEmpty()) {
+                        item {
+                            Text("No exercises in this day.", style = MaterialTheme.typography.bodyLarge)
+                        }
+                    } else {
+                        selectedDayExercises.programExerciseDisplayBlocks().forEach { block ->
+                            item(key = block.key) {
+                                when (block) {
+                                    is ProgramExerciseDisplayBlock.SingleExercise -> {
+                                        CompactTemplateExerciseCard(
+                                            item = block.exercise.item,
+                                            isFirst = block.exercise.index == 0,
+                                            isLast = block.exercise.index == selectedDayExercises.lastIndex,
+                                            viewModel = viewModel,
+                                            modifier = Modifier.animateItem(),
+                                            onEdit = { editingExerciseId = block.exercise.item.id },
+                                            onDragStep = { offset ->
+                                                viewModel.moveTemplateExercise(selectedDay.id, block.exercise.item.id, offset)
+                                            },
+                                        )
+                                    }
+                                    is ProgramExerciseDisplayBlock.Superset -> {
+                                        ProgramSupersetGroup(
+                                            block = block,
+                                            lastIndex = selectedDayExercises.lastIndex,
+                                            viewModel = viewModel,
+                                            modifier = Modifier.animateItem(),
+                                            onEdit = { editingExerciseId = it },
+                                            onDragStep = { offset ->
+                                                viewModel.moveSupersetGroup(selectedDay.id, block.groupId, offset)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -340,6 +397,38 @@ private fun ProgramBuilderScreen(
                 },
             )
         }
+
+        if (showReorderDaysDialog) {
+            ReorderTrainingDaysDialog(
+                programId = program.id,
+                templates = templates,
+                selectedDay = selectedDay,
+                viewModel = viewModel,
+                onSelectDay = onSelectDay,
+                onDismiss = { showReorderDaysDialog = false },
+            )
+        }
+    }
+
+    selectedDay?.let { day ->
+        if (showAddExerciseDialog) {
+            AddExerciseDialog(
+                workoutTemplateId = day.id,
+                exercises = exercises,
+                viewModel = viewModel,
+                onDismiss = { showAddExerciseDialog = false },
+            )
+        }
+    }
+
+    editingExercise?.let { item ->
+        TemplateExerciseEditorDialog(
+            item = item,
+            isFirst = selectedDayExercises.firstOrNull()?.id == item.id,
+            isLast = selectedDayExercises.lastOrNull()?.id == item.id,
+            viewModel = viewModel,
+            onDismiss = { editingExerciseId = null },
+        )
     }
 
     selectedDay?.let { day ->
@@ -353,6 +442,19 @@ private fun ProgramBuilderScreen(
                 onConfirm = { name ->
                     viewModel.renameWorkoutTemplate(day.id, name)
                     showRenameDayDialog = false
+                },
+            )
+        }
+
+        if (showRemoveDayConfirmation) {
+            ConfirmationDialog(
+                title = "Remove training day?",
+                body = "This removes '${day.name}' from the program. Existing workout history stays unchanged.",
+                confirmLabel = "Remove",
+                onDismiss = { showRemoveDayConfirmation = false },
+                onConfirm = {
+                    viewModel.deleteWorkoutTemplate(day.id)
+                    showRemoveDayConfirmation = false
                 },
             )
         }
@@ -480,6 +582,7 @@ private fun SelectedDayHeader(
     day: WorkoutTemplateEntity,
     exerciseCount: Int?,
     onRename: () -> Unit,
+    onReorder: () -> Unit,
     onRemove: () -> Unit,
 ) {
     ElevatedCard(modifier = Modifier.fillMaxWidth()) {
@@ -503,10 +606,140 @@ private fun SelectedDayHeader(
                 TextButton(onClick = onRename) {
                     Text("Rename")
                 }
+                TextButton(onClick = onReorder) {
+                    Text("Reorder days")
+                }
                 TextButton(onClick = onRemove) {
                     Text("Remove")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReorderTrainingDaysDialog(
+    programId: Long,
+    templates: List<WorkoutTemplateEntity>,
+    selectedDay: WorkoutTemplateEntity?,
+    viewModel: ProgramViewModel,
+    onSelectDay: (Long) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reorder training days") },
+        text = {
+            LazyColumn(
+                modifier = Modifier.heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(
+                    items = templates,
+                    key = { _, template -> template.id },
+                ) { index, template ->
+                    ReorderTrainingDayRow(
+                        day = template,
+                        index = index,
+                        selected = selectedDay?.id == template.id,
+                        isFirst = index == 0,
+                        isLast = index == templates.lastIndex,
+                        modifier = Modifier.animateItem(),
+                        onSelect = { onSelectDay(template.id) },
+                        onMove = { offset ->
+                            viewModel.moveWorkoutTemplate(programId, template.id, offset)
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ReorderTrainingDayRow(
+    day: WorkoutTemplateEntity,
+    index: Int,
+    selected: Boolean,
+    isFirst: Boolean,
+    isLast: Boolean,
+    modifier: Modifier = Modifier,
+    onSelect: () -> Unit,
+    onMove: (Int) -> Unit,
+) {
+    var isDragging by remember(day.id) { mutableStateOf(false) }
+    val dragScale by animateFloatAsState(
+        targetValue = if (isDragging) 1.02f else 1f,
+        label = "dayReorderScale",
+    )
+    val shape = RoundedCornerShape(12.dp)
+    val rowModifier = if (isDragging) {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+            .border(2.dp, MaterialTheme.colorScheme.primary, shape)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+    }
+
+    Card(
+        modifier = rowModifier,
+        shape = shape,
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                isDragging -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
+                selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isDragging) 8.dp else 1.dp,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onSelect),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Day ${index + 1}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = day.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            ReorderDragHandle(
+                canDragUp = !isFirst,
+                canDragDown = !isLast,
+                isDragging = isDragging,
+                onDraggingChange = { isDragging = it },
+                onDragStep = onMove,
+            )
         }
     }
 }
@@ -521,6 +754,10 @@ private fun SelectedDayExerciseList(
     val itemsFlow = remember(day.id) { viewModel.templateExercises(day.id) }
     val templateExercises by itemsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     var showAddExerciseDialog by rememberSaveable(day.id) { mutableStateOf(false) }
+    var editingExerciseId by rememberSaveable(day.id) { mutableStateOf<Long?>(null) }
+    val editingExercise = editingExerciseId?.let { id ->
+        templateExercises.firstOrNull { it.id == id }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Button(
@@ -536,11 +773,12 @@ private fun SelectedDayExerciseList(
             templateExercises.programExerciseDisplayBlocks().forEach { block ->
                 when (block) {
                     is ProgramExerciseDisplayBlock.SingleExercise -> {
-                        TemplateExerciseEditor(
+                        CompactTemplateExerciseCard(
                             item = block.exercise.item,
                             isFirst = block.exercise.index == 0,
                             isLast = block.exercise.index == templateExercises.lastIndex,
                             viewModel = viewModel,
+                            onEdit = { editingExerciseId = block.exercise.item.id },
                             onDragStep = { offset ->
                                 viewModel.moveTemplateExercise(day.id, block.exercise.item.id, offset)
                             },
@@ -551,8 +789,9 @@ private fun SelectedDayExerciseList(
                             block = block,
                             lastIndex = templateExercises.lastIndex,
                             viewModel = viewModel,
-                            onDragStep = { exerciseId, offset ->
-                                viewModel.moveTemplateExercise(day.id, exerciseId, offset)
+                            onEdit = { editingExerciseId = it },
+                            onDragStep = { offset ->
+                                viewModel.moveSupersetGroup(day.id, block.groupId, offset)
                             },
                         )
                     }
@@ -567,6 +806,16 @@ private fun SelectedDayExerciseList(
             exercises = exercises,
             viewModel = viewModel,
             onDismiss = { showAddExerciseDialog = false },
+        )
+    }
+
+    editingExercise?.let { item ->
+        TemplateExerciseEditorDialog(
+            item = item,
+            isFirst = templateExercises.firstOrNull()?.id == item.id,
+            isLast = templateExercises.lastOrNull()?.id == item.id,
+            viewModel = viewModel,
+            onDismiss = { editingExerciseId = null },
         )
     }
 }
@@ -732,6 +981,31 @@ private fun NameDialog(
         },
         confirmButton = {
             Button(onClick = { onConfirm(name) }) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
+}
+
+@Composable
+private fun ConfirmationDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = {
+            Button(onClick = onConfirm) {
                 Text(confirmLabel)
             }
         },
@@ -1117,8 +1391,8 @@ private fun EditDayScreen(
                                 block = block,
                                 lastIndex = templateExercises.lastIndex,
                                 viewModel = viewModel,
-                                onDragStep = { exerciseId, offset ->
-                                    viewModel.moveTemplateExercise(day.id, exerciseId, offset)
+                                onDragStep = { offset ->
+                                    viewModel.moveSupersetGroup(day.id, block.groupId, offset)
                                 },
                             )
                         }
@@ -1147,42 +1421,257 @@ private fun ProgramSupersetGroup(
     block: ProgramExerciseDisplayBlock.Superset,
     lastIndex: Int,
     viewModel: ProgramViewModel,
-    onDragStep: (Long, Int) -> Unit,
+    modifier: Modifier = Modifier,
+    onEdit: (Long) -> Unit = {},
+    onDragStep: (Int) -> Unit,
 ) {
     val shape = RoundedCornerShape(12.dp)
+    val isFirst = block.exercises.firstOrNull()?.index == 0
+    val isLast = block.exercises.lastOrNull()?.index == lastIndex
+    var isDragging by remember(block.groupId) { mutableStateOf(false) }
+    val dragScale by animateFloatAsState(
+        targetValue = if (isDragging) 1.01f else 1f,
+        label = "supersetReorderScale",
+    )
+    val groupModifier = if (isDragging) {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+            .border(2.dp, MaterialTheme.colorScheme.primary, shape)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+            .border(1.dp, MaterialTheme.colorScheme.primary, shape)
+    }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = groupModifier
             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f), shape)
-            .border(1.dp, MaterialTheme.colorScheme.primary, shape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            text = "Superset",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        Text(
-            text = "${block.exercises.size} exercises",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Superset",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "${block.exercises.size} exercises",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
+            ReorderDragHandle(
+                canDragUp = !isFirst,
+                canDragDown = !isLast,
+                isDragging = isDragging,
+                onDraggingChange = { isDragging = it },
+                onDragStep = onDragStep,
+            )
+        }
         block.exercises.forEachIndexed { index, exercise ->
             if (index > 0) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
             }
-            TemplateExerciseEditor(
+            CompactTemplateExerciseCard(
                 item = exercise.item,
                 isFirst = exercise.index == 0,
                 isLast = exercise.index == lastIndex,
                 viewModel = viewModel,
                 showSupersetLabel = false,
-                onDragStep = { offset -> onDragStep(exercise.item.id, offset) },
+                onEdit = { onEdit(exercise.item.id) },
+                showDragHandle = false,
+                onDragStep = {},
             )
         }
+    }
+}
+
+@Composable
+private fun CompactTemplateExerciseCard(
+    item: WorkoutTemplateExerciseEditorItem,
+    isFirst: Boolean,
+    isLast: Boolean,
+    viewModel: ProgramViewModel,
+    modifier: Modifier = Modifier,
+    showSupersetLabel: Boolean = true,
+    showDragHandle: Boolean = true,
+    onEdit: () -> Unit,
+    onDragStep: (Int) -> Unit,
+) {
+    val setTargetsFlow = remember(item.id) { viewModel.templateSetTargets(item.id) }
+    val setTargets by setTargetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
+    val warmupSets by warmupSetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    var isDragging by remember(item.id) { mutableStateOf(false) }
+    val dragScale by animateFloatAsState(
+        targetValue = if (isDragging) 1.02f else 1f,
+        label = "exerciseReorderScale",
+    )
+    val cardShape = RoundedCornerShape(12.dp)
+    val cardModifier = if (isDragging) {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+            .border(2.dp, MaterialTheme.colorScheme.primary, cardShape)
+    } else {
+        modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = dragScale
+                scaleY = dragScale
+            }
+    }
+
+    Card(
+        modifier = cardModifier,
+        shape = cardShape,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDragging) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isDragging) 8.dp else 1.dp,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onEdit),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = item.exerciseName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "${item.plannedWorkingSets} x ${item.repMin}-${item.repMax} | " +
+                        "${formatCentiKg(item.currentWeightCentiKg)} kg | target ${item.currentTargetReps}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "+${formatCentiKg(item.incrementCentiKg)} kg | Rest ${item.restSeconds}s",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (showSupersetLabel && item.supersetGroupId != null) {
+                        Text(
+                            text = "Superset",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (warmupSets.isNotEmpty()) {
+                        Text(
+                            text = "Warm-up",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (setTargets.isNotEmpty()) {
+                        Text(
+                            text = "Custom sets",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+            if (showDragHandle) {
+                ReorderDragHandle(
+                    canDragUp = !isFirst,
+                    canDragDown = !isLast,
+                    isDragging = isDragging,
+                    onDraggingChange = { isDragging = it },
+                    onDragStep = onDragStep,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemplateExerciseEditorDialog(
+    item: WorkoutTemplateExerciseEditorItem,
+    isFirst: Boolean,
+    isLast: Boolean,
+    viewModel: ProgramViewModel,
+    onDismiss: () -> Unit,
+) {
+    var showRemoveConfirmation by rememberSaveable(item.id) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit exercise") },
+        text = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                TemplateExerciseEditor(
+                    item = item,
+                    isFirst = isFirst,
+                    isLast = isLast,
+                    viewModel = viewModel,
+                    showDragHandle = false,
+                    onRemoveRequest = { showRemoveConfirmation = true },
+                    onDragStep = {},
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Done")
+            }
+        },
+    )
+
+    if (showRemoveConfirmation) {
+        ConfirmationDialog(
+            title = "Remove exercise?",
+            body = "This removes '${item.exerciseName}' from this training day. Existing workout history stays unchanged.",
+            confirmLabel = "Remove",
+            onDismiss = { showRemoveConfirmation = false },
+            onConfirm = {
+                viewModel.removeTemplateExercise(item.id)
+                showRemoveConfirmation = false
+                onDismiss()
+            },
+        )
     }
 }
 
@@ -1193,6 +1682,8 @@ private fun TemplateExerciseEditor(
     isLast: Boolean,
     viewModel: ProgramViewModel,
     showSupersetLabel: Boolean = true,
+    showDragHandle: Boolean = true,
+    onRemoveRequest: (() -> Unit)? = null,
     onDragStep: (Int) -> Unit,
 ) {
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
@@ -1243,13 +1734,15 @@ private fun TemplateExerciseEditor(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
-                ReorderDragHandle(
-                    canDragUp = !isFirst,
-                    canDragDown = !isLast,
-                    isDragging = isDragging,
-                    onDraggingChange = { isDragging = it },
-                    onDragStep = onDragStep,
-                )
+                if (showDragHandle) {
+                    ReorderDragHandle(
+                        canDragUp = !isFirst,
+                        canDragDown = !isLast,
+                        isDragging = isDragging,
+                        onDraggingChange = { isDragging = it },
+                        onDragStep = onDragStep,
+                    )
+                }
             }
             Text(
                 text = "${item.plannedWorkingSets} x ${item.repMin}-${item.repMax} | " +
@@ -1325,7 +1818,15 @@ private fun TemplateExerciseEditor(
                 ) {
                     Text("Save")
                 }
-                TextButton(onClick = { viewModel.removeTemplateExercise(item.id) }) {
+                TextButton(
+                    onClick = {
+                        if (onRemoveRequest == null) {
+                            viewModel.removeTemplateExercise(item.id)
+                        } else {
+                            onRemoveRequest()
+                        }
+                    },
+                ) {
                     Text("Remove")
                 }
                 TextButton(
@@ -1359,6 +1860,7 @@ private fun ReorderDragHandle(
         else -> MaterialTheme.colorScheme.outline
     }
     val thresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
+    val hapticFeedback = LocalHapticFeedback.current
     var accumulatedDrag by remember { mutableStateOf(0f) }
 
     Canvas(
@@ -1366,31 +1868,28 @@ private fun ReorderDragHandle(
             .size(44.dp)
             .pointerInput(canDragUp, canDragDown, thresholdPx) {
                 if (!canDragUp && !canDragDown) return@pointerInput
-                detectDragGesturesAfterLongPress(
+                detectDragGestures(
                     onDragStart = {
                         accumulatedDrag = 0f
                         onDraggingChange(true)
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDragCancel = {
                         accumulatedDrag = 0f
                         onDraggingChange(false)
                     },
                     onDragEnd = {
+                        when {
+                            accumulatedDrag <= -thresholdPx && canDragUp -> onDragStep(-1)
+                            accumulatedDrag >= thresholdPx && canDragDown -> onDragStep(1)
+                        }
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         accumulatedDrag = 0f
                         onDraggingChange(false)
                     },
                     onDrag = { change, dragAmount ->
                         change.consume()
                         accumulatedDrag += dragAmount.y
-
-                        while (accumulatedDrag <= -thresholdPx && canDragUp) {
-                            onDragStep(-1)
-                            accumulatedDrag += thresholdPx
-                        }
-                        while (accumulatedDrag >= thresholdPx && canDragDown) {
-                            onDragStep(1)
-                            accumulatedDrag -= thresholdPx
-                        }
                     },
                 )
             },

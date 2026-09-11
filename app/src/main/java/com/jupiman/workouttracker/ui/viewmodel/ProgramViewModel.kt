@@ -224,6 +224,11 @@ class ProgramViewModel(
             programRepository.moveTemplateExercise(workoutTemplateId, id, offset)
         }
 
+    fun moveSupersetGroup(workoutTemplateId: Long, supersetGroupId: Long, offset: Int) =
+        launchOperation("Superset reordered.") {
+            programRepository.moveSupersetGroup(workoutTemplateId, supersetGroupId, offset)
+        }
+
     fun supersetWithPrevious(workoutTemplateId: Long, id: Long) = launchOperation("Superset updated.") {
         programRepository.supersetWithPrevious(workoutTemplateId, id)
     }

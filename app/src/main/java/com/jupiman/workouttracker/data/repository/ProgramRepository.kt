@@ -352,6 +352,33 @@ class ProgramRepository(
         }
     }
 
+    suspend fun moveSupersetGroup(
+        workoutTemplateId: Long,
+        supersetGroupId: Long,
+        offset: Int,
+    ) {
+        require(offset == -1 || offset == 1) { "Move offset must be -1 or 1." }
+
+        database.withTransaction {
+            val exercises = workoutTemplateExerciseDao.getForWorkoutTemplate(workoutTemplateId)
+            val blocks = exerciseReorderBlocks(exercises)
+            val index = blocks.indexOfFirst { block ->
+                block.any { it.supersetGroupId == supersetGroupId }
+            }
+            if (index == -1) return@withTransaction
+
+            val targetIndex = (index + offset).coerceIn(blocks.indices)
+            if (targetIndex == index) return@withTransaction
+
+            val reordered = blocks.toMutableList().apply {
+                add(targetIndex, removeAt(index))
+            }.flatten()
+            reordered.forEachIndexed { sortOrder, exercise ->
+                workoutTemplateExerciseDao.update(exercise.copy(sortOrder = sortOrder))
+            }
+        }
+    }
+
     suspend fun supersetWithPrevious(workoutTemplateId: Long, workoutTemplateExerciseId: Long) {
         database.withTransaction {
             val exercises = workoutTemplateExerciseDao.getForWorkoutTemplate(workoutTemplateId)
@@ -405,6 +432,22 @@ class ProgramRepository(
                 .filter { it.supersetGroupId == groupId }
             if (remainingMembers.size < 2) {
                 supersetGroupDao.deleteById(groupId)
+            }
+        }
+    }
+
+    private fun exerciseReorderBlocks(
+        exercises: List<WorkoutTemplateExerciseEntity>,
+    ): List<List<WorkoutTemplateExerciseEntity>> {
+        val seenSupersetGroups = mutableSetOf<Long>()
+        return buildList {
+            exercises.forEach { exercise ->
+                val groupId = exercise.supersetGroupId
+                if (groupId == null) {
+                    add(listOf(exercise))
+                } else if (seenSupersetGroups.add(groupId)) {
+                    add(exercises.filter { it.supersetGroupId == groupId })
+                }
             }
         }
     }

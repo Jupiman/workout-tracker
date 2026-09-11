@@ -193,6 +193,54 @@ class ProgramRepositoryTest {
     }
 
     @Test
+    fun moveSupersetGroupReordersGroupAndKeepsMembersContiguous() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+        repository.createExerciseAndAddToWorkout(
+            workoutTemplateId = seed.templateId,
+            exerciseName = "Overhead Press",
+            config = config(restSeconds = 150),
+        )
+        val groupId = database.workoutTemplateExerciseDao()
+            .getById(seed.firstTemplateExerciseId)!!
+            .supersetGroupId!!
+
+        repository.moveSupersetGroup(
+            workoutTemplateId = seed.templateId,
+            supersetGroupId = groupId,
+            offset = 1,
+        )
+
+        assertEquals(
+            listOf("Overhead Press", "Bench Press", "Machine Row"),
+            editorExerciseNames(seed.templateId),
+        )
+        assertEquals(
+            listOf(null, groupId, groupId),
+            database.workoutTemplateExerciseDao()
+                .getForWorkoutTemplate(seed.templateId)
+                .map { it.supersetGroupId },
+        )
+
+        repository.moveSupersetGroup(
+            workoutTemplateId = seed.templateId,
+            supersetGroupId = groupId,
+            offset = -1,
+        )
+
+        assertEquals(
+            listOf("Bench Press", "Machine Row", "Overhead Press"),
+            editorExerciseNames(seed.templateId),
+        )
+        assertEquals(
+            listOf(0, 1, 2),
+            database.workoutTemplateExerciseDao()
+                .getForWorkoutTemplate(seed.templateId)
+                .map { it.sortOrder },
+        )
+    }
+
+    @Test
     fun setTargetsCanBeSavedAndReset() = runTest {
         val seed = seedTwoExerciseTemplate()
 
