@@ -3,6 +3,8 @@
 package com.jupiman.workouttracker.ui.screen
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -465,14 +468,25 @@ private fun EditDayScreen(
                 Text("No exercises in this day.", style = MaterialTheme.typography.bodyLarge)
             }
         } else {
-            templateExercises.forEachIndexed { exerciseIndex, item ->
-                item(key = item.id) {
-                    TemplateExerciseEditor(
-                        item = item,
-                        isFirst = exerciseIndex == 0,
-                        isLast = exerciseIndex == templateExercises.lastIndex,
-                        viewModel = viewModel,
-                    )
+            templateExercises.programExerciseDisplayBlocks().forEach { block ->
+                item(key = block.key) {
+                    when (block) {
+                        is ProgramExerciseDisplayBlock.SingleExercise -> {
+                            TemplateExerciseEditor(
+                                item = block.exercise.item,
+                                isFirst = block.exercise.index == 0,
+                                isLast = block.exercise.index == templateExercises.lastIndex,
+                                viewModel = viewModel,
+                            )
+                        }
+                        is ProgramExerciseDisplayBlock.Superset -> {
+                            ProgramSupersetGroup(
+                                block = block,
+                                lastIndex = templateExercises.lastIndex,
+                                viewModel = viewModel,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -493,11 +507,54 @@ private fun EditDayScreen(
 }
 
 @Composable
+private fun ProgramSupersetGroup(
+    block: ProgramExerciseDisplayBlock.Superset,
+    lastIndex: Int,
+    viewModel: ProgramViewModel,
+) {
+    val shape = RoundedCornerShape(12.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.primary, shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = "Superset",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = "${block.exercises.size} exercises",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        block.exercises.forEachIndexed { index, exercise ->
+            if (index > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+            }
+            TemplateExerciseEditor(
+                item = exercise.item,
+                isFirst = exercise.index == 0,
+                isLast = exercise.index == lastIndex,
+                viewModel = viewModel,
+                showSupersetLabel = false,
+            )
+        }
+    }
+}
+
+@Composable
 private fun TemplateExerciseEditor(
     item: WorkoutTemplateExerciseEditorItem,
     isFirst: Boolean,
     isLast: Boolean,
     viewModel: ProgramViewModel,
+    showSupersetLabel: Boolean = true,
 ) {
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
     var repMin by remember(item) { mutableStateOf(item.repMin.toString()) }
@@ -522,7 +579,7 @@ private fun TemplateExerciseEditor(
                     "${formatCentiKg(item.currentWeightCentiKg)} kg | Rest ${item.restSeconds}s",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            if (item.supersetGroupId != null) {
+            if (showSupersetLabel && item.supersetGroupId != null) {
                 Text(
                     text = "Superset",
                     style = MaterialTheme.typography.labelLarge,
@@ -591,6 +648,49 @@ private fun TemplateExerciseEditor(
                 ) {
                     Text("Remove superset")
                 }
+            }
+        }
+    }
+}
+
+private sealed interface ProgramExerciseDisplayBlock {
+    val key: String
+
+    data class SingleExercise(val exercise: IndexedTemplateExercise) : ProgramExerciseDisplayBlock {
+        override val key: String = "exercise-${exercise.item.id}"
+    }
+
+    data class Superset(
+        val groupId: Long,
+        val exercises: List<IndexedTemplateExercise>,
+    ) : ProgramExerciseDisplayBlock {
+        override val key: String = "superset-$groupId"
+    }
+}
+
+private data class IndexedTemplateExercise(
+    val index: Int,
+    val item: WorkoutTemplateExerciseEditorItem,
+)
+
+private fun List<WorkoutTemplateExerciseEditorItem>.programExerciseDisplayBlocks(): List<ProgramExerciseDisplayBlock> {
+    val indexedItems = mapIndexed { index, item -> IndexedTemplateExercise(index, item) }
+    val seenSupersetGroups = mutableSetOf<Long>()
+
+    return buildList {
+        indexedItems.forEach { indexedExercise ->
+            val supersetGroup = indexedExercise.item.supersetGroupId
+            if (supersetGroup == null) {
+                add(ProgramExerciseDisplayBlock.SingleExercise(indexedExercise))
+                return@forEach
+            }
+            if (seenSupersetGroups.add(supersetGroup)) {
+                add(
+                    ProgramExerciseDisplayBlock.Superset(
+                        groupId = supersetGroup,
+                        exercises = indexedItems.filter { it.item.supersetGroupId == supersetGroup },
+                    ),
+                )
             }
         }
     }

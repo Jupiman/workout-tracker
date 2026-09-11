@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -228,18 +231,30 @@ private fun ActiveWorkoutPanel(
             onSkipRest = onSkipRest,
         )
 
-        activeWorkout.exercises
-            .sortedBy { it.exercise.sortOrderSnapshot }
-            .forEach { exercise ->
-                SessionExerciseCard(
-                    exercise = exercise,
-                    shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
-                    onCompleteSet = onCompleteSet,
-                    onUncompleteSet = onUncompleteSet,
-                    onSkipSet = onSkipSet,
-                    onAddSessionSet = onAddSessionSet,
-                )
+        activeWorkout.exerciseDisplayBlocks().forEach { block ->
+            when (block) {
+                is ActiveWorkoutDisplayBlock.SingleExercise -> {
+                    SessionExerciseCard(
+                        exercise = block.exercise,
+                        shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
+                        onCompleteSet = onCompleteSet,
+                        onUncompleteSet = onUncompleteSet,
+                        onSkipSet = onSkipSet,
+                        onAddSessionSet = onAddSessionSet,
+                    )
+                }
+                is ActiveWorkoutDisplayBlock.Superset -> {
+                    SupersetExerciseGroup(
+                        block = block,
+                        activeWorkout = activeWorkout,
+                        onCompleteSet = onCompleteSet,
+                        onUncompleteSet = onUncompleteSet,
+                        onSkipSet = onSkipSet,
+                        onAddSessionSet = onAddSessionSet,
+                    )
+                }
             }
+        }
 
         HorizontalDivider()
 
@@ -495,6 +510,56 @@ private fun ProgressionChoiceButton(
 }
 
 @Composable
+private fun SupersetExerciseGroup(
+    block: ActiveWorkoutDisplayBlock.Superset,
+    activeWorkout: WorkoutSessionWithDetails,
+    onCompleteSet: (Long, String, String) -> Unit,
+    onUncompleteSet: (Long) -> Unit,
+    onSkipSet: (Long) -> Unit,
+    onAddSessionSet: (Long, SetType) -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    val groupRestSeconds = block.exercises
+        .firstNotNullOfOrNull { it.exercise.supersetRestSecondsSnapshot }
+        ?: block.exercises.last().exercise.restSecondsSnapshot
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.primary, shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = "Superset",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = "${block.exercises.size} exercises | Group rest ${groupRestSeconds}s",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        block.exercises.forEachIndexed { index, exercise ->
+            if (index > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+            }
+            SessionExerciseCard(
+                exercise = exercise,
+                shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
+                onCompleteSet = onCompleteSet,
+                onUncompleteSet = onUncompleteSet,
+                onSkipSet = onSkipSet,
+                onAddSessionSet = onAddSessionSet,
+                showSupersetLabel = false,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SessionExerciseCard(
     exercise: SessionExerciseWithSets,
     shouldCollapseSet: (SessionSetEntity) -> Boolean,
@@ -502,9 +567,10 @@ private fun SessionExerciseCard(
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
+    showSupersetLabel: Boolean = true,
 ) {
     val snapshot = exercise.exercise
-    val isSuperset = snapshot.supersetGroupSnapshot != null
+    val isSuperset = showSupersetLabel && snapshot.supersetGroupSnapshot != null
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -534,7 +600,7 @@ private fun SessionExerciseCard(
                 text = "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} | Rest ${snapshot.restSecondsSnapshot}s",
                 style = MaterialTheme.typography.bodySmall,
             )
-            if (snapshot.supersetGroupSnapshot != null) {
+            if (showSupersetLabel && snapshot.supersetGroupSnapshot != null) {
                 Text(
                     text = "Superset | Group rest ${snapshot.supersetRestSecondsSnapshot ?: snapshot.restSecondsSnapshot}s",
                     style = MaterialTheme.typography.labelLarge,
@@ -607,7 +673,21 @@ private fun SessionSetRow(
         SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.onPrimaryContainer
         SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.onErrorContainer
     }
-    val startPadding = if (set.setType == SetType.DROP) 24.dp else 0.dp
+    val isDropSet = set.setType == SetType.DROP
+    val startPadding = if (isDropSet) 24.dp else 0.dp
+    val rowShape = RoundedCornerShape(8.dp)
+    val rowModifier = Modifier
+        .fillMaxWidth()
+        .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
+        .background(rowColor, rowShape)
+        .let { modifier ->
+            if (isDropSet) {
+                modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, rowShape)
+            } else {
+                modifier
+            }
+        }
+        .padding(10.dp)
     var expanded by remember(set.id, set.status, set.completedAt, collapseCompleted) {
         mutableStateOf(!collapseCompleted)
     }
@@ -618,41 +698,36 @@ private fun SessionSetRow(
             rowColor = rowColor,
             rowContentColor = rowContentColor,
             startPadding = startPadding,
+            showDropBorder = isDropSet,
             onExpand = { expanded = true },
         )
         return
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
-            .background(rowColor, RoundedCornerShape(8.dp))
-            .padding(10.dp),
+        modifier = rowModifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "${set.setType.displayName()} ${set.setOrder + 1} | ${set.status.displayName()}",
+            text = set.headerText(),
             style = MaterialTheme.typography.labelLarge,
             color = rowContentColor,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WeightAdjuster(
-                label = "kg",
-                value = weight,
-                onValueChange = { weight = it },
-                modifier = Modifier.weight(1f),
-                incrementCentiKg = weightIncrementCentiKg,
-            )
-            OutlinedTextField(
-                value = reps,
-                onValueChange = { reps = it },
-                modifier = Modifier.weight(1f),
-                label = { Text("reps") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            )
-        }
+        WeightAdjuster(
+            label = "kg",
+            value = weight,
+            onValueChange = { weight = it },
+            modifier = Modifier.fillMaxWidth(),
+            incrementCentiKg = weightIncrementCentiKg,
+        )
+        OutlinedTextField(
+            value = reps,
+            onValueChange = { reps = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("reps") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
 
         when (set.status) {
             SessionSetStatus.PENDING -> {
@@ -710,25 +785,34 @@ private fun SessionSetRow(
 @Composable
 private fun CollapsedSessionSetRow(
     set: SessionSetEntity,
-    rowColor: androidx.compose.ui.graphics.Color,
-    rowContentColor: androidx.compose.ui.graphics.Color,
-    startPadding: androidx.compose.ui.unit.Dp,
+    rowColor: Color,
+    rowContentColor: Color,
+    startPadding: Dp,
+    showDropBorder: Boolean,
     onExpand: () -> Unit,
 ) {
     val loggedWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
     val loggedReps = set.actualReps ?: set.prescribedReps
+    val rowShape = RoundedCornerShape(8.dp)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
-            .background(rowColor, RoundedCornerShape(8.dp))
+            .background(rowColor, rowShape)
+            .let { modifier ->
+                if (showDropBorder) {
+                    modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, rowShape)
+                } else {
+                    modifier
+                }
+            }
             .clickable(onClick = onExpand)
             .padding(10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = "${set.setType.displayName()} ${set.setOrder + 1}",
+            text = set.collapsedLabel(),
             style = MaterialTheme.typography.labelLarge,
             color = rowContentColor,
         )
@@ -751,6 +835,54 @@ private fun SessionSetStatus.displayName(): String = when (this) {
     SessionSetStatus.PENDING -> "Pending"
     SessionSetStatus.COMPLETED -> "Completed"
     SessionSetStatus.SKIPPED -> "Skipped"
+}
+
+private fun SessionSetEntity.headerText(): String =
+    if (setType == SetType.DROP) {
+        "${setType.displayName()} ${setOrder + 1} | Drop from previous | ${status.displayName()}"
+    } else {
+        "${setType.displayName()} ${setOrder + 1} | ${status.displayName()}"
+    }
+
+private fun SessionSetEntity.collapsedLabel(): String =
+    if (setType == SetType.DROP) {
+        "${setType.displayName()} ${setOrder + 1} | Drop"
+    } else {
+        "${setType.displayName()} ${setOrder + 1}"
+    }
+
+private sealed interface ActiveWorkoutDisplayBlock {
+    data class SingleExercise(val exercise: SessionExerciseWithSets) : ActiveWorkoutDisplayBlock
+
+    data class Superset(
+        val groupId: Long,
+        val exercises: List<SessionExerciseWithSets>,
+    ) : ActiveWorkoutDisplayBlock
+}
+
+private fun WorkoutSessionWithDetails.exerciseDisplayBlocks(): List<ActiveWorkoutDisplayBlock> {
+    val sortedExercises = exercises.sortedBy { it.exercise.sortOrderSnapshot }
+    val seenSupersetGroups = mutableSetOf<Long>()
+
+    return buildList {
+        sortedExercises.forEach { exercise ->
+            val supersetGroup = exercise.exercise.supersetGroupSnapshot
+            if (supersetGroup == null) {
+                add(ActiveWorkoutDisplayBlock.SingleExercise(exercise))
+                return@forEach
+            }
+            if (seenSupersetGroups.add(supersetGroup)) {
+                add(
+                    ActiveWorkoutDisplayBlock.Superset(
+                        groupId = supersetGroup,
+                        exercises = sortedExercises.filter {
+                            it.exercise.supersetGroupSnapshot == supersetGroup
+                        },
+                    ),
+                )
+            }
+        }
+    }
 }
 
 private fun WorkoutSessionWithDetails.shouldCollapseSet(

@@ -2131,6 +2131,13 @@ Drop sets:
 - use subtle background or connector styling so they read as related to the preceding set
 - avoid complex multi-stage drop-set programming in MVP
 
+Phase 54C implementation:
+
+- active workout supersets render as one bordered group with a single `Superset` header
+- the group header shows exercise count and group rest
+- exercise cards inside the group no longer repeat the superset label
+- drop sets keep indentation and add a stronger bordered visual cue
+
 ---
 
 ## 54.7 Warm-up schemes
