@@ -33,7 +33,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -64,8 +63,6 @@ fun WorkoutHomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val restEndsAt = uiState.activeWorkout?.session?.restEndsAt
-    var announcedRestCompleteDeadline by rememberSaveable { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(message) {
         val currentMessage = message ?: return@LaunchedEffect
@@ -73,21 +70,17 @@ fun WorkoutHomeScreen(
         viewModel.clearMessage()
     }
 
-    LaunchedEffect(restEndsAt) {
-        val currentRestEndsAt = restEndsAt ?: return@LaunchedEffect
-        delay(max(0L, currentRestEndsAt - System.currentTimeMillis()))
-        if (announcedRestCompleteDeadline != currentRestEndsAt) {
-            announcedRestCompleteDeadline = currentRestEndsAt
-            snackbarHostState.showSnackbar(
-                message = "Rest complete",
-                actionLabel = "OK",
-            )
-        }
-    }
-
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
+        bottomBar = {
+            val activeWorkout = uiState.activeWorkout
+            RestTimerBottomBar(
+                restEndsAt = activeWorkout?.session?.restEndsAt,
+                onAddRestTime = viewModel::addRestTime,
+                onSkipRest = viewModel::skipRest,
+            )
+        },
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -122,8 +115,6 @@ fun WorkoutHomeScreen(
                         onSkipSet = viewModel::skipSet,
                         onDiscardWorkout = viewModel::discardActiveWorkout,
                         onFinishWorkout = viewModel::finishActiveWorkout,
-                        onAddRestTime = viewModel::addRestTime,
-                        onSkipRest = viewModel::skipRest,
                         onAddSessionSet = viewModel::addSessionSet,
                     )
                 }
@@ -207,8 +198,6 @@ private fun ActiveWorkoutPanel(
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
     onFinishWorkout: (Boolean, Map<Long, ProgressionFinishChoice>) -> Unit,
-    onAddRestTime: (Int) -> Unit,
-    onSkipRest: () -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
@@ -238,12 +227,6 @@ private fun ActiveWorkoutPanel(
         Text(
             text = activeWorkout.session.programNameSnapshot,
             style = MaterialTheme.typography.bodyMedium,
-        )
-
-        RestTimerBanner(
-            restEndsAt = activeWorkout.session.restEndsAt,
-            onAddRestTime = onAddRestTime,
-            onSkipRest = onSkipRest,
         )
 
         activeWorkout.exerciseDisplayBlocks().forEach { block ->
@@ -369,7 +352,7 @@ private fun ActiveWorkoutPanel(
 }
 
 @Composable
-private fun RestTimerBanner(
+private fun RestTimerBottomBar(
     restEndsAt: Long?,
     onAddRestTime: (Int) -> Unit,
     onSkipRest: () -> Unit,
@@ -395,7 +378,11 @@ private fun RestTimerBanner(
         "Rest %02d:%02d".format(minutes, seconds)
     }
 
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
         Column(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

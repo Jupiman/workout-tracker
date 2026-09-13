@@ -2568,26 +2568,25 @@ Acceptance criteria:
 
 ---
 
-## 54.8 Rest-complete in-app feedback
+## 54.8 Rest timer in-app feedback
 
-Use bottom snackbars for short in-app feedback.
+Use a persistent bottom timer for active rest periods.
 
-For rest completion:
+For rest timing:
 
 - keep existing notification sound/vibration behavior
-- show an in-app bottom snackbar when the app is visible
-- message: `Rest complete`
-- optional action: `OK`
+- keep existing Android notification-area completion behavior
+- show the active rest timer at the bottom of the Workout screen while a rest deadline exists
+- keep timer controls such as `+30 sec` and `Skip` available in the bottom timer
+- do not also show a bottom snackbar when rest runs out
 
-Snackbars should not depend on the user being scrolled to the top of the workout.
-
-Persistent warnings can use banners, but routine feedback should use snackbars.
+The timer should not depend on the user being scrolled to the top of the workout.
 
 Phase 54.8 implementation:
 
-- the Workout screen observes the active persisted rest deadline and shows a bottom snackbar when that visible deadline completes
-- snackbar message is `Rest complete` with an `OK` action
-- changing, extending, skipping, or clearing the rest deadline cancels the pending in-app snackbar for the old deadline
+- the Workout screen renders the active persisted rest deadline in a Scaffold bottom bar
+- the timer remains visible while scrolling the workout content
+- rest completion no longer creates an in-app bottom snackbar
 - existing sound/vibration/background Android notification scheduling remains unchanged
 
 ---
