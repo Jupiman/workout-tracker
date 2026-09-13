@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.di
 import android.content.Context
 import androidx.room.Room
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
+import com.jupiman.workouttracker.data.repository.DataBackupRepository
 import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
@@ -30,6 +31,7 @@ class AppContainer(context: Context) {
     )
 
     val exerciseRepository = ExerciseRepository(database.exerciseDao())
+    val dataBackupRepository = DataBackupRepository(database)
     val programRepository = ProgramRepository(
         database = database,
         programDao = database.programDao(),

@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -20,8 +22,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -47,6 +53,8 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     viewModel: HistoryViewModel,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -63,6 +71,8 @@ fun HistoryScreen(
         WorkoutHistoryList(
             sessions = uiState.sessions,
             onSelectSession = viewModel::selectSession,
+            onExportBackup = onExportBackup,
+            onRestoreBackup = onRestoreBackup,
             modifier = modifier,
         )
     }
@@ -72,8 +82,12 @@ fun HistoryScreen(
 private fun WorkoutHistoryList(
     sessions: List<WorkoutSessionWithDetails>,
     onSelectSession: (Long) -> Unit,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var confirmingRestore by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -87,6 +101,13 @@ private fun WorkoutHistoryList(
                 text = "History",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
+            )
+        }
+
+        item {
+            BackupCard(
+                onExportBackup = onExportBackup,
+                onRestoreBackup = { confirmingRestore = true },
             )
         }
 
@@ -110,6 +131,72 @@ private fun WorkoutHistoryList(
 
         item {
             Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+
+    if (confirmingRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmingRestore = false },
+            title = { Text("Restore backup?") },
+            text = {
+                Text("This replaces the local Workout Companion data on this device with the selected backup file.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmingRestore = false
+                        onRestoreBackup()
+                    },
+                ) {
+                    Text("Choose backup")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmingRestore = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun BackupCard(
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(WorkoutSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+        ) {
+            Text(
+                text = "Backup",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Export or restore a local JSON backup of programs, history, and active workout state.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item)) {
+                Button(
+                    onClick = onExportBackup,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Export")
+                }
+                OutlinedButton(
+                    onClick = onRestoreBackup,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Restore")
+                }
+            }
         }
     }
 }

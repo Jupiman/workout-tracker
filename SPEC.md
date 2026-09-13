@@ -2670,6 +2670,43 @@ Phase 54.10 implementation:
 
 ---
 
+## 54.11 Local backup, restore, and export
+
+The app should support manual local backups without adding accounts, cloud sync, or a backend.
+
+Backup/export rules:
+
+- export a user-selected local file through Android's document picker
+- use a human-readable JSON backup format
+- include programs, exercises, templates, progression state, active workout state, completed history, supersets, warm-ups, per-set targets, and session sets
+- include metadata for app name, backup format version, schema version, and export timestamp
+- do not expose backup files automatically to network services
+- do not add cloud storage, authentication, or scheduled sync
+
+Restore rules:
+
+- restore from a user-selected file through Android's document picker
+- require an explicit confirmation before choosing the restore file
+- replace the current local app data with the backup content
+- restore only backups with the matching app/schema version
+- resync rest timer alarms and workout notifications after restore
+- do not change progression rules or apply progression during restore
+- do not run a Room migration solely for this feature
+
+UI rules:
+
+- keep controls secondary and out of the workout logging path
+- History may contain a compact Backup card until a dedicated settings/menu surface exists
+- use clear labels: `Export` and `Restore`
+
+Phase 54.11 implementation:
+
+- `DataBackupRepository` exports/imports the current Room tables as a versioned JSON document
+- `WorkoutTrackerApp` owns the Android create/open document launchers
+- the History screen exposes a compact Backup card and restore confirmation dialog
+
+---
+
 # 55. Development rules for the coding agent
 
 Before implementing a major feature:
