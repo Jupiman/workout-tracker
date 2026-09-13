@@ -15,6 +15,9 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.notification.RestTimerScheduler
+import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
+import com.jupiman.workouttracker.notification.WorkoutNotificationState
+import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -30,6 +33,7 @@ class WorkoutSessionRepositoryTest {
     private lateinit var database: WorkoutTrackerDatabase
     private lateinit var repository: WorkoutSessionRepository
     private lateinit var restTimerScheduler: FakeRestTimerScheduler
+    private lateinit var workoutNotificationUpdater: FakeWorkoutNotificationUpdater
 
     @Before
     fun createDatabase() {
@@ -38,6 +42,7 @@ class WorkoutSessionRepositoryTest {
             .allowMainThreadQueries()
             .build()
         restTimerScheduler = FakeRestTimerScheduler()
+        workoutNotificationUpdater = FakeWorkoutNotificationUpdater()
         repository = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
@@ -51,6 +56,7 @@ class WorkoutSessionRepositoryTest {
             progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
             restTimerScheduler = restTimerScheduler,
+            workoutNotificationUpdater = workoutNotificationUpdater,
         )
     }
 
@@ -364,6 +370,66 @@ class WorkoutSessionRepositoryTest {
 
         assertNull(database.workoutSessionDao().getById(sessionId)?.restEndsAt)
         assertEquals(true, restTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun activeWorkoutProjectsCurrentSetNotificationState() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val activeWorkout = database.workoutSessionDao().getActiveWithDetails()
+
+        val state = WorkoutNotificationProjector.stateFor(activeWorkout)
+
+        val setState = state as WorkoutNotificationState.SetAction
+        assertEquals(sessionId, setState.sessionId)
+        assertEquals(firstSessionSets(sessionId).first().id, setState.setId)
+        assertEquals("Bench Press", setState.title)
+        assertEquals("Set 1/3 • 70 kg x 10", setState.text)
+    }
+
+    @Test
+    fun notificationCompleteSetIsIdempotentForExplicitSet() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val firstSetId = firstSessionSets(sessionId).first().id
+
+        assertEquals(true, repository.completeSetFromNotification(sessionId, firstSetId))
+        assertEquals(false, repository.completeSetFromNotification(sessionId, firstSetId))
+
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val sets = database.sessionSetDao().getForSessionExercise(sessionExercise.id)
+        assertEquals(SessionSetStatus.COMPLETED, sets.first { it.id == firstSetId }.status)
+        assertEquals(
+            listOf(SessionSetStatus.COMPLETED, SessionSetStatus.PENDING, SessionSetStatus.PENDING),
+            sets.sortedBy { it.setOrder }.map { it.status },
+        )
+    }
+
+    @Test
+    fun restStateCanBeReconstructedFromPersistedDeadline() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val firstSetId = firstSessionSets(sessionId).first().id
+        repository.completeSetFromNotification(sessionId, firstSetId)
+        val activeWorkout = database.workoutSessionDao().getActiveWithDetails()
+
+        val state = WorkoutNotificationProjector.stateFor(
+            activeWorkout = activeWorkout,
+            now = System.currentTimeMillis(),
+        )
+
+        val restState = state as WorkoutNotificationState.Resting
+        assertEquals(database.workoutSessionDao().getById(sessionId)?.restEndsAt, restState.restEndsAt)
+        assertEquals("Rest", restState.title)
+        assertEquals("Next: Bench Press • 70 kg x 10", restState.text)
+    }
+
+    @Test
+    fun notificationActionAgainstFinishedWorkoutDoesNothingSafely() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val firstSetId = firstSessionSets(sessionId).first().id
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        assertEquals(false, repository.completeSetFromNotification(sessionId, firstSetId))
+        assertEquals(true, workoutNotificationUpdater.cancelled)
     }
 
     @Test
@@ -857,6 +923,21 @@ class WorkoutSessionRepositoryTest {
         override fun schedule(restEndsAt: Long) {
             scheduledRestEndsAt = restEndsAt
             cancelled = false
+        }
+
+        override fun cancel() {
+            cancelled = true
+        }
+    }
+
+    private class FakeWorkoutNotificationUpdater : WorkoutNotificationUpdater {
+        var refreshCount: Int = 0
+            private set
+        var cancelled: Boolean = false
+            private set
+
+        override fun refresh() {
+            refreshCount += 1
         }
 
         override fun cancel() {

@@ -24,6 +24,8 @@ import com.jupiman.workouttracker.domain.progression.ProgressionConfig
 import com.jupiman.workouttracker.domain.progression.ProgressionEngine
 import com.jupiman.workouttracker.domain.progression.ProgressionSet
 import com.jupiman.workouttracker.notification.RestTimerScheduler
+import com.jupiman.workouttracker.notification.NoOpWorkoutNotificationUpdater
+import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -40,6 +42,7 @@ class WorkoutSessionRepository(
     private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
     private val restTimerScheduler: RestTimerScheduler,
+    private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
 ) {
     val activeSession = workoutSessionDao.observeActive()
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
@@ -51,91 +54,95 @@ class WorkoutSessionRepository(
 
     fun sessionSets(sessionExerciseId: Long) = sessionSetDao.observeForSessionExercise(sessionExerciseId)
 
-    suspend fun startWorkout(workoutTemplateId: Long): Long = database.withTransaction {
-        val existingActiveSession = workoutSessionDao.getActive()
-        require(existingActiveSession == null) { "Finish or discard the active workout first." }
+    suspend fun startWorkout(workoutTemplateId: Long): Long {
+        val sessionId = database.withTransaction {
+            val existingActiveSession = workoutSessionDao.getActive()
+            require(existingActiveSession == null) { "Finish or discard the active workout first." }
 
-        val template = workoutTemplateDao.getById(workoutTemplateId)
-            ?: error("Workout template not found.")
-        val program = programDao.getById(template.programId)
-            ?: error("Program not found.")
-        val templateExercises = workoutTemplateExerciseDao.getEditorItemsForWorkoutTemplate(workoutTemplateId)
-        require(templateExercises.isNotEmpty()) { "Add at least one exercise before starting this workout." }
+            val template = workoutTemplateDao.getById(workoutTemplateId)
+                ?: error("Workout template not found.")
+            val program = programDao.getById(template.programId)
+                ?: error("Program not found.")
+            val templateExercises = workoutTemplateExerciseDao.getEditorItemsForWorkoutTemplate(workoutTemplateId)
+            require(templateExercises.isNotEmpty()) { "Add at least one exercise before starting this workout." }
 
-        val now = System.currentTimeMillis()
-        val sessionId = workoutSessionDao.insert(
-            WorkoutSessionEntity(
-                sourceWorkoutTemplateId = template.id,
-                sourceProgramId = program.id,
-                programNameSnapshot = program.name,
-                workoutNameSnapshot = template.name,
-                startedAt = now,
-            ),
-        )
-
-        templateExercises.forEach { templateExercise ->
-            val supersetRestSeconds = templateExercise.supersetGroupId?.let { supersetGroupId ->
-                supersetGroupDao.getById(supersetGroupId)?.restSeconds
-            }
-            val sessionExerciseId = sessionExerciseDao.insert(
-                SessionExerciseEntity(
-                    sessionId = sessionId,
-                    sourceWorkoutTemplateExerciseId = templateExercise.id,
-                    exerciseNameSnapshot = templateExercise.exerciseName,
-                    sortOrderSnapshot = templateExercise.sortOrder,
-                    plannedSetCountSnapshot = templateExercise.plannedWorkingSets,
-                    repMinSnapshot = templateExercise.repMin,
-                    repMaxSnapshot = templateExercise.repMax,
-                    targetRepsSnapshot = templateExercise.currentTargetReps,
-                    prescribedWeightCentiKgSnapshot = templateExercise.currentWeightCentiKg,
-                    incrementCentiKgSnapshot = templateExercise.incrementCentiKg,
-                    restSecondsSnapshot = templateExercise.restSeconds,
-                    supersetGroupSnapshot = templateExercise.supersetGroupId,
-                    supersetRestSecondsSnapshot = supersetRestSeconds,
+            val now = System.currentTimeMillis()
+            val sessionId = workoutSessionDao.insert(
+                WorkoutSessionEntity(
+                    sourceWorkoutTemplateId = template.id,
+                    sourceProgramId = program.id,
+                    programNameSnapshot = program.name,
+                    workoutNameSnapshot = template.name,
+                    startedAt = now,
                 ),
             )
 
-            val warmupSets = workoutTemplateWarmupSetDao
-                .getForTemplateExercise(templateExercise.id)
-            val generatedWarmupSets = warmupSets.mapIndexed { index, warmupSet ->
-                SessionSetEntity(
-                    sessionExerciseId = sessionExerciseId,
-                    setOrder = index - warmupSets.size,
-                    setType = SetType.WARMUP,
-                    isPlanned = true,
-                    countsForProgression = false,
-                    prescribedWeightCentiKg = warmupWeightCentiKg(
-                        workingWeightCentiKg = templateExercise.currentWeightCentiKg,
-                        percent = warmupSet.percentOfWorkingWeight,
+            templateExercises.forEach { templateExercise ->
+                val supersetRestSeconds = templateExercise.supersetGroupId?.let { supersetGroupId ->
+                    supersetGroupDao.getById(supersetGroupId)?.restSeconds
+                }
+                val sessionExerciseId = sessionExerciseDao.insert(
+                    SessionExerciseEntity(
+                        sessionId = sessionId,
+                        sourceWorkoutTemplateExerciseId = templateExercise.id,
+                        exerciseNameSnapshot = templateExercise.exerciseName,
+                        sortOrderSnapshot = templateExercise.sortOrder,
+                        plannedSetCountSnapshot = templateExercise.plannedWorkingSets,
+                        repMinSnapshot = templateExercise.repMin,
+                        repMaxSnapshot = templateExercise.repMax,
+                        targetRepsSnapshot = templateExercise.currentTargetReps,
+                        prescribedWeightCentiKgSnapshot = templateExercise.currentWeightCentiKg,
+                        incrementCentiKgSnapshot = templateExercise.incrementCentiKg,
+                        restSecondsSnapshot = templateExercise.restSeconds,
+                        supersetGroupSnapshot = templateExercise.supersetGroupId,
+                        supersetRestSecondsSnapshot = supersetRestSeconds,
                     ),
-                    prescribedReps = warmupSet.reps,
                 )
-            }
-            if (generatedWarmupSets.isNotEmpty()) {
-                sessionSetDao.insertAll(generatedWarmupSets)
+
+                val warmupSets = workoutTemplateWarmupSetDao
+                    .getForTemplateExercise(templateExercise.id)
+                val generatedWarmupSets = warmupSets.mapIndexed { index, warmupSet ->
+                    SessionSetEntity(
+                        sessionExerciseId = sessionExerciseId,
+                        setOrder = index - warmupSets.size,
+                        setType = SetType.WARMUP,
+                        isPlanned = true,
+                        countsForProgression = false,
+                        prescribedWeightCentiKg = warmupWeightCentiKg(
+                            workingWeightCentiKg = templateExercise.currentWeightCentiKg,
+                            percent = warmupSet.percentOfWorkingWeight,
+                        ),
+                        prescribedReps = warmupSet.reps,
+                    )
+                }
+                if (generatedWarmupSets.isNotEmpty()) {
+                    sessionSetDao.insertAll(generatedWarmupSets)
+                }
+
+                val setTargetsByOrder = workoutTemplateSetTargetDao
+                    .getForTemplateExercise(templateExercise.id)
+                    .associateBy { it.setOrder }
+                val plannedSets = (0 until templateExercise.plannedWorkingSets).map { setIndex ->
+                    val setTarget = setTargetsByOrder[setIndex]
+                    SessionSetEntity(
+                        sessionExerciseId = sessionExerciseId,
+                        setOrder = setIndex,
+                        setType = SetType.WORKING,
+                        isPlanned = true,
+                        countsForProgression = setTarget?.countsForProgression ?: true,
+                        prescribedWeightCentiKg = setTarget?.prescribedWeightCentiKg
+                            ?: templateExercise.currentWeightCentiKg,
+                        prescribedReps = setTarget?.prescribedReps
+                            ?: templateExercise.currentTargetReps,
+                    )
+                }
+                sessionSetDao.insertAll(plannedSets)
             }
 
-            val setTargetsByOrder = workoutTemplateSetTargetDao
-                .getForTemplateExercise(templateExercise.id)
-                .associateBy { it.setOrder }
-            val plannedSets = (0 until templateExercise.plannedWorkingSets).map { setIndex ->
-                val setTarget = setTargetsByOrder[setIndex]
-                SessionSetEntity(
-                    sessionExerciseId = sessionExerciseId,
-                    setOrder = setIndex,
-                    setType = SetType.WORKING,
-                    isPlanned = true,
-                    countsForProgression = setTarget?.countsForProgression ?: true,
-                    prescribedWeightCentiKg = setTarget?.prescribedWeightCentiKg
-                        ?: templateExercise.currentWeightCentiKg,
-                    prescribedReps = setTarget?.prescribedReps
-                        ?: templateExercise.currentTargetReps,
-                )
-            }
-            sessionSetDao.insertAll(plannedSets)
+            sessionId
         }
-
-        sessionId
+        workoutNotificationUpdater.refresh()
+        return sessionId
     }
 
     suspend fun completeSet(
@@ -146,24 +153,64 @@ class WorkoutSessionRepository(
         require(actualWeightCentiKg >= 0) { "Weight cannot be negative." }
         require(actualReps >= 0) { "Reps cannot be negative." }
 
+        completeSetInternal(
+            setId = setId,
+            expectedSessionId = null,
+            actualWeightCentiKg = actualWeightCentiKg,
+            actualReps = actualReps,
+            pendingOnly = false,
+        )
+        workoutNotificationUpdater.refresh()
+    }
+
+    suspend fun completeSetFromNotification(
+        expectedSessionId: Long,
+        setId: Long,
+    ): Boolean {
+        val completed = completeSetInternal(
+            setId = setId,
+            expectedSessionId = expectedSessionId,
+            actualWeightCentiKg = null,
+            actualReps = null,
+            pendingOnly = true,
+        )
+        if (completed) workoutNotificationUpdater.refresh()
+        return completed
+    }
+
+    private suspend fun completeSetInternal(
+        setId: Long,
+        expectedSessionId: Long?,
+        actualWeightCentiKg: Int?,
+        actualReps: Int?,
+        pendingOnly: Boolean,
+    ): Boolean {
         var restEndsAtToSchedule: Long? = null
         var shouldCancelRest = false
+        var completed = false
         database.withTransaction {
             val set = sessionSetDao.getById(setId) ?: error("Set not found.")
             val sessionExercise = sessionExerciseDao.getById(set.sessionExerciseId)
                 ?: error("Session exercise not found.")
             val session = workoutSessionDao.getById(sessionExercise.sessionId)
                 ?: error("Workout session not found.")
+            if (expectedSessionId != null && session.id != expectedSessionId) return@withTransaction
+            if (pendingOnly && set.status != SessionSetStatus.PENDING) return@withTransaction
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
             val now = System.currentTimeMillis()
             sessionSetDao.update(
                 set.copy(
-                    actualWeightCentiKg = actualWeightCentiKg,
-                    actualReps = actualReps,
+                    actualWeightCentiKg = actualWeightCentiKg
+                        ?: set.prescribedWeightCentiKg
+                        ?: sessionExercise.prescribedWeightCentiKgSnapshot,
+                    actualReps = actualReps
+                        ?: set.prescribedReps
+                        ?: sessionExercise.targetRepsSnapshot,
                     status = SessionSetStatus.COMPLETED,
                     completedAt = now,
                 ),
             )
+            completed = true
 
             val restSeconds = restSecondsAfterCompletedWorkingSet(
                 completedSet = set,
@@ -181,51 +228,56 @@ class WorkoutSessionRepository(
         }
         restEndsAtToSchedule?.let(restTimerScheduler::schedule)
         if (shouldCancelRest) restTimerScheduler.cancel()
+        return completed
     }
 
     suspend fun addSessionSet(
         sessionExerciseId: Long,
         setType: SetType,
-    ): Long = database.withTransaction {
-        require(setType != SetType.WORKING && setType != SetType.WARMUP) {
-            "Only session-only sets can be added."
-        }
-        val sessionExercise = sessionExerciseDao.getById(sessionExerciseId)
-            ?: error("Session exercise not found.")
-        val session = workoutSessionDao.getById(sessionExercise.sessionId)
-            ?: error("Workout session not found.")
-        require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+    ): Long {
+        val setId = database.withTransaction {
+            require(setType != SetType.WORKING && setType != SetType.WARMUP) {
+                "Only session-only sets can be added."
+            }
+            val sessionExercise = sessionExerciseDao.getById(sessionExerciseId)
+                ?: error("Session exercise not found.")
+            val session = workoutSessionDao.getById(sessionExercise.sessionId)
+                ?: error("Workout session not found.")
+            require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
 
-        val existingSets = sessionSetDao.getForSessionExercise(sessionExerciseId)
-        val previousSet = existingSets.maxByOrNull { it.setOrder }
-        val defaultWeight = when (setType) {
-            SetType.EXTRA,
-            SetType.AMRAP -> sessionExercise.prescribedWeightCentiKgSnapshot
-            SetType.DROP -> previousSet?.actualWeightCentiKg
-                ?: previousSet?.prescribedWeightCentiKg
-                ?: sessionExercise.prescribedWeightCentiKgSnapshot
-            SetType.WARMUP,
-            SetType.WORKING -> error("Working sets are generated from templates.")
-        }
-        val defaultReps = when (setType) {
-            SetType.EXTRA -> sessionExercise.targetRepsSnapshot
-            SetType.AMRAP,
-            SetType.DROP -> null
-            SetType.WARMUP,
-            SetType.WORKING -> error("Working sets are generated from templates.")
-        }
+            val existingSets = sessionSetDao.getForSessionExercise(sessionExerciseId)
+            val previousSet = existingSets.maxByOrNull { it.setOrder }
+            val defaultWeight = when (setType) {
+                SetType.EXTRA,
+                SetType.AMRAP -> sessionExercise.prescribedWeightCentiKgSnapshot
+                SetType.DROP -> previousSet?.actualWeightCentiKg
+                    ?: previousSet?.prescribedWeightCentiKg
+                    ?: sessionExercise.prescribedWeightCentiKgSnapshot
+                SetType.WARMUP,
+                SetType.WORKING -> error("Working sets are generated from templates.")
+            }
+            val defaultReps = when (setType) {
+                SetType.EXTRA -> sessionExercise.targetRepsSnapshot
+                SetType.AMRAP,
+                SetType.DROP -> null
+                SetType.WARMUP,
+                SetType.WORKING -> error("Working sets are generated from templates.")
+            }
 
-        sessionSetDao.insert(
-            SessionSetEntity(
-                sessionExerciseId = sessionExerciseId,
-                setOrder = sessionSetDao.countForSessionExercise(sessionExerciseId),
-                setType = setType,
-                isPlanned = false,
-                countsForProgression = false,
-                prescribedWeightCentiKg = defaultWeight,
-                prescribedReps = defaultReps,
-            ),
-        )
+            sessionSetDao.insert(
+                SessionSetEntity(
+                    sessionExerciseId = sessionExerciseId,
+                    setOrder = sessionSetDao.countForSessionExercise(sessionExerciseId),
+                    setType = setType,
+                    isPlanned = false,
+                    countsForProgression = false,
+                    prescribedWeightCentiKg = defaultWeight,
+                    prescribedReps = defaultReps,
+                ),
+            )
+        }
+        workoutNotificationUpdater.refresh()
+        return setId
     }
 
     suspend fun uncompleteSet(setId: Long) {
@@ -240,6 +292,7 @@ class WorkoutSessionRepository(
                 ),
             )
         }
+        workoutNotificationUpdater.refresh()
     }
 
     suspend fun skipSet(setId: Long) {
@@ -254,6 +307,7 @@ class WorkoutSessionRepository(
                 ),
             )
         }
+        workoutNotificationUpdater.refresh()
     }
 
     suspend fun discardActiveWorkout() {
@@ -263,6 +317,7 @@ class WorkoutSessionRepository(
             }
         }
         restTimerScheduler.cancel()
+        workoutNotificationUpdater.cancel()
     }
 
     suspend fun finishActiveWorkout(
@@ -393,6 +448,7 @@ class WorkoutSessionRepository(
             )
         }
         restTimerScheduler.cancel()
+        workoutNotificationUpdater.cancel()
     }
 
     suspend fun addRestTime(seconds: Int) {
@@ -406,6 +462,7 @@ class WorkoutSessionRepository(
             updatedRestEndsAt
         }
         restTimerScheduler.schedule(restEndsAt)
+        workoutNotificationUpdater.refresh()
     }
 
     suspend fun skipRest() {
@@ -415,6 +472,7 @@ class WorkoutSessionRepository(
             }
         }
         restTimerScheduler.cancel()
+        workoutNotificationUpdater.refresh()
     }
 
     suspend fun syncRestTimerAlarm() {
@@ -426,6 +484,7 @@ class WorkoutSessionRepository(
         } else {
             restTimerScheduler.cancel()
         }
+        workoutNotificationUpdater.refresh()
     }
 
     private fun restSecondsAfterCompletedWorkingSet(

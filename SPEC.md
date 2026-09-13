@@ -2613,6 +2613,18 @@ Future architecture note:
 - expose workout state and set-completion actions through repository/ViewModel APIs that could later be called by a Wear OS surface
 - do not add Wear OS modules until explicitly requested
 
+Wear v0.1 implementation:
+
+- no Wear OS app module, Data Layer API, Tiles, complications, watch database, or watch-side timer were added
+- active phone workouts project their current persisted state into a standard ongoing Android notification for phone and Wear OS notification bridging
+- ongoing notification text is watch-friendly, such as exercise name plus `Set 2/3 • 70 kg x 10`
+- `Complete set` notification actions carry explicit session/set IDs and delegate into `WorkoutSessionRepository.completeSetFromNotification`
+- duplicate or stale complete actions are idempotent and cannot advance another set accidentally
+- rest state uses the persisted `restEndsAt` deadline and exposes `+30 sec` and `Skip rest` actions through existing repository operations
+- rest-finished alerts continue to use the high-priority rest notification channel so phone/watch alert behavior follows Android and user device settings
+- active workout notifications are rebuilt from Room state on app process start and after workout/session mutations
+- workout completion or discard cancels the ongoing workout notification
+
 ---
 
 # 55. Development rules for the coding agent

@@ -24,6 +24,10 @@
         </activity>
 
         <receiver
+            android:name=".notification.WorkoutNotificationActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".notification.RestTimerReceiver"
             android:exported="false" />
     </application>
