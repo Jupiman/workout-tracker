@@ -2,6 +2,7 @@
 .tooling/
 /build/
 /app/build/
+/*/build/
 /local.properties
 /.idea/
 *.iml
