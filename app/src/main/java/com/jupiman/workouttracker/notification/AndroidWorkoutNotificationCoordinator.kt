@@ -56,14 +56,19 @@ class AndroidWorkoutNotificationCoordinator(
                 return@launch
             }
 
-            val notification = NotificationCompat.Builder(appContext, REST_TIMER_CHANNEL_ID)
+            val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_rest_timer)
                 .setContentTitle(restFinishedState.title)
                 .setContentText(restFinishedState.text)
                 .setContentIntent(contentIntent())
                 .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setLocalOnly(false)
+                .setOnlyAlertOnce(false)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setVibrate(longArrayOf(0, 250, 160, 250))
                 .apply {
                     restFinishedState.setAction?.let { addCompleteAction(it) }
                 }

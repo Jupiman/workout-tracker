@@ -2621,7 +2621,8 @@ Wear v0.1 implementation:
 - `Complete set` notification actions carry explicit session/set IDs and delegate into `WorkoutSessionRepository.completeSetFromNotification`
 - duplicate or stale complete actions are idempotent and cannot advance another set accidentally
 - rest state uses the persisted `restEndsAt` deadline and exposes `+30 sec` and `Skip rest` actions through existing repository operations
-- rest-finished alerts continue to use the high-priority rest notification channel so phone/watch alert behavior follows Android and user device settings
+- rest-finished alerts use a dedicated high-priority `Rest alerts` notification channel with alarm-style notification metadata so phone/watch alert behavior has the strongest standard Android signal available
+- ongoing workout controls remain quiet/low-priority by design; they are for glanceable controls, not watch popups
 - active workout notifications are rebuilt from Room state on app process start and after workout/session mutations
 - workout completion or discard cancels the ongoing workout notification
 
