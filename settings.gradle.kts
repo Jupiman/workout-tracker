@@ -16,4 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "WorkoutTracker"
 include(":app")
-
+include(":wear-protocol")
+include(":wear")

@@ -9,9 +9,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.google.android.gms.wearable.Wearable
 import com.jupiman.workouttracker.MainActivity
 import com.jupiman.workouttracker.R
 import com.jupiman.workouttracker.data.local.dao.WorkoutSessionDao
+import com.jupiman.workouttracker.wear.await
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,6 +57,9 @@ class AndroidWorkoutNotificationCoordinator(
                 showCurrentState()
                 return@launch
             }
+            val hasConnectedWearCompanion = runCatching {
+                Wearable.getNodeClient(appContext).connectedNodes.await().isNotEmpty()
+            }.getOrDefault(false)
 
             val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_rest_timer)
@@ -64,7 +69,7 @@ class AndroidWorkoutNotificationCoordinator(
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
-                .setLocalOnly(false)
+                .setLocalOnly(hasConnectedWearCompanion)
                 .setOnlyAlertOnce(false)
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)

@@ -25,6 +25,7 @@ import com.jupiman.workouttracker.domain.progression.ProgressionEngine
 import com.jupiman.workouttracker.domain.progression.ProgressionSet
 import com.jupiman.workouttracker.notification.RestTimerScheduler
 import com.jupiman.workouttracker.notification.NoOpWorkoutNotificationUpdater
+import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -173,6 +174,23 @@ class WorkoutSessionRepository(
             actualWeightCentiKg = null,
             actualReps = null,
             pendingOnly = true,
+            requireCurrentActionable = false,
+        )
+        if (completed) workoutNotificationUpdater.refresh()
+        return completed
+    }
+
+    suspend fun completeSetFromWearCommand(
+        expectedSessionId: Long,
+        setId: Long,
+    ): Boolean {
+        val completed = completeSetInternal(
+            setId = setId,
+            expectedSessionId = expectedSessionId,
+            actualWeightCentiKg = null,
+            actualReps = null,
+            pendingOnly = true,
+            requireCurrentActionable = true,
         )
         if (completed) workoutNotificationUpdater.refresh()
         return completed
@@ -184,6 +202,7 @@ class WorkoutSessionRepository(
         actualWeightCentiKg: Int?,
         actualReps: Int?,
         pendingOnly: Boolean,
+        requireCurrentActionable: Boolean = false,
     ): Boolean {
         var restEndsAtToSchedule: Long? = null
         var shouldCancelRest = false
@@ -196,6 +215,11 @@ class WorkoutSessionRepository(
                 ?: error("Workout session not found.")
             if (expectedSessionId != null && session.id != expectedSessionId) return@withTransaction
             if (pendingOnly && set.status != SessionSetStatus.PENDING) return@withTransaction
+            if (requireCurrentActionable) {
+                val activeWorkout = workoutSessionDao.getActiveWithDetails() ?: return@withTransaction
+                val currentSetId = WorkoutNotificationProjector.nextActionableSet(activeWorkout)?.setId
+                if (activeWorkout.session.id != session.id || currentSetId != setId) return@withTransaction
+            }
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
             val now = System.currentTimeMillis()
             sessionSetDao.update(

@@ -9,6 +9,7 @@ import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
 import com.jupiman.workouttracker.notification.AndroidRestTimerScheduler
 import com.jupiman.workouttracker.notification.AndroidWorkoutNotificationCoordinator
 import com.jupiman.workouttracker.notification.WorkoutNotificationActionHandler
+import com.jupiman.workouttracker.wear.AndroidWearWorkoutBridge
 
 class AppContainer(context: Context) {
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
@@ -54,6 +55,12 @@ class AppContainer(context: Context) {
         supersetGroupDao = database.supersetGroupDao(),
         restTimerScheduler = restTimerScheduler,
         workoutNotificationUpdater = workoutNotificationCoordinator,
+    )
+
+    val wearWorkoutBridge = AndroidWearWorkoutBridge(
+        context = context.applicationContext,
+        workoutSessionRepository = workoutSessionRepository,
+        workoutSessionDao = database.workoutSessionDao(),
     )
 
     val workoutNotificationActionHandler = WorkoutNotificationActionHandler(

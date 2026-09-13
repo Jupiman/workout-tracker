@@ -18,6 +18,8 @@ import com.jupiman.workouttracker.notification.RestTimerScheduler
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationState
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
+import com.jupiman.workouttracker.wear.WorkoutWearStateProjector
+import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -401,6 +403,102 @@ class WorkoutSessionRepositoryTest {
             listOf(SessionSetStatus.COMPLETED, SessionSetStatus.PENDING, SessionSetStatus.PENDING),
             sets.sortedBy { it.setOrder }.map { it.status },
         )
+    }
+
+    @Test
+    fun activeWorkoutProjectsWearStateFromCurrentSet() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val activeWorkout = database.workoutSessionDao().getActiveWithDetails()
+
+        val state = WorkoutWearStateProjector.stateFor(activeWorkout, now = 5_000L)
+
+        assertEquals(WearSessionStatus.ACTIVE, state.sessionStatus)
+        assertEquals(sessionId, state.sessionId)
+        assertEquals(firstSessionSets(sessionId).first().id, state.currentSetId)
+        assertEquals("Bench Press", state.exerciseName)
+        assertEquals(7000, state.weightCentiKg)
+        assertEquals(10, state.targetReps)
+        assertEquals("Set 1/3", state.setLabel)
+        assertEquals(1, state.setNumber)
+        assertEquals(3, state.totalSets)
+    }
+
+    @Test
+    fun wearCompleteSetIsIdempotentForCurrentSet() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val firstSetId = firstSessionSets(sessionId).first().id
+
+        assertEquals(true, repository.completeSetFromWearCommand(sessionId, firstSetId))
+        assertEquals(false, repository.completeSetFromWearCommand(sessionId, firstSetId))
+
+        val sets = firstSessionSets(sessionId).sortedBy { it.setOrder }
+        assertEquals(
+            listOf(SessionSetStatus.COMPLETED, SessionSetStatus.PENDING, SessionSetStatus.PENDING),
+            sets.map { it.status },
+        )
+    }
+
+    @Test
+    fun staleWearCommandForNonCurrentPendingSetDoesNothingSafely() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sets = firstSessionSets(sessionId).sortedBy { it.setOrder }
+
+        assertEquals(false, repository.completeSetFromWearCommand(sessionId, sets[1].id))
+
+        assertEquals(
+            listOf(SessionSetStatus.PENDING, SessionSetStatus.PENDING, SessionSetStatus.PENDING),
+            firstSessionSets(sessionId).sortedBy { it.setOrder }.map { it.status },
+        )
+    }
+
+    @Test
+    fun wearRestStateContainsRestDeadlineAndNextSet() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        repository.completeSetFromWearCommand(sessionId, firstSessionSets(sessionId).first().id)
+        val activeWorkout = database.workoutSessionDao().getActiveWithDetails()
+
+        val state = WorkoutWearStateProjector.stateFor(activeWorkout)
+
+        assertEquals(WearSessionStatus.ACTIVE, state.sessionStatus)
+        assertEquals(firstSessionSets(sessionId).sortedBy { it.setOrder }[1].id, state.currentSetId)
+        assertEquals(database.workoutSessionDao().getById(sessionId)?.restEndsAt, state.restEndsAt)
+    }
+
+    @Test
+    fun wearSupersetStateFollowsPhoneSequencing() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val groupId = database.supersetGroupDao().insert(
+            SupersetGroupEntity(
+                workoutTemplateId = seed.templateId,
+                restSeconds = 90,
+            ),
+        )
+        database.workoutTemplateExerciseDao().update(
+            database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!.copy(supersetGroupId = groupId),
+        )
+        database.workoutTemplateExerciseDao().update(
+            database.workoutTemplateExerciseDao().getById(seed.secondTemplateExerciseId)!!.copy(supersetGroupId = groupId),
+        )
+        val sessionId = repository.startWorkout(seed.templateId)
+        val sessionExercises = database.sessionExerciseDao().getForSession(sessionId)
+        val benchSets = database.sessionSetDao().getForSessionExercise(sessionExercises[0].id)
+        val rowSets = database.sessionSetDao().getForSessionExercise(sessionExercises[1].id)
+
+        var state = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails())
+        assertEquals(benchSets[0].id, state.currentSetId)
+        assertEquals(1, state.supersetPosition)
+        assertEquals(2, state.supersetSize)
+
+        repository.completeSetFromWearCommand(sessionId, benchSets[0].id)
+        state = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails())
+        assertEquals(rowSets[0].id, state.currentSetId)
+        assertEquals(2, state.supersetPosition)
+
+        repository.completeSetFromWearCommand(sessionId, rowSets[0].id)
+        state = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails())
+        assertEquals(benchSets[1].id, state.currentSetId)
+        assertEquals(1, state.supersetPosition)
+        assertNotNull(state.restEndsAt)
     }
 
     @Test

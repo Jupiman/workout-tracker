@@ -17,9 +17,11 @@ class WorkoutTrackerApplication : Application() {
         super.onCreate()
         createNotificationChannels(this)
         container = AppContainer(this)
+        container.wearWorkoutBridge.start()
         applicationScope.launch {
             container.workoutSessionRepository.syncRestTimerAlarm()
             container.workoutNotificationCoordinator.showCurrentState()
+            container.wearWorkoutBridge.refresh()
         }
     }
 }
