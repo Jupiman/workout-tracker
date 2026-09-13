@@ -4,12 +4,14 @@ import androidx.compose.foundation.background
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,11 +27,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
@@ -46,8 +51,11 @@ import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
 import com.jupiman.workouttracker.ui.theme.workoutStateColors
 import com.jupiman.workouttracker.ui.viewmodel.HistoryViewModel
 import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.util.Locale
 
 @Composable
@@ -87,6 +95,25 @@ private fun WorkoutHistoryList(
     modifier: Modifier = Modifier,
 ) {
     var confirmingRestore by remember { mutableStateOf(false) }
+    val sessionsByDate = remember(sessions) {
+        sessions.groupBy { it.historyDate() }
+    }
+    val latestWorkoutDate = remember(sessions) {
+        sessions.firstOrNull()?.historyDate()
+    }
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var selectedMonth by remember {
+        mutableStateOf(YearMonth.from(latestWorkoutDate ?: LocalDate.now()))
+    }
+    LaunchedEffect(latestWorkoutDate) {
+        if (selectedDate == null && latestWorkoutDate != null) {
+            selectedDate = latestWorkoutDate
+            selectedMonth = YearMonth.from(latestWorkoutDate)
+        }
+    }
+    val selectedDateSessions = selectedDate
+        ?.let { date -> sessionsByDate[date].orEmpty() }
+        .orEmpty()
 
     LazyColumn(
         modifier = modifier
@@ -119,7 +146,35 @@ private fun WorkoutHistoryList(
                 )
             }
         } else {
-            sessions.forEach { sessionDetails ->
+            item {
+                HistoryCalendarCard(
+                    selectedMonth = selectedMonth,
+                    selectedDate = selectedDate,
+                    workoutCountsByDate = sessionsByDate.mapValues { (_, workouts) -> workouts.size },
+                    onPreviousMonth = { selectedMonth = selectedMonth.minusMonths(1) },
+                    onNextMonth = { selectedMonth = selectedMonth.plusMonths(1) },
+                    onSelectDate = { selectedDate = it },
+                )
+            }
+
+            item {
+                SelectedHistoryDayHeader(
+                    selectedDate = selectedDate,
+                    workoutCount = selectedDateSessions.size,
+                )
+            }
+
+            if (selectedDateSessions.isEmpty()) {
+                item {
+                    Text(
+                        text = "No workouts logged for this day.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            selectedDateSessions.forEach { sessionDetails ->
                 item(key = sessionDetails.session.id) {
                     HistorySessionRow(
                         sessionDetails = sessionDetails,
@@ -156,6 +211,156 @@ private fun WorkoutHistoryList(
                     Text("Cancel")
                 }
             },
+        )
+    }
+}
+
+@Composable
+private fun HistoryCalendarCard(
+    selectedMonth: YearMonth,
+    selectedDate: LocalDate?,
+    workoutCountsByDate: Map<LocalDate, Int>,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onSelectDate: (LocalDate) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            modifier = Modifier.padding(WorkoutSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(onClick = onPreviousMonth) {
+                    Text("Prev")
+                }
+                Text(
+                    text = selectedMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
+                        " ${selectedMonth.year}",
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                )
+                OutlinedButton(onClick = onNextMonth) {
+                    Text("Next")
+                }
+            }
+            CalendarWeekHeader()
+            calendarWeeks(selectedMonth).forEach { week ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    week.forEach { date ->
+                        CalendarDayCell(
+                            date = date,
+                            currentMonth = selectedMonth,
+                            selected = selectedDate == date,
+                            workoutCount = workoutCountsByDate[date] ?: 0,
+                            onSelectDate = onSelectDate,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CalendarWeekHeader() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun").forEach { day ->
+            Text(
+                text = day,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalendarDayCell(
+    date: LocalDate,
+    currentMonth: YearMonth,
+    selected: Boolean,
+    workoutCount: Int,
+    onSelectDate: (LocalDate) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val inCurrentMonth = YearMonth.from(date) == currentMonth
+    val hasWorkouts = workoutCount > 0
+    val background = when {
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        hasWorkouts -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val content = when {
+        selected -> MaterialTheme.colorScheme.onPrimaryContainer
+        inCurrentMonth -> MaterialTheme.colorScheme.onSurface
+        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f)
+    }
+
+    Box(
+        modifier = modifier
+            .heightIn(min = 52.dp)
+            .background(background, RoundedCornerShape(WorkoutRadii.row))
+            .clickable(onClick = { onSelectDate(date) })
+            .padding(vertical = 6.dp, horizontal = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = date.dayOfMonth.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = content,
+                fontWeight = if (selected || hasWorkouts) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            Text(
+                text = if (workoutCount > 0) workoutCount.toString() else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                minLines = 1,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SelectedHistoryDayHeader(
+    selectedDate: LocalDate?,
+    workoutCount: Int,
+) {
+    val dateText = selectedDate?.format(DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault()))
+        ?: "Choose a day"
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = dateText,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = when (workoutCount) {
+                0 -> "No workouts"
+                1 -> "1 workout"
+                else -> "$workoutCount workouts"
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -417,6 +622,21 @@ private fun SessionSetEntity.historyLoad(): String =
     }
 
 private fun Int?.kgText(): String = this?.let { "${formatCentiKg(it)} kg" } ?: "- kg"
+
+private fun WorkoutSessionWithDetails.historyDate(): LocalDate =
+    Instant.ofEpochMilli(session.completedAt ?: session.startedAt)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDate()
+
+private fun calendarWeeks(month: YearMonth): List<List<LocalDate>> {
+    val firstOfMonth = month.atDay(1)
+    val firstCalendarDay = firstOfMonth.minusDays((firstOfMonth.dayOfWeek.value - 1).toLong())
+    return (0 until 6).map { week ->
+        (0 until 7).map { day ->
+            firstCalendarDay.plusDays((week * 7 + day).toLong())
+        }
+    }
+}
 
 private fun formatHistoryDate(timestamp: Long): String =
     Instant.ofEpochMilli(timestamp)

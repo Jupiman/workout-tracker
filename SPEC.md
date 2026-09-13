@@ -2707,6 +2707,30 @@ Phase 54.11 implementation:
 
 ---
 
+## 54.12 History calendar navigation
+
+The History screen should not become an unbounded chronological scroll as workout history grows.
+
+Calendar rules:
+
+- show a month calendar before the workout list
+- mark days that contain logged workouts
+- show the workout count on days with one or more workouts
+- selecting a date filters the visible history list to that date
+- if two or more workouts are logged on the same date, show all of them under that selected date
+- use the user's local date based on `completedAt` when available, otherwise `startedAt`
+- keep historical session details read-only
+- do not add graphs, analytics, or volume dashboards
+
+Phase 54.12 implementation:
+
+- the History list defaults to the latest logged workout date
+- month navigation uses simple previous/next controls
+- the selected-day summary shows `No workouts`, `1 workout`, or `N workouts`
+- the existing session detail view remains unchanged
+
+---
+
 # 55. Development rules for the coding agent
 
 Before implementing a major feature:
