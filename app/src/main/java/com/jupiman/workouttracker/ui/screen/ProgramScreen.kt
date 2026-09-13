@@ -82,6 +82,10 @@ import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditor
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
+import com.jupiman.workouttracker.ui.theme.StatusPill
+import com.jupiman.workouttracker.ui.theme.WorkoutRadii
+import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
+import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -157,6 +161,7 @@ fun ProgramScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
         Column(
@@ -207,7 +212,11 @@ private fun ProgramDestinationTabs(
     selectedTab: ProgramDestinationTab,
     onSelectTab: (ProgramDestinationTab) -> Unit,
 ) {
-    TabRow(selectedTabIndex = selectedTab.ordinal) {
+    TabRow(
+        selectedTabIndex = selectedTab.ordinal,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
         ProgramDestinationTab.entries.forEach { tab ->
             Tab(
                 selected = selectedTab == tab,
@@ -894,7 +903,7 @@ private fun ReorderTrainingDayRow(
         targetValue = if (dragVisualActive) 1.02f else 1f,
         label = "dayReorderScale",
     )
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(WorkoutRadii.card)
     val rowModifier = if (dragVisualActive) {
         modifier
             .fillMaxWidth()
@@ -1683,7 +1692,7 @@ private fun ProgramSupersetGroup(
     Column(
         modifier = groupModifier
             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f), shape)
-            .padding(12.dp),
+            .padding(WorkoutSpacing.card),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
@@ -1764,7 +1773,7 @@ private fun CompactTemplateExerciseCard(
         targetValue = if (dragVisualActive) 1.02f else 1f,
         label = "exerciseReorderScale",
     )
-    val cardShape = RoundedCornerShape(12.dp)
+    val cardShape = RoundedCornerShape(WorkoutRadii.card)
     val cardModifier = if (dragVisualActive) {
         modifier
             .fillMaxWidth()
@@ -1799,7 +1808,7 @@ private fun CompactTemplateExerciseCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(WorkoutSpacing.card),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -1816,35 +1825,32 @@ private fun CompactTemplateExerciseCard(
                 )
                 Text(
                     text = "${item.plannedWorkingSets} x ${item.repMin}-${item.repMax} | " +
-                        "${formatCentiKg(item.currentWeightCentiKg)} kg | target ${item.currentTargetReps}",
+                        "${formatCentiKg(item.currentWeightCentiKg)} kg · target ${item.currentTargetReps}",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "+${formatCentiKg(item.incrementCentiKg)} kg | Rest ${item.restSeconds}s",
+                    text = "+${formatCentiKg(item.incrementCentiKg)} kg · Rest ${item.restSeconds}s",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (showSupersetLabel && item.supersetGroupId != null) {
-                        Text(
+                        StatusPill(
                             text = "Superset",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            state = WorkoutVisualState.Current,
                         )
                     }
                     if (warmupSets.isNotEmpty()) {
-                        Text(
+                        StatusPill(
                             text = "Warm-up",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            state = WorkoutVisualState.Rest,
                         )
                     }
                     if (setTargets.isNotEmpty()) {
-                        Text(
+                        StatusPill(
                             text = "Custom sets",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            state = WorkoutVisualState.Pending,
                         )
                     }
                 }

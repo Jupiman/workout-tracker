@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.data.repository.parseCentiKg
+import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import kotlin.math.roundToInt
 
 internal const val DefaultWeightSliderUpperBoundCentiKg = 15_000
@@ -55,7 +56,7 @@ internal fun WeightAdjuster(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
     ) {
         OutlinedTextField(
             value = value,
@@ -77,7 +78,7 @@ internal fun WeightAdjuster(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
         ) {
             OutlinedButton(
                 onClick = {

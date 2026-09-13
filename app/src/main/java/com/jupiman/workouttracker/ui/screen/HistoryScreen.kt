@@ -1,16 +1,20 @@
 package com.jupiman.workouttracker.ui.screen
 
+import androidx.compose.foundation.background
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +33,11 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.ui.theme.StatusPill
+import com.jupiman.workouttracker.ui.theme.WorkoutRadii
+import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
+import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.workoutStateColors
 import com.jupiman.workouttracker.ui.viewmodel.HistoryViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -68,8 +77,9 @@ private fun WorkoutHistoryList(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = WorkoutSpacing.screen),
+        verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
@@ -115,14 +125,19 @@ private fun HistorySessionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.padding(WorkoutSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                text = formatHistoryDate(session.completedAt ?: session.startedAt),
-                style = MaterialTheme.typography.labelLarge,
+            StatusPill(
+                text = if (session.status == WorkoutSessionStatus.PARTIAL) "Partial" else "Completed",
+                state = if (session.status == WorkoutSessionStatus.PARTIAL) {
+                    WorkoutVisualState.Rest
+                } else {
+                    WorkoutVisualState.Completed
+                },
             )
             Text(
                 text = session.workoutNameSnapshot,
@@ -130,8 +145,14 @@ private fun HistorySessionRow(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
+                text = formatHistoryDate(session.completedAt ?: session.startedAt),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
                 text = historySummary(sessionDetails),
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -148,8 +169,9 @@ private fun WorkoutHistoryDetail(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = WorkoutSpacing.screen),
+        verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
@@ -168,16 +190,18 @@ private fun WorkoutHistoryDetail(
                 Text(
                     text = session.programNameSnapshot,
                     style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "${formatHistoryDate(session.completedAt ?: session.startedAt)} | " +
+                    text = "${formatHistoryDate(session.completedAt ?: session.startedAt)} · " +
                         "${formatHistoryTime(session.startedAt)}-${formatHistoryTime(session.completedAt)}",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (session.status == WorkoutSessionStatus.PARTIAL) {
-                    Text(
+                    StatusPill(
                         text = "Partial workout",
-                        style = MaterialTheme.typography.labelLarge,
+                        state = WorkoutVisualState.Rest,
                     )
                 }
             }
@@ -201,10 +225,13 @@ private fun WorkoutHistoryDetail(
 private fun HistoryExerciseCard(
     exercise: SessionExerciseWithSets,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(WorkoutSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
         ) {
             Text(
                 text = exercise.exercise.exerciseNameSnapshot,
@@ -216,24 +243,53 @@ private fun HistoryExerciseCard(
                     "${exercise.exercise.targetRepsSnapshot} @ " +
                     "${formatCentiKg(exercise.exercise.prescribedWeightCentiKgSnapshot)} kg",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (exercise.exercise.supersetGroupSnapshot != null) {
-                Text(
+                StatusPill(
                     text = "Superset",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    state = WorkoutVisualState.Current,
                 )
             }
             HorizontalDivider()
             exercise.sets
                 .sortedBy { it.setOrder }
                 .forEach { set ->
-                    Text(
-                        text = set.historyLine(),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+                    HistorySetLine(set = set)
                 }
         }
+    }
+}
+
+@Composable
+private fun HistorySetLine(
+    set: SessionSetEntity,
+) {
+    val state = when (set.status) {
+        SessionSetStatus.COMPLETED -> WorkoutVisualState.Completed
+        SessionSetStatus.SKIPPED -> WorkoutVisualState.Skipped
+        SessionSetStatus.PENDING -> WorkoutVisualState.Pending
+    }
+    val palette = workoutStateColors(state)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.container, RoundedCornerShape(WorkoutRadii.row))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = set.historyLabel(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.content,
+        )
+        Text(
+            text = set.historyLoad(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.content,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }
 
@@ -251,27 +307,27 @@ private fun historySummary(sessionDetails: WorkoutSessionWithDetails): String {
     return "$exerciseCount exercise(s), $completedSets set(s), $status"
 }
 
-private fun SessionSetEntity.historyLine(): String {
-    val label = when (setType) {
-        SetType.WARMUP -> "WARM-UP "
-        SetType.WORKING -> if (isPlanned) "" else "EXTRA "
-        SetType.EXTRA -> "EXTRA "
-        SetType.AMRAP -> "AMRAP "
-        SetType.DROP -> "DROP "
+private fun SessionSetEntity.historyLabel(): String =
+    when (setType) {
+        SetType.WARMUP -> "Warm-up"
+        SetType.WORKING -> if (isPlanned) "Set ${setOrder + 1}" else "Extra ${setOrder + 1}"
+        SetType.EXTRA -> "Extra ${setOrder + 1}"
+        SetType.AMRAP -> "AMRAP ${setOrder + 1}"
+        SetType.DROP -> "Drop ${setOrder + 1}"
     }
 
-    return when (status) {
+private fun SessionSetEntity.historyLoad(): String =
+    when (status) {
         SessionSetStatus.COMPLETED -> {
             val weight = actualWeightCentiKg ?: prescribedWeightCentiKg
             val reps = actualReps ?: prescribedReps
-            "$label${weight.kgText()} x ${reps?.toString() ?: "-"}"
+            "${weight.kgText()} x ${reps?.toString() ?: "-"}"
         }
-        SessionSetStatus.SKIPPED -> "$label${prescribedWeightCentiKg.kgText()} x " +
+        SessionSetStatus.SKIPPED -> "${prescribedWeightCentiKg.kgText()} x " +
             "${prescribedReps?.toString() ?: "-"} skipped"
-        SessionSetStatus.PENDING -> "$label${prescribedWeightCentiKg.kgText()} x " +
+        SessionSetStatus.PENDING -> "${prescribedWeightCentiKg.kgText()} x " +
             "${prescribedReps?.toString() ?: "-"} pending"
-    }.trim()
-}
+    }
 
 private fun Int?.kgText(): String = this?.let { "${formatCentiKg(it)} kg" } ?: "- kg"
 

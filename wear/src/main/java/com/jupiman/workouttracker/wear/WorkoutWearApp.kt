@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.wear
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
+import androidx.wear.compose.material.Colors
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
@@ -36,13 +39,23 @@ fun WorkoutWearApp(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    MaterialTheme {
+    MaterialTheme(
+        colors = Colors(
+            primary = WearLavender,
+            onPrimary = Color(0xFF24124F),
+            background = WearInk,
+            onBackground = Color(0xFFEDE8F8),
+            surface = Color(0xFF1B1C25),
+            onSurface = Color(0xFFEDE8F8),
+        ),
+    ) {
         Scaffold(
             timeText = { TimeText() },
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colors.background)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -115,6 +128,7 @@ private fun ActiveWorkoutScreen(
             textAlign = TextAlign.Center,
             fontSize = 26.sp,
             fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colors.primary,
             maxLines = 1,
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -132,7 +146,7 @@ private fun ActiveWorkoutScreen(
                 textAlign = TextAlign.Center,
                 fontSize = if (restText == "READY") 16.sp else 14.sp,
                 fontWeight = if (restText == "READY") FontWeight.Bold else FontWeight.Normal,
-                color = MaterialTheme.colors.primary,
+                color = if (restText == "READY") WearReady else MaterialTheme.colors.primary,
                 maxLines = 1,
             )
         }
@@ -143,7 +157,12 @@ private fun ActiveWorkoutScreen(
             modifier = Modifier
                 .fillMaxWidth(0.86f)
                 .height(52.dp),
-            colors = ButtonDefaults.primaryButtonColors(),
+            colors = ButtonDefaults.buttonColors(
+                backgroundColor = MaterialTheme.colors.primary,
+                contentColor = MaterialTheme.colors.onPrimary,
+                disabledBackgroundColor = MaterialTheme.colors.surface,
+                disabledContentColor = MaterialTheme.colors.onSurface.copy(alpha = 0.45f),
+            ),
         ) {
             if (pending) {
                 CircularProgressIndicator(
@@ -161,6 +180,10 @@ private fun ActiveWorkoutScreen(
         }
     }
 }
+
+private val WearInk = Color(0xFF101116)
+private val WearLavender = Color(0xFFC9B6FF)
+private val WearReady = Color(0xFF8AD6A4)
 
 @Composable
 private fun StatusText(

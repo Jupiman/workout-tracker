@@ -1,8 +1,8 @@
-# Workout Tracker — Android MVP Implementation Specification
+# Workout Companion — Android MVP Implementation Specification
 
 ## 1. Goal
 
-Build a simple native Android workout tracking application focused on strength/hypertrophy training.
+Build a simple native Android workout companion focused on strength/hypertrophy training.
 
 This is primarily a single-user personal application. The main priorities are:
 
@@ -14,10 +14,13 @@ This is primarily a single-user personal application. The main priorities are:
 6. Rest timer notifications.
 7. Supersets.
 8. Ad-hoc normal sets, AMRAP sets and drop sets.
+9. A lightweight Wear OS companion that mirrors the phone workout and supports fast set completion.
 
 Do NOT add unnecessary fitness functionality.
 
 This application is not intended to be a comprehensive fitness platform.
+
+Current product name: `Workout Companion`.
 
 ---
 
@@ -44,7 +47,8 @@ Do NOT implement these features unless explicitly requested later:
 - workout recommendations
 - scheduling workouts to particular weekdays
 - Apple / Google Health integration
-- wearable integration in the MVP; keep future wearable support documented as a TODO
+- standalone wearable workout tracking
+- watch-side program editing, history editing, or independent progression logic
 - nutrition tracking
 
 Keep the application focused.
@@ -1579,22 +1583,34 @@ Resume active session.
 
 # 50. Suggested visual style
 
-Use a clean Material 3 interface.
+Use a clean Material 3 interface with a restrained, dark-first identity.
 
-No elaborate branding is required.
+The app should feel focused and calm rather than decorative.
 
 Prefer:
 
-- dark-mode support from the beginning
-- simple cards
-- clear typography
+- a dark-first palette with a lavender/purple accent
+- simple cards and surfaces with consistent radius and spacing
+- clear typography with large values only where they matter
 - large numeric values
-- strong distinction between pending/completed sets
+- strong distinction between current/actionable, pending, completed, skipped, rest, ready, and disabled states
 - restrained use of animations
 
 Functionality and speed are more important than visual decoration.
 
 Support system light/dark mode.
+
+Workout screen visual priorities:
+
+- make the current actionable set obvious
+- keep completed sets visually quieter than pending/current sets
+- keep skipped sets distinct without making the whole screen feel like an error state
+- keep the rest timer visible at the bottom while scrolling
+- use subtle motion only to clarify state changes, expansion, reordering, or completion
+
+Program, Exercise editor, History, and Wear OS should use the same visual language, spacing, state colors, and surface hierarchy.
+
+Do not add gradients, glass effects, noise overlays, dashboards, or branding-heavy screens.
 
 ---
 
@@ -2591,40 +2607,66 @@ Phase 54.8 implementation:
 
 ---
 
-## 54.9 Future wearable support TODO
+## 54.9 Wear OS companion
 
-Wearable integration remains outside the MVP.
+Wear OS support is implemented as a companion surface, not as a standalone tracker.
 
-Keep the codebase ready for future wearable support by avoiding assumptions that workout logging can only happen from the phone UI.
+The phone remains authoritative for:
 
-Future wearable goals:
+- workout/session persistence
+- progression logic
+- rest deadline persistence
+- program and exercise editing
+- history
+
+Wear OS goals:
 
 - show the current exercise
-- show the current set number
-- show prescribed weight
-- show prescribed reps
+- show the current set label
+- show prescribed weight and reps
 - complete the current set with one tap
-- skip the current set
-- show rest countdown
-- support quick adjustments where practical
+- show rest countdown and ready state
+- show disconnected/pending states clearly
+- avoid watch-side database or progression calculations
 
-Future architecture note:
+Wear implementation:
 
-- expose workout state and set-completion actions through repository/ViewModel APIs that could later be called by a Wear OS surface
-- do not add Wear OS modules until explicitly requested
+- the repository contains a `:wear` application module and a shared `:wear-protocol` module
+- the phone projects active workout state through the Wear Data Layer
+- the watch displays active, no-active, complete, unavailable, disconnected, pending, rest, and ready states
+- the watch can complete the current set through a phone-authoritative command
+- the watch does not maintain a workout database or independent timer state
+- phone notifications and rest alerts remain available alongside the companion app
 
-Wear v0.1 implementation:
+---
 
-- no Wear OS app module, Data Layer API, Tiles, complications, watch database, or watch-side timer were added
-- active phone workouts project their current persisted state into a standard ongoing Android notification for phone and Wear OS notification bridging
-- ongoing notification text is watch-friendly, such as exercise name plus `Set 2/3 • 70 kg x 10`
-- `Complete set` notification actions carry explicit session/set IDs and delegate into `WorkoutSessionRepository.completeSetFromNotification`
-- duplicate or stale complete actions are idempotent and cannot advance another set accidentally
-- rest state uses the persisted `restEndsAt` deadline and exposes `+30 sec` and `Skip rest` actions through existing repository operations
-- rest-finished alerts use a dedicated high-priority `Rest alerts` notification channel with alarm-style notification metadata so phone/watch alert behavior has the strongest standard Android signal available
-- ongoing workout controls remain quiet/low-priority by design; they are for glanceable controls, not watch popups
-- active workout notifications are rebuilt from Room state on app process start and after workout/session mutations
-- workout completion or discard cancels the ongoing workout notification
+## 54.10 Last Time workout context
+
+The Workout screen should show compact read-only context from the previous time the same exercise instance was logged.
+
+Matching rules:
+
+- match by `sourceWorkoutTemplateExerciseId`
+- do not match only by exercise name
+- do not mix the same exercise used in different training days or different template instances
+- use completed and partial historical sessions
+- use the latest matching historical snapshot
+- do not write this context back into active workout state
+- do not alter progression logic, history snapshots, or Room schema
+
+UI rules:
+
+- show the context inside the exercise card
+- label it as `Last time`
+- show the historical workout date/name and the logged non-warm-up set results
+- keep it compact and secondary to the current actionable set
+- hide it when no previous matching snapshot exists
+
+Phase 54.10 implementation:
+
+- `HomeViewModel` derives last-time context by combining the active workout with read-only history snapshots
+- the Workout screen renders the context under each exercise prescription
+- unit tests cover same-instance matching, different-instance isolation, and latest-snapshot selection
 
 ---
 

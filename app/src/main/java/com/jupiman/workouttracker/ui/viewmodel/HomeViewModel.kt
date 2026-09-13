@@ -2,9 +2,11 @@ package com.jupiman.workouttracker.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
+import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
+import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
+import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.ProgramRepository
@@ -24,6 +26,22 @@ data class HomeUiState(
     val nextWorkoutName: String? = null,
     val nextWorkoutTemplateId: Long? = null,
     val activeProgramTemplates: List<WorkoutTemplateEntity> = emptyList(),
+    val lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext> = emptyMap(),
+)
+
+data class LastTimeExerciseContext(
+    val completedAt: Long,
+    val workoutName: String,
+    val status: WorkoutSessionStatus,
+    val sets: List<LastTimeSetContext>,
+)
+
+data class LastTimeSetContext(
+    val setType: SetType,
+    val setOrder: Int,
+    val status: SessionSetStatus,
+    val weightCentiKg: Int?,
+    val reps: Int?,
 )
 
 class HomeViewModel(
@@ -38,7 +56,8 @@ class HomeViewModel(
         workoutSessionRepository.activeSessionWithDetails,
         programRepository.activeProgramTemplates,
         workoutSessionRepository.latestFinishedSessionForActiveProgram,
-    ) { activeProgram, activeWorkout, activeProgramTemplates, latestFinishedSession ->
+        workoutSessionRepository.historyWithDetails,
+    ) { activeProgram, activeWorkout, activeProgramTemplates, latestFinishedSession, history ->
         val nextTemplate = recommendNextWorkoutTemplate(
             templates = activeProgramTemplates,
             latestFinishedSession = latestFinishedSession,
@@ -49,6 +68,10 @@ class HomeViewModel(
             nextWorkoutName = nextTemplate?.name,
             nextWorkoutTemplateId = nextTemplate?.id,
             activeProgramTemplates = activeProgramTemplates,
+            lastTimeByTemplateExerciseId = lastTimeContextsForActiveWorkout(
+                activeWorkout = activeWorkout,
+                history = history,
+            ),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -136,6 +159,50 @@ class HomeViewModel(
                 }
         }
     }
+}
+
+internal fun lastTimeContextsForActiveWorkout(
+    activeWorkout: WorkoutSessionWithDetails?,
+    history: List<WorkoutSessionWithDetails>,
+): Map<Long, LastTimeExerciseContext> {
+    activeWorkout ?: return emptyMap()
+
+    val sortedHistory = history
+        .filter { it.session.id != activeWorkout.session.id }
+        .sortedByDescending { it.session.completedAt ?: it.session.startedAt }
+
+    return activeWorkout.exercises
+        .mapNotNull { it.exercise.sourceWorkoutTemplateExerciseId }
+        .distinct()
+        .mapNotNull { sourceTemplateExerciseId ->
+            val previous = sortedHistory.firstNotNullOfOrNull { historicalSession ->
+                historicalSession.exercises.firstOrNull { historicalExercise ->
+                    historicalExercise.exercise.sourceWorkoutTemplateExerciseId == sourceTemplateExerciseId
+                }?.let { historicalExercise -> historicalSession to historicalExercise }
+            } ?: return@mapNotNull null
+
+            val (sessionDetails, exerciseDetails) = previous
+            val sets = exerciseDetails.sets
+                .filter { it.setType != SetType.WARMUP }
+                .sortedBy { it.setOrder }
+                .map { set ->
+                    LastTimeSetContext(
+                        setType = set.setType,
+                        setOrder = set.setOrder,
+                        status = set.status,
+                        weightCentiKg = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg,
+                        reps = set.actualReps ?: set.prescribedReps,
+                    )
+                }
+
+            sourceTemplateExerciseId to LastTimeExerciseContext(
+                completedAt = sessionDetails.session.completedAt ?: sessionDetails.session.startedAt,
+                workoutName = sessionDetails.session.workoutNameSnapshot,
+                status = sessionDetails.session.status,
+                sets = sets,
+            )
+        }
+        .toMap()
 }
 
 internal fun recommendNextWorkoutTemplate(

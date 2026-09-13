@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.navigation
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -33,8 +34,12 @@ fun WorkoutTrackerApp(
     val currentRoute = backStackEntry?.destination?.route
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
                 destinations.forEach { destination ->
                     NavigationBarItem(
                         selected = currentRoute == destination.route,
@@ -74,4 +79,3 @@ fun WorkoutTrackerApp(
         }
     }
 }
-

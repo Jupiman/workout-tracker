@@ -1,5 +1,7 @@
 package com.jupiman.workouttracker.ui.screen
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -44,15 +47,27 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
+import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
+import com.jupiman.workouttracker.ui.theme.StatusPill
+import com.jupiman.workouttracker.ui.theme.WorkoutRadii
+import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
+import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.workoutStateColors
 import com.jupiman.workouttracker.ui.viewmodel.HomeUiState
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
+import com.jupiman.workouttracker.ui.viewmodel.LastTimeExerciseContext
+import com.jupiman.workouttracker.ui.viewmodel.LastTimeSetContext
 import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.max
 
 @Composable
@@ -72,6 +87,7 @@ fun WorkoutHomeScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             val activeWorkout = uiState.activeWorkout
@@ -86,8 +102,8 @@ fun WorkoutHomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = WorkoutSpacing.screen),
+            verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section),
         ) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -110,6 +126,7 @@ fun WorkoutHomeScreen(
                 item {
                     ActiveWorkoutPanel(
                         activeWorkout = activeWorkout,
+                        lastTimeByTemplateExerciseId = uiState.lastTimeByTemplateExerciseId,
                         onCompleteSet = viewModel::completeSet,
                         onUncompleteSet = viewModel::uncompleteSet,
                         onSkipSet = viewModel::skipSet,
@@ -132,32 +149,40 @@ private fun StartWorkoutPanel(
     uiState: HomeUiState,
     onStartWorkout: (Long?) -> Unit,
 ) {
+    val nextWorkoutAvailable = uiState.nextWorkoutTemplateId != null
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "Active program",
-            style = MaterialTheme.typography.labelLarge,
-        )
-        Text(
-            text = uiState.activeProgram?.name ?: "No active program yet",
-            style = MaterialTheme.typography.titleLarge,
-        )
-        Text(
-            text = "Next workout",
-            style = MaterialTheme.typography.labelLarge,
-        )
-        Text(
-            text = uiState.nextWorkoutName ?: "No workout templates yet",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Button(
-            onClick = { onStartWorkout(uiState.nextWorkoutTemplateId) },
-            enabled = uiState.nextWorkoutTemplateId != null,
+        Card(
             modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         ) {
-            Text("Start workout")
+            Column(
+                modifier = Modifier.padding(WorkoutSpacing.card),
+                verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+            ) {
+                StatusPill(
+                    text = if (nextWorkoutAvailable) "Ready" else "Setup needed",
+                    state = if (nextWorkoutAvailable) WorkoutVisualState.Ready else WorkoutVisualState.Disabled,
+                )
+                Text(
+                    text = uiState.activeProgram?.name ?: "No active program yet",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Text(
+                    text = uiState.nextWorkoutName ?: "No workout templates yet",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = { onStartWorkout(uiState.nextWorkoutTemplateId) },
+                    enabled = nextWorkoutAvailable,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Start workout")
+                }
+            }
         }
 
         if (uiState.activeProgramTemplates.isNotEmpty()) {
@@ -193,6 +218,7 @@ private fun WorkoutChoiceButton(
 @Composable
 private fun ActiveWorkoutPanel(
     activeWorkout: WorkoutSessionWithDetails,
+    lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
@@ -205,6 +231,7 @@ private fun ActiveWorkoutPanel(
     var showingProgressionReview by remember { mutableStateOf(false) }
     var pendingFinishAllowsPartial by remember { mutableStateOf(false) }
     val progressionReviewItems = activeWorkout.progressionReviewItems()
+    val currentSetFocus = activeWorkout.currentSetFocus()
     val allPlannedSetsCompleted = activeWorkout.exercises
         .flatMap { it.sets }
         .filter { it.isPlanned }
@@ -227,13 +254,17 @@ private fun ActiveWorkoutPanel(
         Text(
             text = activeWorkout.session.programNameSnapshot,
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        CurrentSetFocusCard(currentSetFocus)
 
         activeWorkout.exerciseDisplayBlocks().forEach { block ->
             when (block) {
                 is ActiveWorkoutDisplayBlock.SingleExercise -> {
                     SessionExerciseCard(
                         exercise = block.exercise,
+                        currentSetId = currentSetFocus?.set?.id,
+                        lastTime = block.exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                         shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
                         onCompleteSet = onCompleteSet,
                         onUncompleteSet = onUncompleteSet,
@@ -245,6 +276,8 @@ private fun ActiveWorkoutPanel(
                     SupersetExerciseGroup(
                         block = block,
                         activeWorkout = activeWorkout,
+                        currentSetId = currentSetFocus?.set?.id,
+                        lastTimeByTemplateExerciseId = lastTimeByTemplateExerciseId,
                         onCompleteSet = onCompleteSet,
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
@@ -352,6 +385,55 @@ private fun ActiveWorkoutPanel(
 }
 
 @Composable
+private fun CurrentSetFocusCard(
+    focus: CurrentSetFocus?,
+) {
+    val palette = workoutStateColors(
+        if (focus == null) WorkoutVisualState.Ready else WorkoutVisualState.Current,
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = palette.container),
+        border = BorderStroke(1.dp, palette.border),
+    ) {
+        Column(
+            modifier = Modifier.padding(WorkoutSpacing.card),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            StatusPill(
+                text = if (focus == null) "Ready to finish" else "Current set",
+                state = if (focus == null) WorkoutVisualState.Ready else WorkoutVisualState.Current,
+            )
+            if (focus == null) {
+                Text(
+                    text = "All planned sets are handled.",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = palette.content,
+                )
+                Text(
+                    text = "Review anything you changed, then finish the workout.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = palette.content.copy(alpha = 0.78f),
+                )
+            } else {
+                Text(
+                    text = focus.exerciseName,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = palette.content,
+                )
+                Text(
+                    text = "${focus.set.headerText()} · " +
+                        "${formatCentiKg(focus.set.prescribedWeightCentiKg ?: 0)} kg x " +
+                        "${focus.set.prescribedReps ?: "-"}",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = palette.content,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun RestTimerBottomBar(
     restEndsAt: Long?,
     onAddRestTime: (Int) -> Unit,
@@ -377,22 +459,36 @@ private fun RestTimerBottomBar(
     } else {
         "Rest %02d:%02d".format(minutes, seconds)
     }
+    val restState = if (remainingMillis == 0L) WorkoutVisualState.Ready else WorkoutVisualState.Rest
+    val palette = workoutStateColors(restState)
 
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = WorkoutSpacing.screen, vertical = 8.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = palette.container),
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(WorkoutSpacing.card),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = timerText,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = timerText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.content,
+                )
+                StatusPill(
+                    text = if (remainingMillis == 0L) "Ready" else "Rest",
+                    state = restState,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item)) {
                 Button(
                     onClick = { onAddRestTime(30) },
                     modifier = Modifier.weight(1f),
@@ -514,12 +610,14 @@ private fun ProgressionChoiceButton(
 private fun SupersetExerciseGroup(
     block: ActiveWorkoutDisplayBlock.Superset,
     activeWorkout: WorkoutSessionWithDetails,
+    currentSetId: Long?,
+    lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(WorkoutRadii.card)
     val groupRestSeconds = block.exercises
         .firstNotNullOfOrNull { it.exercise.supersetRestSecondsSnapshot }
         ?: block.exercises.last().exercise.restSecondsSnapshot
@@ -528,8 +626,8 @@ private fun SupersetExerciseGroup(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.32f), shape)
-            .border(1.dp, MaterialTheme.colorScheme.primary, shape)
-            .padding(12.dp),
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.72f), shape)
+            .padding(WorkoutSpacing.card),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(
@@ -549,6 +647,8 @@ private fun SupersetExerciseGroup(
             }
             SessionExerciseCard(
                 exercise = exercise,
+                currentSetId = currentSetId,
+                lastTime = exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                 shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
                 onCompleteSet = onCompleteSet,
                 onUncompleteSet = onUncompleteSet,
@@ -563,6 +663,8 @@ private fun SupersetExerciseGroup(
 @Composable
 private fun SessionExerciseCard(
     exercise: SessionExerciseWithSets,
+    currentSetId: Long?,
+    lastTime: LastTimeExerciseContext?,
     shouldCollapseSet: (SessionSetEntity) -> Boolean,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
@@ -576,15 +678,15 @@ private fun SessionExerciseCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = if (isSuperset) {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f))
         } else {
-            CardDefaults.cardColors()
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         },
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(WorkoutSpacing.card),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text(
@@ -596,24 +698,28 @@ private fun SessionExerciseCard(
                 text = "${snapshot.plannedSetCountSnapshot} x ${snapshot.targetRepsSnapshot} @ " +
                     "${formatCentiKg(snapshot.prescribedWeightCentiKgSnapshot)} kg",
                 style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} | Rest ${snapshot.restSecondsSnapshot}s",
+                text = "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} · Rest ${snapshot.restSecondsSnapshot}s",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (showSupersetLabel && snapshot.supersetGroupSnapshot != null) {
                 Text(
-                    text = "Superset | Group rest ${snapshot.supersetRestSecondsSnapshot ?: snapshot.restSecondsSnapshot}s",
+                    text = "Superset · Group rest ${snapshot.supersetRestSecondsSnapshot ?: snapshot.restSecondsSnapshot}s",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            LastTimePanel(lastTime = lastTime)
 
             exercise.sets
                 .sortedBy { it.setOrder }
                 .forEach { set ->
                     SessionSetRow(
                         set = set,
+                        isCurrent = set.id == currentSetId,
                         collapseCompleted = shouldCollapseSet(set),
                         weightIncrementCentiKg = snapshot.incrementCentiKgSnapshot,
                         onCompleteSet = onCompleteSet,
@@ -648,8 +754,68 @@ private fun SessionExerciseCard(
 }
 
 @Composable
+private fun LastTimePanel(
+    lastTime: LastTimeExerciseContext?,
+) {
+    if (lastTime == null || lastTime.sets.isEmpty()) return
+
+    val palette = workoutStateColors(
+        if (lastTime.status == WorkoutSessionStatus.PARTIAL) WorkoutVisualState.Rest else WorkoutVisualState.Completed,
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.container.copy(alpha = 0.72f), RoundedCornerShape(WorkoutRadii.row))
+            .border(1.dp, palette.border.copy(alpha = 0.54f), RoundedCornerShape(WorkoutRadii.row))
+            .padding(WorkoutSpacing.compactCard),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Last time",
+                style = MaterialTheme.typography.labelLarge,
+                color = palette.content,
+            )
+            Text(
+                text = formatWorkoutContextDate(lastTime.completedAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.content.copy(alpha = 0.78f),
+            )
+        }
+        Text(
+            text = lastTime.workoutName,
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.content.copy(alpha = 0.78f),
+        )
+        lastTime.sets.forEach { set ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = set.lastTimeLabel(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.content,
+                )
+                Text(
+                    text = set.lastTimeLoad(),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.content,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun SessionSetRow(
     set: SessionSetEntity,
+    isCurrent: Boolean,
     collapseCompleted: Boolean,
     weightIncrementCentiKg: Int,
     onCompleteSet: (Long, String, String) -> Unit,
@@ -664,19 +830,13 @@ private fun SessionSetRow(
     var reps by remember(set.id, set.actualReps, set.prescribedReps) {
         mutableStateOf(defaultReps?.toString().orEmpty())
     }
-    val rowColor = when (set.status) {
-        SessionSetStatus.PENDING -> MaterialTheme.colorScheme.surfaceVariant
-        SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.primaryContainer
-        SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.errorContainer
-    }
-    val rowContentColor = when (set.status) {
-        SessionSetStatus.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant
-        SessionSetStatus.COMPLETED -> MaterialTheme.colorScheme.onPrimaryContainer
-        SessionSetStatus.SKIPPED -> MaterialTheme.colorScheme.onErrorContainer
-    }
+    val visualState = set.visualState(isCurrent)
+    val palette = workoutStateColors(visualState)
+    val rowColor by animateColorAsState(palette.container, label = "set-row-container")
+    val rowContentColor by animateColorAsState(palette.content, label = "set-row-content")
     val isDropSet = set.setType == SetType.DROP
     val startPadding = if (isDropSet) 24.dp else 0.dp
-    val rowShape = RoundedCornerShape(8.dp)
+    val rowShape = RoundedCornerShape(WorkoutRadii.row)
     val rowModifier = Modifier
         .fillMaxWidth()
         .padding(start = startPadding, top = 6.dp, bottom = 6.dp)
@@ -684,6 +844,8 @@ private fun SessionSetRow(
         .let { modifier ->
             if (isDropSet) {
                 modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, rowShape)
+            } else if (isCurrent) {
+                modifier.border(1.dp, palette.border, rowShape)
             } else {
                 modifier
             }
@@ -700,6 +862,7 @@ private fun SessionSetRow(
             rowContentColor = rowContentColor,
             startPadding = startPadding,
             showDropBorder = isDropSet,
+            showCurrentBorder = isCurrent,
             onExpand = { expanded = true },
         )
         return
@@ -709,11 +872,21 @@ private fun SessionSetRow(
         modifier = rowModifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = set.headerText(),
-            style = MaterialTheme.typography.labelLarge,
-            color = rowContentColor,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = set.headerText(),
+                style = MaterialTheme.typography.labelLarge,
+                color = rowContentColor,
+            )
+            StatusPill(
+                text = if (isCurrent) "Current" else set.status.displayName(),
+                state = visualState,
+            )
+        }
         WeightAdjuster(
             label = "kg",
             value = weight,
@@ -790,11 +963,12 @@ private fun CollapsedSessionSetRow(
     rowContentColor: Color,
     startPadding: Dp,
     showDropBorder: Boolean,
+    showCurrentBorder: Boolean,
     onExpand: () -> Unit,
 ) {
     val loggedWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
     val loggedReps = set.actualReps ?: set.prescribedReps
-    val rowShape = RoundedCornerShape(8.dp)
+    val rowShape = RoundedCornerShape(WorkoutRadii.row)
 
     Row(
         modifier = Modifier
@@ -804,6 +978,8 @@ private fun CollapsedSessionSetRow(
             .let { modifier ->
                 if (showDropBorder) {
                     modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, rowShape)
+                } else if (showCurrentBorder) {
+                    modifier.border(1.dp, MaterialTheme.colorScheme.primary, rowShape)
                 } else {
                     modifier
                 }
@@ -838,6 +1014,47 @@ private fun SessionSetStatus.displayName(): String = when (this) {
     SessionSetStatus.COMPLETED -> "Completed"
     SessionSetStatus.SKIPPED -> "Skipped"
 }
+
+private fun LastTimeSetContext.lastTimeLabel(): String =
+    when (setType) {
+        SetType.WARMUP -> "Warm-up"
+        SetType.WORKING -> if (status == SessionSetStatus.SKIPPED) {
+            "Set ${setOrder + 1} skipped"
+        } else {
+            "Set ${setOrder + 1}"
+        }
+        SetType.EXTRA -> "Extra ${setOrder + 1}"
+        SetType.AMRAP -> "AMRAP ${setOrder + 1}"
+        SetType.DROP -> "Drop ${setOrder + 1}"
+    }
+
+private fun LastTimeSetContext.lastTimeLoad(): String =
+    when (status) {
+        SessionSetStatus.COMPLETED -> "${weightCentiKg.kgText()} x ${reps ?: "-"}"
+        SessionSetStatus.SKIPPED -> "${weightCentiKg.kgText()} x ${reps ?: "-"}"
+        SessionSetStatus.PENDING -> "${weightCentiKg.kgText()} x ${reps ?: "-"} pending"
+    }
+
+private fun Int?.kgText(): String = this?.let { "${formatCentiKg(it)} kg" } ?: "- kg"
+
+private fun SessionExerciseWithSets.lastTimeFrom(
+    lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
+): LastTimeExerciseContext? =
+    exercise.sourceWorkoutTemplateExerciseId?.let(lastTimeByTemplateExerciseId::get)
+
+private fun formatWorkoutContextDate(timestamp: Long): String =
+    Instant.ofEpochMilli(timestamp)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
+
+private fun SessionSetEntity.visualState(isCurrent: Boolean): WorkoutVisualState =
+    when {
+        isCurrent && status == SessionSetStatus.PENDING -> WorkoutVisualState.Current
+        status == SessionSetStatus.PENDING -> WorkoutVisualState.Pending
+        status == SessionSetStatus.COMPLETED -> WorkoutVisualState.Completed
+        status == SessionSetStatus.SKIPPED -> WorkoutVisualState.Skipped
+        else -> WorkoutVisualState.Disabled
+    }
 
 private fun SessionSetEntity.headerText(): String =
     when (setType) {
@@ -941,3 +1158,23 @@ private data class FinishProgressionReviewItem(
     val loggedWeightCentiKg: Int,
     val loggedReps: Int,
 )
+
+private data class CurrentSetFocus(
+    val exerciseName: String,
+    val set: SessionSetEntity,
+)
+
+private fun WorkoutSessionWithDetails.currentSetFocus(): CurrentSetFocus? =
+    exercises
+        .sortedBy { it.exercise.sortOrderSnapshot }
+        .firstNotNullOfOrNull { exercise ->
+            exercise.sets
+                .sortedBy { it.setOrder }
+                .firstOrNull { it.status == SessionSetStatus.PENDING }
+                ?.let { set ->
+                    CurrentSetFocus(
+                        exerciseName = exercise.exercise.exerciseNameSnapshot,
+                        set = set,
+                    )
+                }
+        }
