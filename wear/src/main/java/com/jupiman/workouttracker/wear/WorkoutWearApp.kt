@@ -66,7 +66,7 @@ fun WorkoutWearApp(
                         )
                         WearSessionStatus.NO_ACTIVE,
                         WearSessionStatus.UNAVAILABLE -> SimpleStateScreen(
-                            title = "Workout Tracker",
+                            title = "Workout Companion",
                             body = "No active workout\nStart a workout on your phone.",
                             connected = uiState.connected,
                         )
