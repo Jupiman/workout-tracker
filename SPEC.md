@@ -2760,6 +2760,31 @@ Phase 54.13 implementation:
 
 ---
 
+## 54.14 Wear OS polish
+
+Wear OS should remain a fast companion surface for active workouts, with the phone still authoritative for all workout state.
+
+Wear polish rules:
+
+- show phone connection state on every watch screen
+- show pending set-completion commands clearly after the user taps complete
+- show command rejection or send failure messages without adding watch-side retry state
+- make rest and ready states glanceable during an active workout
+- keep the active workout screen focused on exercise name, target weight/reps, set label, and one-tap completion
+- do not add watch-side persistence, program editing, history, or progression logic
+- do not change the shared protocol unless the phone needs to send new workout data
+
+Phase 54.14 implementation:
+
+- the active Wear screen uses compact status chips for phone connection, pending sync, and superset position
+- the prescribed target and set label are grouped in a single high-contrast panel
+- rest countdown and ready states use pill styling for quicker scanning
+- pending complete-set commands show a disabled `SENT` button state with progress feedback
+- no-active and complete screens show phone connection status and transient command messages
+- no database, protocol, or phone-authoritative workflow changes are introduced
+
+---
+
 # 55. Development rules for the coding agent
 
 Before implementing a major feature:

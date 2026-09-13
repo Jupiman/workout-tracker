@@ -5,12 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,6 +71,7 @@ fun WorkoutWearApp(
                             connected = uiState.connected,
                             pending = uiState.pendingCommandId != null,
                             now = uiState.phoneNow,
+                            transientMessage = uiState.transientMessage,
                             canComplete = uiState.canComplete,
                             onComplete = viewModel::completeCurrentSet,
                         )
@@ -76,12 +79,14 @@ fun WorkoutWearApp(
                             title = "Workout complete",
                             body = null,
                             connected = uiState.connected,
+                            transientMessage = uiState.transientMessage,
                         )
                         WearSessionStatus.NO_ACTIVE,
                         WearSessionStatus.UNAVAILABLE -> SimpleStateScreen(
                             title = "Workout Companion",
                             body = "No active workout\nStart a workout on your phone.",
                             connected = uiState.connected,
+                            transientMessage = uiState.transientMessage,
                         )
                     }
                 }
@@ -96,6 +101,7 @@ private fun ActiveWorkoutScreen(
     connected: Boolean,
     pending: Boolean,
     now: Long,
+    transientMessage: String?,
     canComplete: Boolean,
     onComplete: () -> Unit,
 ) {
@@ -110,6 +116,7 @@ private fun ActiveWorkoutScreen(
     ) {
         StatusText(
             connected = connected,
+            pending = pending,
             supersetPosition = state.supersetPosition,
             supersetSize = state.supersetSize,
         )
@@ -123,31 +130,28 @@ private fun ActiveWorkoutScreen(
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(modifier = Modifier.height(5.dp))
-        Text(
-            text = targetText,
-            textAlign = TextAlign.Center,
-            fontSize = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colors.primary,
-            maxLines = 1,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = state.setLabel.orEmpty().uppercase(),
-            textAlign = TextAlign.Center,
-            fontSize = 14.sp,
-            color = MaterialTheme.colors.onBackground.copy(alpha = 0.78f),
-            maxLines = 1,
+        TargetPanel(
+            targetText = targetText,
+            setLabel = state.setLabel.orEmpty().uppercase(),
         )
         if (restText != null) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
+            Spacer(modifier = Modifier.height(6.dp))
+            StatusPill(
                 text = restText,
+                container = if (restText == "READY") WearReady.copy(alpha = 0.18f) else WearLavender.copy(alpha = 0.14f),
+                content = if (restText == "READY") WearReady else MaterialTheme.colors.primary,
+            )
+        }
+        if (transientMessage != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = transientMessage,
                 textAlign = TextAlign.Center,
-                fontSize = if (restText == "READY") 16.sp else 14.sp,
-                fontWeight = if (restText == "READY") FontWeight.Bold else FontWeight.Normal,
-                color = if (restText == "READY") WearReady else MaterialTheme.colors.primary,
-                maxLines = 1,
+                fontSize = 11.sp,
+                color = WearWarning,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
         Spacer(modifier = Modifier.height(10.dp))
@@ -165,10 +169,21 @@ private fun ActiveWorkoutScreen(
             ),
         ) {
             if (pending) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        text = "SENT",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                    )
+                }
             } else {
                 Text(
                     text = "COMPLETE SET",
@@ -184,27 +199,102 @@ private fun ActiveWorkoutScreen(
 private val WearInk = Color(0xFF101116)
 private val WearLavender = Color(0xFFC9B6FF)
 private val WearReady = Color(0xFF8AD6A4)
+private val WearSurface = Color(0xFF1B1C25)
+private val WearWarning = Color(0xFFFFD166)
+
+@Composable
+private fun TargetPanel(
+    targetText: String,
+    setLabel: String,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
+            .background(
+                color = WearSurface,
+                shape = RoundedCornerShape(14.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = targetText,
+            textAlign = TextAlign.Center,
+            fontSize = 25.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colors.primary,
+            maxLines = 1,
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = setLabel,
+            textAlign = TextAlign.Center,
+            fontSize = 12.sp,
+            color = MaterialTheme.colors.onSurface.copy(alpha = 0.76f),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun StatusPill(
+    text: String,
+    container: Color,
+    content: Color,
+) {
+    Row(
+        modifier = Modifier
+            .background(
+                color = container,
+                shape = RoundedCornerShape(percent = 50),
+            )
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = text,
+            textAlign = TextAlign.Center,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = content,
+            maxLines = 1,
+        )
+    }
+}
 
 @Composable
 private fun StatusText(
     connected: Boolean,
+    pending: Boolean,
     supersetPosition: Int?,
     supersetSize: Int?,
 ) {
-    val text = when {
-        !connected -> "Phone disconnected"
-        supersetPosition != null && supersetSize != null -> "Superset • $supersetPosition/$supersetSize"
-        else -> null
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusPill(
+            text = if (connected) "Phone" else "Disconnected",
+            container = if (connected) WearReady.copy(alpha = 0.14f) else WearWarning.copy(alpha = 0.16f),
+            content = if (connected) WearReady else WearWarning,
+        )
+        if (pending) {
+            StatusPill(
+                text = "Syncing",
+                container = WearLavender.copy(alpha = 0.14f),
+                content = MaterialTheme.colors.primary,
+            )
+        }
+        if (supersetPosition != null && supersetSize != null) {
+            StatusPill(
+                text = "$supersetPosition/$supersetSize",
+                container = WearSurface,
+                content = MaterialTheme.colors.onSurface.copy(alpha = 0.84f),
+            )
+        }
     }
-    Text(
-        text = text.orEmpty(),
-        textAlign = TextAlign.Center,
-        fontSize = 11.sp,
-        color = MaterialTheme.colors.onBackground.copy(alpha = 0.58f),
-        minLines = 1,
-        maxLines = 1,
-    )
-    Spacer(modifier = Modifier.height(2.dp))
+    Spacer(modifier = Modifier.height(5.dp))
 }
 
 @Composable
@@ -212,11 +302,18 @@ private fun SimpleStateScreen(
     title: String,
     body: String?,
     connected: Boolean,
+    transientMessage: String?,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        StatusPill(
+            text = if (connected) "Phone connected" else "Phone disconnected",
+            container = if (connected) WearReady.copy(alpha = 0.14f) else WearWarning.copy(alpha = 0.16f),
+            content = if (connected) WearReady else WearWarning,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = title,
             textAlign = TextAlign.Center,
@@ -233,13 +330,15 @@ private fun SimpleStateScreen(
                 color = MaterialTheme.colors.onBackground.copy(alpha = 0.78f),
             )
         }
-        if (!connected) {
+        if (transientMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Phone disconnected",
+                text = transientMessage,
                 textAlign = TextAlign.Center,
                 fontSize = 11.sp,
-                color = MaterialTheme.colors.onBackground.copy(alpha = 0.58f),
+                color = WearWarning,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
