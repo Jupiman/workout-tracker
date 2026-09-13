@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,7 +25,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -48,10 +51,13 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -60,10 +66,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
@@ -75,7 +83,11 @@ import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 private enum class ProgramDestinationTab(val label: String) {
     Programs("Programs"),
@@ -236,8 +248,95 @@ private fun ProgramBuilderScreen(
     val editingExercise = editingExerciseId?.let { id ->
         selectedDayExercises.firstOrNull { it.id == id }
     }
+    val exerciseBlocks = selectedDayExercises.programExerciseDisplayBlocks()
+    val sourceExerciseBlockKeys = exerciseBlocks.map { it.key }
+    val exerciseListState = rememberLazyListState()
+    val exerciseAutoScroller = rememberReorderAutoScroller(exerciseListState)
+    var visualExerciseBlockKeys by remember(selectedDay?.id) { mutableStateOf<List<String>>(emptyList()) }
+    var draggedExerciseBlockKey by remember(selectedDay?.id) { mutableStateOf<String?>(null) }
+    var draggedExerciseBlockOffset by remember(selectedDay?.id) { mutableStateOf(0f) }
+    val reorderThresholdPx = with(LocalDensity.current) { 92.dp.toPx() }
+    val visualExerciseBlocks = (
+        if (visualExerciseBlockKeys.toSet() == sourceExerciseBlockKeys.toSet()) {
+            visualExerciseBlockKeys
+        } else {
+            sourceExerciseBlockKeys
+        }
+    ).mapNotNull { key -> exerciseBlocks.firstOrNull { it.key == key } }
+
+    LaunchedEffect(sourceExerciseBlockKeys, draggedExerciseBlockKey) {
+        if (draggedExerciseBlockKey == null) {
+            visualExerciseBlockKeys = sourceExerciseBlockKeys
+        }
+    }
+
+    fun startExerciseBlockDrag(key: String) {
+        draggedExerciseBlockKey = key
+        draggedExerciseBlockOffset = 0f
+        visualExerciseBlockKeys = sourceExerciseBlockKeys
+        exerciseAutoScroller.start(key) { draggedExerciseBlockOffset }
+    }
+
+    fun updateExerciseBlockDrag(key: String, deltaY: Float) {
+        if (draggedExerciseBlockKey != key) return
+        var offset = draggedExerciseBlockOffset + deltaY
+        val keys = (
+            if (visualExerciseBlockKeys.toSet() == sourceExerciseBlockKeys.toSet()) {
+                visualExerciseBlockKeys
+            } else {
+                sourceExerciseBlockKeys
+            }
+        ).toMutableList()
+        var index = keys.indexOf(key)
+        if (index == -1) return
+
+        while (offset >= reorderThresholdPx && index < keys.lastIndex) {
+            keys[index] = keys[index + 1]
+            keys[index + 1] = key
+            index += 1
+            offset -= reorderThresholdPx
+        }
+        while (offset <= -reorderThresholdPx && index > 0) {
+            keys[index] = keys[index - 1]
+            keys[index - 1] = key
+            index -= 1
+            offset += reorderThresholdPx
+        }
+
+        visualExerciseBlockKeys = keys
+        draggedExerciseBlockOffset = offset
+    }
+
+    fun cancelExerciseBlockDrag() {
+        exerciseAutoScroller.stop()
+        visualExerciseBlockKeys = sourceExerciseBlockKeys
+        draggedExerciseBlockKey = null
+        draggedExerciseBlockOffset = 0f
+    }
+
+    fun finishExerciseBlockDrag(block: ProgramExerciseDisplayBlock) {
+        val key = block.key
+        val sourceIndex = sourceExerciseBlockKeys.indexOf(key)
+        val targetIndex = visualExerciseBlockKeys.indexOf(key)
+        val offset = targetIndex - sourceIndex
+        val selectedDayId = selectedDay?.id
+        exerciseAutoScroller.stop()
+        draggedExerciseBlockKey = null
+        draggedExerciseBlockOffset = 0f
+        if (sourceIndex != -1 && targetIndex != -1 && offset != 0 && selectedDayId != null) {
+            when (block) {
+                is ProgramExerciseDisplayBlock.SingleExercise -> {
+                    viewModel.moveTemplateExercise(selectedDayId, block.exercise.item.id, offset)
+                }
+                is ProgramExerciseDisplayBlock.Superset -> {
+                    viewModel.moveSupersetGroup(selectedDayId, block.groupId, offset)
+                }
+            }
+        }
+    }
 
     LazyColumn(
+        state = exerciseListState,
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -314,31 +413,52 @@ private fun ProgramBuilderScreen(
                             Text("No exercises in this day.", style = MaterialTheme.typography.bodyLarge)
                         }
                     } else {
-                        selectedDayExercises.programExerciseDisplayBlocks().forEach { block ->
+                        visualExerciseBlocks.forEachIndexed { blockIndex, block ->
                             item(key = block.key) {
+                                val isDraggedBlock = draggedExerciseBlockKey == block.key
+                                val blockModifier = Modifier
+                                    .zIndex(if (isDraggedBlock) 1f else 0f)
+                                    .animateItem()
+                                    .graphicsLayer {
+                                        if (isDraggedBlock) {
+                                            translationY = draggedExerciseBlockOffset
+                                        }
+                                    }
                                 when (block) {
                                     is ProgramExerciseDisplayBlock.SingleExercise -> {
                                         CompactTemplateExerciseCard(
                                             item = block.exercise.item,
-                                            isFirst = block.exercise.index == 0,
-                                            isLast = block.exercise.index == selectedDayExercises.lastIndex,
+                                            isFirst = blockIndex == 0,
+                                            isLast = blockIndex == visualExerciseBlocks.lastIndex,
                                             viewModel = viewModel,
-                                            modifier = Modifier.animateItem(),
+                                            modifier = blockModifier,
+                                            dragVisualActive = isDraggedBlock,
                                             onEdit = { editingExerciseId = block.exercise.item.id },
-                                            onDragStep = { offset ->
-                                                viewModel.moveTemplateExercise(selectedDay.id, block.exercise.item.id, offset)
+                                            commitOnRelease = false,
+                                            onDragStart = { startExerciseBlockDrag(block.key) },
+                                            onDragDelta = { deltaY -> updateExerciseBlockDrag(block.key, deltaY) },
+                                            onDragCancel = ::cancelExerciseBlockDrag,
+                                            onDragEnd = { finishExerciseBlockDrag(block) },
+                                            onDragStep = {
                                             },
                                         )
                                     }
                                     is ProgramExerciseDisplayBlock.Superset -> {
                                         ProgramSupersetGroup(
                                             block = block,
-                                            lastIndex = selectedDayExercises.lastIndex,
+                                            lastIndex = visualExerciseBlocks.lastIndex,
                                             viewModel = viewModel,
-                                            modifier = Modifier.animateItem(),
+                                            modifier = blockModifier,
                                             onEdit = { editingExerciseId = it },
-                                            onDragStep = { offset ->
-                                                viewModel.moveSupersetGroup(selectedDay.id, block.groupId, offset)
+                                            isFirstBlock = blockIndex == 0,
+                                            isLastBlock = blockIndex == visualExerciseBlocks.lastIndex,
+                                            dragVisualActive = isDraggedBlock,
+                                            commitOnRelease = false,
+                                            onDragStart = { startExerciseBlockDrag(block.key) },
+                                            onDragDelta = { deltaY -> updateExerciseBlockDrag(block.key, deltaY) },
+                                            onDragCancel = ::cancelExerciseBlockDrag,
+                                            onDragEnd = { finishExerciseBlockDrag(block) },
+                                            onDragStep = {
                                             },
                                         )
                                     }
@@ -626,28 +746,120 @@ private fun ReorderTrainingDaysDialog(
     onSelectDay: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val sourceDayKeys = templates.map { it.id }
+    val dayListState = rememberLazyListState()
+    val dayAutoScroller = rememberReorderAutoScroller(dayListState)
+    var visualDayKeys by remember(programId) { mutableStateOf<List<Long>>(emptyList()) }
+    var draggedDayKey by remember(programId) { mutableStateOf<Long?>(null) }
+    var draggedDayOffset by remember(programId) { mutableStateOf(0f) }
+    val reorderThresholdPx = with(LocalDensity.current) { 76.dp.toPx() }
+    val visualTemplates = (
+        if (visualDayKeys.toSet() == sourceDayKeys.toSet()) {
+            visualDayKeys
+        } else {
+            sourceDayKeys
+        }
+    ).mapNotNull { id -> templates.firstOrNull { it.id == id } }
+
+    LaunchedEffect(sourceDayKeys, draggedDayKey) {
+        if (draggedDayKey == null) {
+            visualDayKeys = sourceDayKeys
+        }
+    }
+
+    fun startDayDrag(dayId: Long) {
+        draggedDayKey = dayId
+        draggedDayOffset = 0f
+        visualDayKeys = sourceDayKeys
+        dayAutoScroller.start(dayId) { draggedDayOffset }
+    }
+
+    fun updateDayDrag(dayId: Long, deltaY: Float) {
+        if (draggedDayKey != dayId) return
+        var offset = draggedDayOffset + deltaY
+        val keys = (
+            if (visualDayKeys.toSet() == sourceDayKeys.toSet()) {
+                visualDayKeys
+            } else {
+                sourceDayKeys
+            }
+        ).toMutableList()
+        var index = keys.indexOf(dayId)
+        if (index == -1) return
+
+        while (offset >= reorderThresholdPx && index < keys.lastIndex) {
+            keys[index] = keys[index + 1]
+            keys[index + 1] = dayId
+            index += 1
+            offset -= reorderThresholdPx
+        }
+        while (offset <= -reorderThresholdPx && index > 0) {
+            keys[index] = keys[index - 1]
+            keys[index - 1] = dayId
+            index -= 1
+            offset += reorderThresholdPx
+        }
+
+        visualDayKeys = keys
+        draggedDayOffset = offset
+    }
+
+    fun cancelDayDrag() {
+        dayAutoScroller.stop()
+        visualDayKeys = sourceDayKeys
+        draggedDayKey = null
+        draggedDayOffset = 0f
+    }
+
+    fun finishDayDrag(day: WorkoutTemplateEntity) {
+        val sourceIndex = sourceDayKeys.indexOf(day.id)
+        val targetIndex = visualDayKeys.indexOf(day.id)
+        val offset = targetIndex - sourceIndex
+        dayAutoScroller.stop()
+        draggedDayKey = null
+        draggedDayOffset = 0f
+        if (sourceIndex != -1 && targetIndex != -1 && offset != 0) {
+            viewModel.moveWorkoutTemplate(programId, day.id, offset)
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Reorder training days") },
         text = {
             LazyColumn(
+                state = dayListState,
                 modifier = Modifier.heightIn(max = 420.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 itemsIndexed(
-                    items = templates,
+                    items = visualTemplates,
                     key = { _, template -> template.id },
                 ) { index, template ->
+                    val isDraggedDay = draggedDayKey == template.id
+                    val rowModifier = Modifier
+                        .zIndex(if (isDraggedDay) 1f else 0f)
+                        .animateItem()
+                        .graphicsLayer {
+                            if (isDraggedDay) {
+                                translationY = draggedDayOffset
+                            }
+                        }
                     ReorderTrainingDayRow(
                         day = template,
                         index = index,
                         selected = selectedDay?.id == template.id,
                         isFirst = index == 0,
-                        isLast = index == templates.lastIndex,
-                        modifier = Modifier.animateItem(),
+                        isLast = index == visualTemplates.lastIndex,
+                        modifier = rowModifier,
+                        dragVisualActive = isDraggedDay,
                         onSelect = { onSelectDay(template.id) },
-                        onMove = { offset ->
-                            viewModel.moveWorkoutTemplate(programId, template.id, offset)
+                        commitOnRelease = false,
+                        onDragStart = { startDayDrag(template.id) },
+                        onDragDelta = { deltaY -> updateDayDrag(template.id, deltaY) },
+                        onDragCancel = ::cancelDayDrag,
+                        onDragEnd = { finishDayDrag(template) },
+                        onMove = {
                         },
                     )
                 }
@@ -669,16 +881,21 @@ private fun ReorderTrainingDayRow(
     isFirst: Boolean,
     isLast: Boolean,
     modifier: Modifier = Modifier,
+    dragVisualActive: Boolean = false,
+    commitOnRelease: Boolean = true,
+    onDragStart: () -> Unit = {},
+    onDragDelta: (Float) -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    onDragEnd: () -> Unit = {},
     onSelect: () -> Unit,
     onMove: (Int) -> Unit,
 ) {
-    var isDragging by remember(day.id) { mutableStateOf(false) }
     val dragScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.02f else 1f,
+        targetValue = if (dragVisualActive) 1.02f else 1f,
         label = "dayReorderScale",
     )
     val shape = RoundedCornerShape(12.dp)
-    val rowModifier = if (isDragging) {
+    val rowModifier = if (dragVisualActive) {
         modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -700,13 +917,13 @@ private fun ReorderTrainingDayRow(
         shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = when {
-                isDragging -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
+                dragVisualActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
                 selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.52f)
                 else -> MaterialTheme.colorScheme.surfaceVariant
             },
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isDragging) 8.dp else 1.dp,
+            defaultElevation = if (dragVisualActive) 8.dp else 1.dp,
         ),
     ) {
         Row(
@@ -736,8 +953,13 @@ private fun ReorderTrainingDayRow(
             ReorderDragHandle(
                 canDragUp = !isFirst,
                 canDragDown = !isLast,
-                isDragging = isDragging,
-                onDraggingChange = { isDragging = it },
+                isDragging = dragVisualActive,
+                onDraggingChange = {},
+                commitOnRelease = commitOnRelease,
+                onDragStart = onDragStart,
+                onDragDelta = onDragDelta,
+                onDragCancel = onDragCancel,
+                onDragEnd = onDragEnd,
                 onDragStep = onMove,
             )
         }
@@ -1422,18 +1644,25 @@ private fun ProgramSupersetGroup(
     lastIndex: Int,
     viewModel: ProgramViewModel,
     modifier: Modifier = Modifier,
+    isFirstBlock: Boolean? = null,
+    isLastBlock: Boolean? = null,
+    dragVisualActive: Boolean = false,
     onEdit: (Long) -> Unit = {},
+    commitOnRelease: Boolean = true,
+    onDragStart: () -> Unit = {},
+    onDragDelta: (Float) -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    onDragEnd: () -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
     val shape = RoundedCornerShape(12.dp)
-    val isFirst = block.exercises.firstOrNull()?.index == 0
-    val isLast = block.exercises.lastOrNull()?.index == lastIndex
-    var isDragging by remember(block.groupId) { mutableStateOf(false) }
+    val isFirst = isFirstBlock ?: (block.exercises.firstOrNull()?.index == 0)
+    val isLast = isLastBlock ?: (block.exercises.lastOrNull()?.index == lastIndex)
     val dragScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.01f else 1f,
+        targetValue = if (dragVisualActive) 1.01f else 1f,
         label = "supersetReorderScale",
     )
-    val groupModifier = if (isDragging) {
+    val groupModifier = if (dragVisualActive) {
         modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -1481,8 +1710,13 @@ private fun ProgramSupersetGroup(
             ReorderDragHandle(
                 canDragUp = !isFirst,
                 canDragDown = !isLast,
-                isDragging = isDragging,
-                onDraggingChange = { isDragging = it },
+                isDragging = dragVisualActive,
+                onDraggingChange = {},
+                commitOnRelease = commitOnRelease,
+                onDragStart = onDragStart,
+                onDragDelta = onDragDelta,
+                onDragCancel = onDragCancel,
+                onDragEnd = onDragEnd,
                 onDragStep = onDragStep,
             )
         }
@@ -1513,20 +1747,25 @@ private fun CompactTemplateExerciseCard(
     modifier: Modifier = Modifier,
     showSupersetLabel: Boolean = true,
     showDragHandle: Boolean = true,
+    dragVisualActive: Boolean = false,
     onEdit: () -> Unit,
+    commitOnRelease: Boolean = true,
+    onDragStart: () -> Unit = {},
+    onDragDelta: (Float) -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    onDragEnd: () -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
     val setTargetsFlow = remember(item.id) { viewModel.templateSetTargets(item.id) }
     val setTargets by setTargetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
     val warmupSets by warmupSetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    var isDragging by remember(item.id) { mutableStateOf(false) }
     val dragScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.02f else 1f,
+        targetValue = if (dragVisualActive) 1.02f else 1f,
         label = "exerciseReorderScale",
     )
     val cardShape = RoundedCornerShape(12.dp)
-    val cardModifier = if (isDragging) {
+    val cardModifier = if (dragVisualActive) {
         modifier
             .fillMaxWidth()
             .graphicsLayer {
@@ -1547,14 +1786,14 @@ private fun CompactTemplateExerciseCard(
         modifier = cardModifier,
         shape = cardShape,
         colors = CardDefaults.cardColors(
-            containerColor = if (isDragging) {
+            containerColor = if (dragVisualActive) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant
             },
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isDragging) 8.dp else 1.dp,
+            defaultElevation = if (dragVisualActive) 8.dp else 1.dp,
         ),
     ) {
         Row(
@@ -1614,8 +1853,13 @@ private fun CompactTemplateExerciseCard(
                 ReorderDragHandle(
                     canDragUp = !isFirst,
                     canDragDown = !isLast,
-                    isDragging = isDragging,
-                    onDraggingChange = { isDragging = it },
+                    isDragging = dragVisualActive,
+                    onDraggingChange = {},
+                    commitOnRelease = commitOnRelease,
+                    onDragStart = onDragStart,
+                    onDragDelta = onDragDelta,
+                    onDragCancel = onDragCancel,
+                    onDragEnd = onDragEnd,
                     onDragStep = onDragStep,
                 )
             }
@@ -1632,9 +1876,33 @@ private fun TemplateExerciseEditorDialog(
     onDismiss: () -> Unit,
 ) {
     var showRemoveConfirmation by rememberSaveable(item.id) { mutableStateOf(false) }
+    var showUnsavedChangesConfirmation by rememberSaveable(item.id) { mutableStateOf(false) }
+    var currentDraft by remember(item) { mutableStateOf(item.toEditorDraft()) }
+    val hasUnsavedChanges = currentDraft != item.toEditorDraft()
+
+    fun saveCurrentDraft() {
+        viewModel.updateTemplateExercise(
+            item = item,
+            sets = currentDraft.sets,
+            repMin = currentDraft.repMin,
+            repMax = currentDraft.repMax,
+            currentWeight = currentDraft.currentWeight,
+            currentTargetReps = currentDraft.currentTargetReps,
+            increment = currentDraft.increment,
+            restSeconds = currentDraft.restSeconds,
+        )
+    }
+
+    fun requestDismiss() {
+        if (hasUnsavedChanges) {
+            showUnsavedChangesConfirmation = true
+        } else {
+            onDismiss()
+        }
+    }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::requestDismiss,
         title = { Text("Edit exercise") },
         text = {
             Box(
@@ -1648,17 +1916,53 @@ private fun TemplateExerciseEditorDialog(
                     isLast = isLast,
                     viewModel = viewModel,
                     showDragHandle = false,
+                    showSaveButton = false,
                     onRemoveRequest = { showRemoveConfirmation = true },
+                    onDraftChange = { currentDraft = it },
                     onDragStep = {},
                 )
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) {
+            Button(onClick = ::requestDismiss) {
                 Text("Done")
             }
         },
     )
+
+    if (showUnsavedChangesConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showUnsavedChangesConfirmation = false },
+            title = { Text("Save changes?") },
+            text = { Text("You changed '${item.exerciseName}'. Save those changes before closing?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        saveCurrentDraft()
+                        showUnsavedChangesConfirmation = false
+                        onDismiss()
+                    },
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showUnsavedChangesConfirmation = false
+                            onDismiss()
+                        },
+                    ) {
+                        Text("Discard")
+                    }
+                    TextButton(onClick = { showUnsavedChangesConfirmation = false }) {
+                        Text("Keep editing")
+                    }
+                }
+            },
+        )
+    }
 
     if (showRemoveConfirmation) {
         ConfirmationDialog(
@@ -1675,6 +1979,27 @@ private fun TemplateExerciseEditorDialog(
     }
 }
 
+private data class TemplateExerciseEditorDraft(
+    val sets: String,
+    val repMin: String,
+    val repMax: String,
+    val currentWeight: String,
+    val currentTargetReps: String,
+    val increment: String,
+    val restSeconds: String,
+)
+
+private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(): TemplateExerciseEditorDraft =
+    TemplateExerciseEditorDraft(
+        sets = plannedWorkingSets.toString(),
+        repMin = repMin.toString(),
+        repMax = repMax.toString(),
+        currentWeight = formatCentiKg(currentWeightCentiKg),
+        currentTargetReps = currentTargetReps.toString(),
+        increment = formatCentiKg(incrementCentiKg),
+        restSeconds = restSeconds.toString(),
+    )
+
 @Composable
 private fun TemplateExerciseEditor(
     item: WorkoutTemplateExerciseEditorItem,
@@ -1683,7 +2008,9 @@ private fun TemplateExerciseEditor(
     viewModel: ProgramViewModel,
     showSupersetLabel: Boolean = true,
     showDragHandle: Boolean = true,
+    showSaveButton: Boolean = true,
     onRemoveRequest: (() -> Unit)? = null,
+    onDraftChange: (TemplateExerciseEditorDraft) -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
@@ -1706,6 +2033,19 @@ private fun TemplateExerciseEditor(
             .border(2.dp, MaterialTheme.colorScheme.primary, cardShape)
     } else {
         Modifier.fillMaxWidth()
+    }
+    val draft = TemplateExerciseEditorDraft(
+        sets = sets,
+        repMin = repMin,
+        repMax = repMax,
+        currentWeight = currentWeight,
+        currentTargetReps = currentTargetReps,
+        increment = increment,
+        restSeconds = restSeconds,
+    )
+
+    LaunchedEffect(draft) {
+        onDraftChange(draft)
     }
 
     Card(
@@ -1802,21 +2142,23 @@ private fun TemplateExerciseEditor(
                 onClear = { viewModel.clearWarmupScheme(item.id) },
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(
-                    onClick = {
-                        viewModel.updateTemplateExercise(
-                            item = item,
-                            sets = sets,
-                            repMin = repMin,
-                            repMax = repMax,
-                            currentWeight = currentWeight,
-                            currentTargetReps = currentTargetReps,
-                            increment = increment,
-                            restSeconds = restSeconds,
-                        )
-                    },
-                ) {
-                    Text("Save")
+                if (showSaveButton) {
+                    TextButton(
+                        onClick = {
+                            viewModel.updateTemplateExercise(
+                                item = item,
+                                sets = sets,
+                                repMin = repMin,
+                                repMax = repMax,
+                                currentWeight = currentWeight,
+                                currentTargetReps = currentTargetReps,
+                                increment = increment,
+                                restSeconds = restSeconds,
+                            )
+                        },
+                    ) {
+                        Text("Save")
+                    }
                 }
                 TextButton(
                     onClick = {
@@ -1846,12 +2188,80 @@ private fun TemplateExerciseEditor(
     }
 }
 
+private data class ReorderAutoScroller(
+    val start: (Any, () -> Float) -> Unit,
+    val stop: () -> Unit,
+)
+
+@Composable
+private fun rememberReorderAutoScroller(
+    listState: LazyListState,
+): ReorderAutoScroller {
+    val coroutineScope = rememberCoroutineScope()
+    val edgeThresholdPx = with(LocalDensity.current) { 72.dp.toPx() }
+    val maxScrollStepPx = with(LocalDensity.current) { 22.dp.toPx() }
+    var autoScrollJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            autoScrollJob?.cancel()
+            autoScrollJob = null
+        }
+    }
+
+    fun stopAutoScroll() {
+        autoScrollJob?.cancel()
+        autoScrollJob = null
+    }
+
+    fun startAutoScroll(itemKey: Any, draggedOffset: () -> Float) {
+        stopAutoScroll()
+        autoScrollJob = coroutineScope.launch {
+            while (isActive) {
+                val layoutInfo = listState.layoutInfo
+                val draggedItem = layoutInfo.visibleItemsInfo.firstOrNull { it.key == itemKey }
+                if (draggedItem != null) {
+                    val draggedTop = draggedItem.offset + draggedOffset()
+                    val draggedBottom = draggedTop + draggedItem.size
+                    val viewportTop = layoutInfo.viewportStartOffset.toFloat()
+                    val viewportBottom = layoutInfo.viewportEndOffset.toFloat()
+                    val scrollDelta = when {
+                        draggedTop < viewportTop + edgeThresholdPx -> {
+                            -((viewportTop + edgeThresholdPx - draggedTop) / edgeThresholdPx)
+                                .coerceIn(0f, 1f) * maxScrollStepPx
+                        }
+                        draggedBottom > viewportBottom - edgeThresholdPx -> {
+                            ((draggedBottom - (viewportBottom - edgeThresholdPx)) / edgeThresholdPx)
+                                .coerceIn(0f, 1f) * maxScrollStepPx
+                        }
+                        else -> 0f
+                    }
+                    if (scrollDelta != 0f) {
+                        listState.scrollBy(scrollDelta)
+                    }
+                }
+                delay(16)
+            }
+        }
+    }
+
+    return ReorderAutoScroller(
+        start = ::startAutoScroll,
+        stop = ::stopAutoScroll,
+    )
+}
+
 @Composable
 private fun ReorderDragHandle(
     canDragUp: Boolean,
     canDragDown: Boolean,
     isDragging: Boolean,
     onDraggingChange: (Boolean) -> Unit,
+    commitOnRelease: Boolean = true,
+    onDragStart: () -> Unit = {},
+    onDragDelta: (Float) -> Unit = {},
+    onDragCancel: () -> Unit = {},
+    onDragEnd: () -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
     val handleColor = when {
@@ -1862,34 +2272,72 @@ private fun ReorderDragHandle(
     val thresholdPx = with(androidx.compose.ui.platform.LocalDensity.current) { 56.dp.toPx() }
     val hapticFeedback = LocalHapticFeedback.current
     var accumulatedDrag by remember { mutableStateOf(0f) }
+    var gestureActive by remember { mutableStateOf(false) }
+    val currentCanDragUp by rememberUpdatedState(canDragUp)
+    val currentCanDragDown by rememberUpdatedState(canDragDown)
+    val currentOnDraggingChange by rememberUpdatedState(onDraggingChange)
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragDelta by rememberUpdatedState(onDragDelta)
+    val currentOnDragCancel by rememberUpdatedState(onDragCancel)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+    val currentOnDragStep by rememberUpdatedState(onDragStep)
+    val currentCommitOnRelease by rememberUpdatedState(commitOnRelease)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (gestureActive) {
+                gestureActive = false
+                accumulatedDrag = 0f
+                currentOnDraggingChange(false)
+                currentOnDragCancel()
+            }
+        }
+    }
 
     Canvas(
         modifier = Modifier
             .size(44.dp)
-            .pointerInput(canDragUp, canDragDown, thresholdPx) {
-                if (!canDragUp && !canDragDown) return@pointerInput
+            .pointerInput(thresholdPx) {
                 detectDragGestures(
                     onDragStart = {
+                        if (!currentCanDragUp && !currentCanDragDown) return@detectDragGestures
+                        gestureActive = true
                         accumulatedDrag = 0f
-                        onDraggingChange(true)
+                        currentOnDraggingChange(true)
+                        currentOnDragStart()
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDragCancel = {
+                        if (!gestureActive) return@detectDragGestures
+                        gestureActive = false
                         accumulatedDrag = 0f
-                        onDraggingChange(false)
+                        currentOnDraggingChange(false)
+                        currentOnDragCancel()
                     },
                     onDragEnd = {
-                        when {
-                            accumulatedDrag <= -thresholdPx && canDragUp -> onDragStep(-1)
-                            accumulatedDrag >= thresholdPx && canDragDown -> onDragStep(1)
+                        if (!gestureActive) return@detectDragGestures
+                        val dragStep = when {
+                            accumulatedDrag <= -thresholdPx && currentCanDragUp -> -1
+                            accumulatedDrag >= thresholdPx && currentCanDragDown -> 1
+                            else -> 0
                         }
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         accumulatedDrag = 0f
-                        onDraggingChange(false)
+                        gestureActive = false
+                        currentOnDraggingChange(false)
+                        if (currentCommitOnRelease) {
+                            when (dragStep) {
+                                -1 -> currentOnDragStep(-1)
+                                1 -> currentOnDragStep(1)
+                            }
+                        }
+                        currentOnDragEnd()
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDrag = { change, dragAmount ->
+                        if (!gestureActive) return@detectDragGestures
                         change.consume()
                         accumulatedDrag += dragAmount.y
+                        currentOnDragDelta(dragAmount.y)
                     },
                 )
             },

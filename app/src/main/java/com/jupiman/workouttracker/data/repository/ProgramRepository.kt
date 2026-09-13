@@ -112,7 +112,7 @@ class ProgramRepository(
     }
 
     suspend fun moveWorkoutTemplate(programId: Long, workoutTemplateId: Long, offset: Int) {
-        require(offset == -1 || offset == 1) { "Move offset must be -1 or 1." }
+        require(offset != 0) { "Move offset must not be 0." }
 
         database.withTransaction {
             val templates = workoutTemplateDao.getForProgram(programId)
@@ -333,19 +333,22 @@ class ProgramRepository(
         workoutTemplateExerciseId: Long,
         offset: Int,
     ) {
-        require(offset == -1 || offset == 1) { "Move offset must be -1 or 1." }
+        require(offset != 0) { "Move offset must not be 0." }
 
         database.withTransaction {
             val exercises = workoutTemplateExerciseDao.getForWorkoutTemplate(workoutTemplateId)
-            val index = exercises.indexOfFirst { it.id == workoutTemplateExerciseId }
+            val blocks = exerciseReorderBlocks(exercises)
+            val index = blocks.indexOfFirst { block ->
+                block.any { it.id == workoutTemplateExerciseId }
+            }
             if (index == -1) return@withTransaction
 
-            val targetIndex = (index + offset).coerceIn(exercises.indices)
+            val targetIndex = (index + offset).coerceIn(blocks.indices)
             if (targetIndex == index) return@withTransaction
 
-            val reordered = exercises.toMutableList().apply {
+            val reordered = blocks.toMutableList().apply {
                 add(targetIndex, removeAt(index))
-            }
+            }.flatten()
             reordered.forEachIndexed { sortOrder, exercise ->
                 workoutTemplateExerciseDao.update(exercise.copy(sortOrder = sortOrder))
             }
@@ -357,7 +360,7 @@ class ProgramRepository(
         supersetGroupId: Long,
         offset: Int,
     ) {
-        require(offset == -1 || offset == 1) { "Move offset must be -1 or 1." }
+        require(offset != 0) { "Move offset must not be 0." }
 
         database.withTransaction {
             val exercises = workoutTemplateExerciseDao.getForWorkoutTemplate(workoutTemplateId)

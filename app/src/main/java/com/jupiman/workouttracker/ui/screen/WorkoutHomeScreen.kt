@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -63,11 +64,25 @@ fun WorkoutHomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val restEndsAt = uiState.activeWorkout?.session?.restEndsAt
+    var announcedRestCompleteDeadline by rememberSaveable { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(message) {
         val currentMessage = message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(currentMessage)
         viewModel.clearMessage()
+    }
+
+    LaunchedEffect(restEndsAt) {
+        val currentRestEndsAt = restEndsAt ?: return@LaunchedEffect
+        delay(max(0L, currentRestEndsAt - System.currentTimeMillis()))
+        if (announcedRestCompleteDeadline != currentRestEndsAt) {
+            announcedRestCompleteDeadline = currentRestEndsAt
+            snackbarHostState.showSnackbar(
+                message = "Rest complete",
+                actionLabel = "OK",
+            )
+        }
     }
 
     Scaffold(

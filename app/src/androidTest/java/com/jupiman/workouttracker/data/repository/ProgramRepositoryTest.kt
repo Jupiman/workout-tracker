@@ -146,6 +146,17 @@ class ProgramRepositoryTest {
             listOf("Day B", "Day C", "Day A"),
             trainingDayNames(programId),
         )
+
+        repository.moveWorkoutTemplate(
+            programId = programId,
+            workoutTemplateId = firstDayId,
+            offset = -2,
+        )
+
+        assertEquals(
+            listOf("Day A", "Day B", "Day C"),
+            trainingDayNames(programId),
+        )
         assertEquals(
             listOf(0, 1, 2),
             database.workoutTemplateDao()
@@ -237,6 +248,37 @@ class ProgramRepositoryTest {
             database.workoutTemplateExerciseDao()
                 .getForWorkoutTemplate(seed.templateId)
                 .map { it.sortOrder },
+        )
+    }
+
+    @Test
+    fun moveTemplateExerciseMovesAroundSupersetBlockWithoutSplittingIt() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+        val thirdTemplateExerciseId = repository.createExerciseAndAddToWorkout(
+            workoutTemplateId = seed.templateId,
+            exerciseName = "Overhead Press",
+            config = config(restSeconds = 150),
+        )
+        val groupId = database.workoutTemplateExerciseDao()
+            .getById(seed.firstTemplateExerciseId)!!
+            .supersetGroupId!!
+
+        repository.moveTemplateExercise(
+            workoutTemplateId = seed.templateId,
+            workoutTemplateExerciseId = thirdTemplateExerciseId,
+            offset = -1,
+        )
+
+        assertEquals(
+            listOf("Overhead Press", "Bench Press", "Machine Row"),
+            editorExerciseNames(seed.templateId),
+        )
+        assertEquals(
+            listOf(null, groupId, groupId),
+            database.workoutTemplateExerciseDao()
+                .getForWorkoutTemplate(seed.templateId)
+                .map { it.supersetGroupId },
         )
     }
 

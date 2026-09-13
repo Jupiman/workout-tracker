@@ -2512,10 +2512,12 @@ Implemented slices:
 - supersets render with one group-level drag handle and move as a contiguous block
 - individual superset member cards do not expose reorder handles in the Day builder
 - active reorder targets use a lifted tonal treatment with subtle scale animation
-- reorder gestures commit one slot on release so list recomposition does not interrupt the active pointer gesture
+- exercise and superset reorder gestures now keep the dragged card under the pointer, preview the reordered list while dragging, then persist the final block offset on drop
 - reorder handles provide subtle haptic feedback on pickup and drop when supported
-- Training Day reorder rows and Day exercise/superset items use keyed lazy placement animation when their order changes
+- Training Day reorder rows and Day exercise/superset items follow the pointer while dragging, preview surrounding rows/cards moving out of the way, and use keyed lazy placement animation when their order changes
+- exercise and Training Day reorder lists autoscroll when the dragged card approaches the top or bottom edge of the visible list
 - Training Day removal and Day-exercise removal require confirmation before deleting future program configuration
+- focused exercise edit dialogs use `Done` as the close action and prompt to save or discard unsaved exercise field changes instead of showing a separate in-dialog `Save` button
 
 Exercise drag-and-drop:
 
@@ -2580,6 +2582,13 @@ For rest completion:
 Snackbars should not depend on the user being scrolled to the top of the workout.
 
 Persistent warnings can use banners, but routine feedback should use snackbars.
+
+Phase 54.8 implementation:
+
+- the Workout screen observes the active persisted rest deadline and shows a bottom snackbar when that visible deadline completes
+- snackbar message is `Rest complete` with an `OK` action
+- changing, extending, skipping, or clearing the rest deadline cancels the pending in-app snackbar for the old deadline
+- existing sound/vibration/background Android notification scheduling remains unchanged
 
 ---
 
