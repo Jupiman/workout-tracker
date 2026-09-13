@@ -27,6 +27,7 @@ interface WorkoutTemplateExerciseDao {
             wte.repMax,
             wte.incrementCentiKg,
             wte.restSeconds,
+            wte.setupNote,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps
@@ -55,6 +56,7 @@ interface WorkoutTemplateExerciseDao {
             wte.repMax,
             wte.incrementCentiKg,
             wte.restSeconds,
+            wte.setupNote,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps

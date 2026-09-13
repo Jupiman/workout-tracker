@@ -95,6 +95,7 @@ class WorkoutSessionRepository(
                         prescribedWeightCentiKgSnapshot = templateExercise.currentWeightCentiKg,
                         incrementCentiKgSnapshot = templateExercise.incrementCentiKg,
                         restSecondsSnapshot = templateExercise.restSeconds,
+                        setupNoteSnapshot = templateExercise.setupNote,
                         supersetGroupSnapshot = templateExercise.supersetGroupId,
                         supersetRestSecondsSnapshot = supersetRestSeconds,
                     ),

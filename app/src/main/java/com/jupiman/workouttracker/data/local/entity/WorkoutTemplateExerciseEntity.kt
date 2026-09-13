@@ -44,5 +44,6 @@ data class WorkoutTemplateExerciseEntity(
     val repMax: Int,
     val incrementCentiKg: Int,
     val restSeconds: Int,
+    val setupNote: String = "",
     val supersetGroupId: Long? = null,
 )

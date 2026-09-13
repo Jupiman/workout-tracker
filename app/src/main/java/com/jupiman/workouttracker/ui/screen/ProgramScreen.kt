@@ -1853,6 +1853,12 @@ private fun CompactTemplateExerciseCard(
                             state = WorkoutVisualState.Pending,
                         )
                     }
+                    if (item.setupNote.isNotBlank()) {
+                        StatusPill(
+                            text = "Setup",
+                            state = WorkoutVisualState.Ready,
+                        )
+                    }
                 }
             }
             if (showDragHandle) {
@@ -1896,6 +1902,7 @@ private fun TemplateExerciseEditorDialog(
             currentTargetReps = currentDraft.currentTargetReps,
             increment = currentDraft.increment,
             restSeconds = currentDraft.restSeconds,
+            setupNote = currentDraft.setupNote,
         )
     }
 
@@ -1993,6 +2000,7 @@ private data class TemplateExerciseEditorDraft(
     val currentTargetReps: String,
     val increment: String,
     val restSeconds: String,
+    val setupNote: String,
 )
 
 private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(): TemplateExerciseEditorDraft =
@@ -2004,6 +2012,7 @@ private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(): TemplateExerciseE
         currentTargetReps = currentTargetReps.toString(),
         increment = formatCentiKg(incrementCentiKg),
         restSeconds = restSeconds.toString(),
+        setupNote = setupNote,
     )
 
 @Composable
@@ -2026,6 +2035,7 @@ private fun TemplateExerciseEditor(
     var currentTargetReps by remember(item) { mutableStateOf(item.currentTargetReps.toString()) }
     var increment by remember(item) { mutableStateOf(formatCentiKg(item.incrementCentiKg)) }
     var restSeconds by remember(item) { mutableStateOf(item.restSeconds.toString()) }
+    var setupNote by remember(item) { mutableStateOf(item.setupNote) }
     val setTargetsFlow = remember(item.id) { viewModel.templateSetTargets(item.id) }
     val setTargets by setTargetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
@@ -2048,6 +2058,7 @@ private fun TemplateExerciseEditor(
         currentTargetReps = currentTargetReps,
         increment = increment,
         restSeconds = restSeconds,
+        setupNote = setupNote,
     )
 
     LaunchedEffect(draft) {
@@ -2120,6 +2131,14 @@ private fun TemplateExerciseEditor(
                 SmallNumberField("Increment kg", increment, { increment = it }, Modifier.weight(1f), decimal = true)
             }
             SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.fillMaxWidth())
+            OutlinedTextField(
+                value = setupNote,
+                onValueChange = { setupNote = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Setup note") },
+                minLines = 2,
+                maxLines = 4,
+            )
             TemplateSetTargetsEditor(
                 setTargets = setTargets,
                 setCount = visibleSetCount,
@@ -2160,6 +2179,7 @@ private fun TemplateExerciseEditor(
                                 currentTargetReps = currentTargetReps,
                                 increment = increment,
                                 restSeconds = restSeconds,
+                                setupNote = setupNote,
                             )
                         },
                     ) {

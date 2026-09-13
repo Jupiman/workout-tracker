@@ -2731,6 +2731,35 @@ Phase 54.12 implementation:
 
 ---
 
+## 54.13 Exercise setup notes
+
+Exercise setup notes should help with repeatable setup details such as seat height, rack pin, grip marker, cable attachment, or machine settings.
+
+Data rules:
+
+- notes belong to `WorkoutTemplateExercise`, not the global Exercise library
+- the same Exercise used in different training days may have different setup notes
+- starting a workout snapshots the note into `SessionExercise`
+- completed history keeps the snapshotted note even if the template note changes later
+- setup notes do not affect progression, rest timers, set targets, or workout recommendation
+
+UI rules:
+
+- edit the setup note inside the exercise configuration editor
+- show a compact setup indicator in Program exercise cards when a note exists
+- show the note inside active workout exercise cards, near the exercise prescription
+- show the snapshotted note in History detail
+- hide empty notes
+
+Phase 54.13 implementation:
+
+- Room schema version 5 adds `setupNote` to `workout_template_exercises`
+- Room schema version 5 adds `setupNoteSnapshot` to `session_exercises`
+- `ProgramViewModel` and `ProgramRepository` save notes through the existing exercise editor flow
+- `WorkoutSessionRepository.startWorkout` snapshots setup notes into active session history
+
+---
+
 # 55. Development rules for the coding agent
 
 Before implementing a major feature:

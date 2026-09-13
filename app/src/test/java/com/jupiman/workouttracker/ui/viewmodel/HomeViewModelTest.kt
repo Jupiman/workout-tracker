@@ -217,6 +217,7 @@ class HomeViewModelTest {
                     prescribedWeightCentiKgSnapshot = 7_000,
                     incrementCentiKgSnapshot = 250,
                     restSecondsSnapshot = 120,
+                    setupNoteSnapshot = "",
                     supersetGroupSnapshot = null,
                     supersetRestSecondsSnapshot = null,
                 ),

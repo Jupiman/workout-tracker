@@ -166,6 +166,7 @@ class ProgramViewModel(
         currentTargetReps: String,
         increment: String,
         restSeconds: String,
+        setupNote: String,
     ) = launchOperation("Exercise configuration saved.") {
         programRepository.updateTemplateExercise(
             item = item,
@@ -178,6 +179,7 @@ class ProgramViewModel(
                 increment = increment,
                 restSeconds = restSeconds,
             ),
+            setupNote = setupNote,
         )
     }
 

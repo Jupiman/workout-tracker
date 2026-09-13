@@ -34,6 +34,7 @@ data class SessionExerciseEntity(
     val prescribedWeightCentiKgSnapshot: Int,
     val incrementCentiKgSnapshot: Int,
     val restSecondsSnapshot: Int,
+    val setupNoteSnapshot: String,
     val supersetGroupSnapshot: Long?,
     val supersetRestSecondsSnapshot: Int?,
 )

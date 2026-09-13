@@ -128,7 +128,7 @@ class DataBackupRepository(
     private companion object {
         const val BACKUP_APP = "Workout Companion"
         const val BACKUP_FORMAT_VERSION = 1
-        const val BACKUP_SCHEMA_VERSION = 4
+        const val BACKUP_SCHEMA_VERSION = 5
 
         val BACKUP_TABLES = listOf(
             BackupTable("exercises"),

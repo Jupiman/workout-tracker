@@ -42,7 +42,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEnti
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -140,6 +140,19 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
                     "CREATE UNIQUE INDEX IF NOT EXISTS " +
                         "index_workout_template_warmup_sets_workoutTemplateExerciseId_sortOrder " +
                         "ON workout_template_warmup_sets (workoutTemplateExerciseId, sortOrder)",
+                )
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE workout_template_exercises " +
+                        "ADD COLUMN setupNote TEXT NOT NULL DEFAULT ''",
+                )
+                db.execSQL(
+                    "ALTER TABLE session_exercises " +
+                        "ADD COLUMN setupNoteSnapshot TEXT NOT NULL DEFAULT ''",
                 )
             }
         }

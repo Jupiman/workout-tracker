@@ -543,6 +543,13 @@ private fun HistoryExerciseCard(
                     state = WorkoutVisualState.Current,
                 )
             }
+            if (exercise.exercise.setupNoteSnapshot.isNotBlank()) {
+                Text(
+                    text = "Setup: ${exercise.exercise.setupNoteSnapshot}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
             exercise.sets
                 .sortedBy { it.setOrder }

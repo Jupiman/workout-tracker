@@ -217,8 +217,10 @@ class ProgramRepository(
     suspend fun updateTemplateExercise(
         item: WorkoutTemplateExerciseEditorItem,
         config: TemplateExerciseConfig,
+        setupNote: String,
     ) {
         val validConfig = config.validatedForUpdate()
+        val trimmedSetupNote = setupNote.trim()
 
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(item.id)
@@ -234,6 +236,7 @@ class ProgramRepository(
                     repMax = validConfig.repMax,
                     incrementCentiKg = validConfig.incrementCentiKg,
                     restSeconds = validConfig.restSeconds,
+                    setupNote = trimmedSetupNote,
                 ),
             )
             workoutTemplateSetTargetDao.deleteFromSetOrder(

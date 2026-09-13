@@ -712,6 +712,7 @@ private fun SessionExerciseCard(
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            SetupNotePanel(note = snapshot.setupNoteSnapshot)
             LastTimePanel(lastTime = lastTime)
 
             exercise.sets
@@ -750,6 +751,34 @@ private fun SessionExerciseCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SetupNotePanel(
+    note: String,
+) {
+    if (note.isBlank()) return
+
+    val palette = workoutStateColors(WorkoutVisualState.Ready)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(palette.container.copy(alpha = 0.72f), RoundedCornerShape(WorkoutRadii.row))
+            .border(1.dp, palette.border.copy(alpha = 0.46f), RoundedCornerShape(WorkoutRadii.row))
+            .padding(WorkoutSpacing.compactCard),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = "Setup",
+            style = MaterialTheme.typography.labelLarge,
+            color = palette.content,
+        )
+        Text(
+            text = note,
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.content,
+        )
     }
 }
 

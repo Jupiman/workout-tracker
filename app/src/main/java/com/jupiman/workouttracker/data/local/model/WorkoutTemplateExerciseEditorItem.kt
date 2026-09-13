@@ -11,8 +11,8 @@ data class WorkoutTemplateExerciseEditorItem(
     val repMax: Int,
     val incrementCentiKg: Int,
     val restSeconds: Int,
+    val setupNote: String,
     val supersetGroupId: Long?,
     val currentWeightCentiKg: Int,
     val currentTargetReps: Int,
 )
-
