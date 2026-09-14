@@ -29,6 +29,8 @@ import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -48,6 +50,12 @@ class WorkoutSessionRepository(
     // Only the short-lived affordance is transient; the set and timer live in Room.
     private var latestUndo: SetCompletionUndo? = null
     private var undoRestDeadline: Long? = null
+    private val _completionSummary = MutableStateFlow<WorkoutCompletionSummary?>(null)
+    val completionSummary = _completionSummary.asStateFlow()
+
+    fun dismissCompletionSummary(sessionId: Long) {
+        if (_completionSummary.value?.sessionId == sessionId) _completionSummary.value = null
+    }
     val activeSession = workoutSessionDao.observeActive()
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
     val latestFinishedSessionForActiveProgram = workoutSessionDao.observeLatestFinishedForActiveProgram()
@@ -146,6 +154,7 @@ class WorkoutSessionRepository(
 
             sessionId
         }
+        _completionSummary.value = null
         workoutNotificationUpdater.refresh()
         return sessionId
     }
@@ -517,13 +526,14 @@ class WorkoutSessionRepository(
         allowPartial: Boolean,
         progressionChoices: Map<Long, ProgressionFinishChoice> = emptyMap(),
         expectedWearSessionId: Long? = null,
-    ) {
-        database.withTransaction {
+    ): WorkoutCompletionSummary {
+        val summary = database.withTransaction {
             val activeSession = workoutSessionDao.getActive()
                 ?: error("No active workout to finish.")
             require(!activeSession.progressionApplied) { "Progression has already been applied." }
 
             val sessionExercises = sessionExerciseDao.getForSession(activeSession.id)
+            val targetsBefore = sessionExercises.associate { it.id to completionTargets(it.sourceWorkoutTemplateExerciseId) }
             val setsByExerciseId = sessionExercises.associate { sessionExercise ->
                 sessionExercise.id to sessionSetDao.getForSessionExercise(sessionExercise.id)
             }
@@ -648,9 +658,45 @@ class WorkoutSessionRepository(
                     progressionApplied = true,
                 ),
             )
+            val finalSets = finalSetsByExerciseId.values.flatten()
+            val workingSets = finalSets.filter { it.setType == SetType.WORKING }
+            WorkoutCompletionSummary(
+                sessionId = activeSession.id,
+                workoutName = activeSession.workoutNameSnapshot,
+                durationSeconds = ((completedAt - activeSession.startedAt) / 1_000L).coerceAtLeast(0),
+                partial = !allPlannedSetsCompleted,
+                completedWorkingSets = workingSets.count { it.status == SessionSetStatus.COMPLETED },
+                totalWorkingSets = workingSets.size,
+                skippedSets = finalSets.count { it.status == SessionSetStatus.SKIPPED },
+                exercises = sessionExercises.map { exercise ->
+                    ExerciseCompletionSummary(
+                        sessionExerciseId = exercise.id,
+                        name = exercise.exerciseNameSnapshot,
+                        before = targetsBefore[exercise.id],
+                        after = completionTargets(exercise.sourceWorkoutTemplateExerciseId),
+                    )
+                },
+            )
         }
+        _completionSummary.value = summary
+        latestUndo = null
         restTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
+        return summary
+    }
+
+    // Read effective future targets from Room; never evaluate progression a second time.
+    private suspend fun completionTargets(sourceId: Long?): List<CompletionTarget>? {
+        sourceId ?: return null
+        val template = workoutTemplateExerciseDao.getById(sourceId) ?: return null
+        val progression = progressionStateDao.getForTemplateExercise(sourceId) ?: return null
+        val overrides = workoutTemplateSetTargetDao.getForTemplateExercise(sourceId).associateBy { it.setOrder }
+        return (0 until template.plannedWorkingSets).map { order ->
+            CompletionTarget(
+                weightCentiKg = overrides[order]?.prescribedWeightCentiKg ?: progression.currentWeightCentiKg,
+                reps = overrides[order]?.prescribedReps ?: progression.currentTargetReps,
+            )
+        }
     }
 
     suspend fun addRestTime(seconds: Int) {

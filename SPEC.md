@@ -3358,6 +3358,15 @@ Acceptance:
 
 STOP after Phase 2.
 
+### Phase 2 implementation decisions
+
+- Finish returns a completion summary assembled inside its existing Room transaction. Effective future per-set targets are read before and after the authoritative finish logic; the summary never runs its own progression algorithm.
+- The phone shows the summary until Done, including after a Wear finish. It reports the snapshotted Training Day name, elapsed minutes, completed/total WORKING sets (including today's added exercises), partial status, and all skipped sets including warm-ups. EXTRA, AMRAP, DROP, and WARMUP sets are excluded from the working-set fraction.
+- Each exercise reports actual future target changes or No change. Per-set overrides are displayed individually when needed. Exercises without an available permanent track do not claim progression.
+- The repository retains this read-only result in process memory for navigation/configuration changes. Done only dismisses presentation state. A process restart returns to normal persisted History/home behavior; it does not reconstruct past progression from the current Program. No Room migration or backup format change is needed.
+- Regression coverage checks automatic weight progression, partial counts, explicit per-set and whole-exercise decisions, No change, Wear completion, session-only exercises, dismissal immutability, and independence from later Program edits.
+- Phase 3 remains unimplemented.
+
 ## 57.3 Settings
 
 Add a small Settings surface.

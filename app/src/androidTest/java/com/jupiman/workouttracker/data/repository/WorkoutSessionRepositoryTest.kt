@@ -1219,6 +1219,113 @@ class WorkoutSessionRepositoryTest {
         assertRejected()
     }
 
+    @Test
+    fun completionSummaryReportsCommittedWeightProgressionAndDuration() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 12)
+        val sessionId = repository.startWorkout(templateId)
+        val active = database.workoutSessionDao().getActive()!!
+        database.workoutSessionDao().update(active.copy(startedAt = System.currentTimeMillis() - 57 * 60_000L))
+        firstSessionSets(sessionId).forEach { repository.completeSet(it.id, 7000, 12) }
+        val summary = repository.finishActiveWorkout(false)
+        assertEquals("Day A", summary.workoutName)
+        assertTrue(summary.durationSeconds in 3420..3430)
+        assertEquals(3, summary.completedWorkingSets)
+        assertEquals(3, summary.totalWorkingSets)
+        assertEquals(0, summary.skippedSets)
+        assertTrue(!summary.partial)
+        val result = summary.exercises.single()
+        assertEquals(List(3) { CompletionTarget(7000, 12) }, result.before)
+        assertEquals(List(3) { CompletionTarget(7250, 8) }, result.after)
+        val source = database.sessionExerciseDao().getForSession(sessionId).single().sourceWorkoutTemplateExerciseId!!
+        val stored = database.progressionStateDao().getForTemplateExercise(source)!!
+        assertEquals(CompletionTarget(stored.currentWeightCentiKg, stored.currentTargetReps), result.after!!.first())
+        assertEquals(summary, repository.completionSummary.value)
+    }
+
+    @Test
+    fun completionSummaryCountsPartialWorkingSetsAndAllSkippedSets() = runTest {
+        val templateId = seedBenchWorkout()
+        val source = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
+        database.workoutTemplateWarmupSetDao().insertAll(listOf(
+            WorkoutTemplateWarmupSetEntity(workoutTemplateExerciseId = source, sortOrder = 0, reps = 5, percentOfWorkingWeight = 50),
+        ))
+        val sessionId = repository.startWorkout(templateId)
+        val exerciseId = database.sessionExerciseDao().getForSession(sessionId).single().id
+        repository.completeSet(firstSessionSets(sessionId).first { it.setType == SetType.WORKING }.id, 7000, 10)
+        val extra = repository.addSessionSet(exerciseId, SetType.EXTRA)
+        repository.completeSet(extra, 7000, 10)
+        val summary = repository.finishActiveWorkout(true)
+        assertTrue(summary.partial)
+        assertEquals(1, summary.completedWorkingSets)
+        assertEquals(3, summary.totalWorkingSets)
+        assertEquals(3, summary.skippedSets)
+        assertEquals(summary.exercises.single().before, summary.exercises.single().after)
+        val history = repository.historyWithDetails.first().single()
+        assertEquals(summary.skippedSets, history.exercises.flatMap { it.sets }.count { it.status == SessionSetStatus.SKIPPED })
+    }
+
+    @Test
+    fun completionSummaryReflectsExplicitPerSetTargetsWithoutRecalculating() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sets = firstSessionSets(sessionId)
+        sets.forEachIndexed { index, set -> repository.completeSet(set.id, if (index == 1) 6500 else 7000, 10) }
+        val summary = repository.finishActiveWorkout(false, mapOf(sets[1].id to ProgressionFinishChoice.CHANGE_THIS_SET))
+        assertEquals(listOf(CompletionTarget(7000, 10), CompletionTarget(6500, 10), CompletionTarget(7000, 10)), summary.exercises.single().after)
+        val source = database.sessionExerciseDao().getForSession(sessionId).single().sourceWorkoutTemplateExerciseId!!
+        assertEquals(6500, database.workoutTemplateSetTargetDao().getForTemplateExercise(source).single().prescribedWeightCentiKg)
+    }
+
+    @Test
+    fun completionSummaryReportsWholeExerciseDecisionAndNoChangeAccurately() = runTest {
+        val templateId = seedBenchWorkout()
+        val sessionId = repository.startWorkout(templateId)
+        val sets = firstSessionSets(sessionId)
+        sets.forEach { repository.completeSet(it.id, 6750, 9) }
+        val summary = repository.finishActiveWorkout(false, mapOf(sets.first().id to ProgressionFinishChoice.SET_TARGET_FOR_EXERCISE))
+        assertEquals(List(3) { CompletionTarget(6750, 9) }, summary.exercises.single().after)
+        val next = repository.startWorkout(templateId)
+        assertNull(repository.completionSummary.value)
+        firstSessionSets(next).forEach { repository.completeSet(it.id, 6500, 8) }
+        val unchanged = repository.finishActiveWorkout(false)
+        assertEquals(unchanged.exercises.single().before, unchanged.exercises.single().after)
+        assertEquals(List(3) { CompletionTarget(6750, 9) }, unchanged.exercises.single().after)
+    }
+
+    @Test
+    fun summaryForWearFinishExcludesSessionOnlyProgressionAndDismissDoesNotWriteData() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val source = database.sessionExerciseDao().getForSession(sessionId).single()
+        repository.replaceExerciseForToday(source.id, "Replacement")
+        val addedId = repository.addExerciseForToday(sessionId, database.exerciseDao().getByName("Bench Press")!!.id, 1, 8, 0, 0)
+        database.sessionSetDao().getForSessionExercise(source.id).forEach { repository.completeSet(it.id, 7000, 10) }
+        database.sessionSetDao().getForSessionExercise(addedId).forEach { repository.completeSet(it.id, 0, 8) }
+        val summary = repository.finishActiveWorkout(false, expectedWearSessionId = sessionId)
+        assertEquals(4, summary.completedWorkingSets)
+        assertTrue(summary.exercises.all { it.before == null && it.after == null })
+        val history = repository.historyWithDetails.first()
+        repository.dismissCompletionSummary(sessionId + 1)
+        assertEquals(summary, repository.completionSummary.value)
+        repository.dismissCompletionSummary(sessionId)
+        assertNull(repository.completionSummary.value)
+        assertEquals(history, repository.historyWithDetails.first())
+    }
+
+    @Test
+    fun summaryCapturesActualFutureTargetsAndIsUnaffectedByLaterProgramEdits() = runTest {
+        val templateId = seedBenchWorkout()
+        val sessionId = repository.startWorkout(templateId)
+        val sourceId = database.sessionExerciseDao().getForSession(sessionId).single().sourceWorkoutTemplateExerciseId!!
+        val progression = database.progressionStateDao().getForTemplateExercise(sourceId)!!
+        database.progressionStateDao().update(progression.copy(currentWeightCentiKg = 8000))
+        repository.skipExercise(database.sessionExerciseDao().getForSession(sessionId).single().id)
+        val summary = repository.finishActiveWorkout(true)
+        assertEquals(List(3) { CompletionTarget(8000, 10) }, summary.exercises.single().before)
+        assertEquals(summary.exercises.single().before, summary.exercises.single().after)
+        database.progressionStateDao().update(progression.copy(currentWeightCentiKg = 9000))
+        assertEquals(summary, repository.completionSummary.value)
+        assertEquals(List(3) { CompletionTarget(8000, 10) }, repository.completionSummary.value!!.exercises.single().after)
+    }
+
     private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
         val now = 1_000L
         val programId = database.programDao().insert(

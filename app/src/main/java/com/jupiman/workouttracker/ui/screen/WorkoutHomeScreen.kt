@@ -89,9 +89,11 @@ fun WorkoutHomeScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
     val undo by viewModel.undo.collectAsStateWithLifecycle()
+    val completionSummary by viewModel.completionSummary.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(message, undo, uiState.activeWorkout?.session?.id) {
+    LaunchedEffect(message, undo, uiState.activeWorkout?.session?.id, completionSummary) {
+        if (completionSummary != null) return@LaunchedEffect
         val receipt = undo
         if (receipt != null && uiState.activeWorkout != null) {
             val result = snackbarHostState.showSnackbar(
@@ -115,7 +117,7 @@ fun WorkoutHomeScreen(
         bottomBar = {
             val activeWorkout = uiState.activeWorkout
             RestTimerBottomBar(
-                restEndsAt = activeWorkout?.session?.restEndsAt,
+                restEndsAt = if (completionSummary == null) activeWorkout?.session?.restEndsAt else null,
             )
         },
     ) { innerPadding ->
@@ -136,7 +138,12 @@ fun WorkoutHomeScreen(
             }
 
             val activeWorkout = uiState.activeWorkout
-            if (activeWorkout == null) {
+            val summary = completionSummary
+            if (summary != null) {
+                item {
+                    WorkoutCompletionPanel(summary, onDone = { viewModel.dismissCompletionSummary(summary.sessionId) })
+                }
+            } else if (activeWorkout == null) {
                 item {
                     StartWorkoutPanel(
                         uiState = uiState,

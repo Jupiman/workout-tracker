@@ -57,6 +57,12 @@ class HomeViewModel(
     val message: StateFlow<String?> = _message
     private val _undo = MutableStateFlow<SetCompletionUndo?>(null)
     val undo: StateFlow<SetCompletionUndo?> = _undo
+    val completionSummary = workoutSessionRepository.completionSummary
+
+    fun dismissCompletionSummary(sessionId: Long) {
+        _undo.value = null
+        workoutSessionRepository.dismissCompletionSummary(sessionId)
+    }
 
     fun dismissUndo(receipt: SetCompletionUndo) {
         if (_undo.value === receipt) _undo.value = null
@@ -154,7 +160,7 @@ class HomeViewModel(
     fun finishActiveWorkout(
         allowPartial: Boolean,
         progressionChoices: Map<Long, ProgressionFinishChoice> = emptyMap(),
-    ) = launchOperation("Workout finished.") {
+    ) = launchOperation("") {
         workoutSessionRepository.finishActiveWorkout(
             allowPartial = allowPartial,
             progressionChoices = progressionChoices,
