@@ -15,8 +15,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +47,10 @@ import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.WorkoutEmptyState
+import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
+import com.jupiman.workouttracker.ui.theme.WorkoutIcon
+import com.jupiman.workouttracker.ui.theme.WorkoutScreenHeader
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -89,17 +93,19 @@ fun ExerciseProgressScreen(
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = onBack) { Text("Back") }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Exercise progress", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text(exercise.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            }
+            WorkoutScreenHeader(
+                title = exercise.name,
+                eyebrow = "Exercise progress",
+                navigation = {
+                    IconButton(onClick = onBack) {
+                        WorkoutGlyph(WorkoutIcon.Back, contentDescription = "Back to exercise library")
+                    }
+                },
+            )
         }
         if (tracks.isEmpty()) {
             item {
-                ProgressEmptyCard(
+                WorkoutEmptyState(
                     title = "No progression track",
                     body = "Add this exercise to a training day to start a separate progress history for that configuration.",
                 )
@@ -113,7 +119,7 @@ fun ExerciseProgressScreen(
                             FilterChip(
                                 selected = track.workoutTemplateExerciseId == selectedTrack?.workoutTemplateExerciseId,
                                 onClick = { selectedTrackId = track.workoutTemplateExerciseId },
-                                label = { Text("${track.programName} · ${track.workoutName}") },
+                                label = { Text("${track.programName} · ${track.workoutName}", maxLines = 2) },
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -131,7 +137,7 @@ fun ExerciseProgressScreen(
                 }
                 if (sessions.isEmpty()) {
                     item {
-                        ProgressEmptyCard(
+                        WorkoutEmptyState(
                             title = "No completed history yet",
                             body = "Complete this exercise in ${track.workoutName} to add the first point.",
                         )
@@ -263,16 +269,6 @@ private fun ProgressSessionCard(session: ExerciseProgressSession) {
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ProgressEmptyCard(title: String, body: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(WorkoutSpacing.card), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

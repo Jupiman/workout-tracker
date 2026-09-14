@@ -3737,6 +3737,14 @@ Progress history is derived from completed and partial session snapshots by exac
 
 ## 57.6 Visual polish
 
+### Phase 6 visual audit
+
+The pre-implementation audit found that the product identity and core color palette are already established, but their application is inconsistent. Top-level navigation reserves icon space without drawing icons, the app menu uses a text glyph, and nested Settings, History detail, and Progress surfaces use different back affordances. Several screens repeat large in-content titles beneath the shared app bar. Empty and error states lack a shared hierarchy, while dense text-action rows can compete with long Program, Training Day, and exercise names. Completed-state colors are fixed for the dark theme, and system-bar colors remain dark when the phone uses the light theme.
+
+Phase 6 will consolidate spacing, shapes, state colors, screen headers, empty states, and icon buttons in the existing Compose design system; give the three primary destinations recognizable icons and selected-state treatment; make nested navigation and long-name handling consistent; and use restrained motion only for state changes already present in the workflow. The Wear palette, status hierarchy, target panel, and action sizing will be aligned with the same lavender identity without changing phone-authoritative behavior.
+
+The current launcher artwork is a complete square image placed in the adaptive foreground layer, so masking and safe-zone behavior are unreliable. Phone and Wear launchers will use a transparent, safe-zone vector foreground over the existing dark background, with round presentation and an Android 13 monochrome layer for themed icons.
+
 Perform a screen-by-screen visual quality pass.
 
 This phase has broad permission to improve visual presentation.
@@ -3865,6 +3873,14 @@ Acceptance:
 - icon works correctly with modern Android themed icons
 
 STOP after Phase 6.
+
+### Phase 6 implementation decisions
+
+The visual pass keeps the existing phone and Wear workflows and business rules intact. Shared Compose tokens now cover spacing, card radii, typography emphasis, surfaces, state colors, empty states, inline errors, and icon buttons. Primary destinations use recognizable workout, program, and history glyphs with selected-state treatment; Settings remains a secondary surface reached from the app menu and does not add a navigation destination.
+
+Phone content uses edge-to-edge system bars with nested screen scaffolds consuming no second inset. Workout, Program, Exercise Library, History, Progress, Settings, dialogs, completion summaries, and empty states use the same hierarchy and long-name truncation rules. Destructive discard/remove confirmations use the error color with readable light/dark contrast. Existing reorder and state animations remain, while no new blocking animation was added to frequently repeated workout actions.
+
+Wear keeps its phone-authoritative state and dark/lavender identity, but duration target panels now retain the target context while showing preparation and live countdown states. Phone and Wear launchers use transparent safe-zone vector foregrounds over the dark background, include round presentation, and provide Android 13 monochrome resources. The old full-square foreground bitmaps are no longer referenced. No database, backup, package, or progression behavior changed.
 
 ## 57.7 First-run onboarding
 

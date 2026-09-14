@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -16,17 +17,25 @@ import com.jupiman.workouttracker.data.repository.CompletionTarget
 import com.jupiman.workouttracker.data.repository.WorkoutCompletionSummary
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
+import com.jupiman.workouttracker.ui.theme.StatusPill
+import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
 
 @Composable
 internal fun WorkoutCompletionPanel(summary: WorkoutCompletionSummary, onDone: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section)) {
+        StatusPill(text = "Completed", state = WorkoutVisualState.Completed)
         Text("Workout complete", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Card(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f),
+            ),
+        ) {
             Column(Modifier.padding(WorkoutSpacing.card), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(summary.workoutName, style = MaterialTheme.typography.titleLarge)
                 Text(if (summary.durationSeconds < 60) "Less than a minute" else "${summary.durationSeconds / 60} min")
                 Text("${summary.completedWorkingSets} / ${summary.totalWorkingSets} working sets completed")
-                if (summary.partial) Text("Partial workout", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (summary.partial) StatusPill(text = "Partial workout", state = WorkoutVisualState.Rest)
                 if (summary.skippedSets > 0) {
                     Text("${summary.skippedSets} skipped ${if (summary.skippedSets == 1) "set" else "sets"} (including warm-ups)")
                 }

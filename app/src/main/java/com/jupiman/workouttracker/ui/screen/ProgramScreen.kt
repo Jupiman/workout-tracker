@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +34,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -72,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
@@ -93,6 +96,9 @@ import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.WorkoutEmptyState
+import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
+import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -182,6 +188,7 @@ fun ProgramScreen(
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
     ) { innerPadding ->
         Column(
@@ -370,9 +377,7 @@ private fun ProgramBuilderScreen(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            ScreenHeader(title = "Program builder")
-        }
+        item { Spacer(modifier = Modifier.height(4.dp)) }
 
         if (programs.isEmpty()) {
             item {
@@ -644,7 +649,11 @@ private fun ProgramSelectorPanel(
                         onClick = { menuExpanded = true },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(selectedProgram?.name ?: "Select program")
+                        Text(
+                            text = selectedProgram?.name ?: "Select program",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     DropdownMenu(
                         expanded = menuExpanded,
@@ -722,7 +731,7 @@ private fun TrainingDayChipRow(
             )
         }
         OutlinedButton(onClick = onAddDay) {
-            Text("+")
+            WorkoutGlyph(WorkoutIcon.Add, contentDescription = "Add training day")
         }
     }
 }
@@ -744,6 +753,8 @@ private fun SelectedDayHeader(
                 text = day.name,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             exerciseCount?.let {
                 Text(
@@ -1089,9 +1100,7 @@ private fun ExerciseLibraryScreen(
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            ScreenHeader(title = "Exercise library")
-        }
+        item { Spacer(modifier = Modifier.height(4.dp)) }
         item {
             Button(
                 onClick = { showCreateDialog = true },
@@ -1189,7 +1198,10 @@ private fun ExerciseLibraryRow(
     onProgress: () -> Unit,
     onArchive: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1198,6 +1210,8 @@ private fun ExerciseLibraryRow(
                 text = exercise.name,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onProgress) {
@@ -1221,26 +1235,12 @@ private fun EmptyStateCard(
     actionLabel: String,
     onAction: () -> Unit,
 ) {
-    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = body,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Button(onClick = onAction) {
-                Text(actionLabel)
-            }
-        }
-    }
+    WorkoutEmptyState(
+        title = title,
+        body = body,
+        actionLabel = actionLabel,
+        onAction = onAction,
+    )
 }
 
 @Composable
@@ -1292,7 +1292,13 @@ private fun ConfirmationDialog(
         title = { Text(title) },
         text = { Text(body) },
         confirmButton = {
-            Button(onClick = onConfirm) {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
                 Text(confirmLabel)
             }
         },
@@ -1535,7 +1541,7 @@ private fun TrainingDayRow(
             containerColor = if (isDragging) {
                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.44f)
             } else {
-                MaterialTheme.colorScheme.surfaceVariant
+                MaterialTheme.colorScheme.surfaceContainerLow
             },
         ),
     ) {
@@ -1886,6 +1892,8 @@ private fun CompactTemplateExerciseCard(
                     text = item.exerciseName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = "${item.plannedWorkingSets} x " + trackingText(item.trackingMode,

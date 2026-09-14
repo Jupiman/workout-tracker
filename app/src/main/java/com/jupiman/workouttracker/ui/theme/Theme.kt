@@ -39,6 +39,11 @@ private val LightColors = lightColorScheme(
     onBackground = Color(0xFF17151D),
     surface = Color(0xFFFFFBFF),
     onSurface = Color(0xFF17151D),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    surfaceContainerLow = Color(0xFFF7F2FA),
+    surfaceContainer = Color(0xFFF1ECF4),
+    surfaceContainerHigh = Color(0xFFEBE6EE),
+    surfaceContainerHighest = Color(0xFFE5E0E8),
     surfaceVariant = Color(0xFFE8E3EE),
     onSurfaceVariant = Color(0xFF494453),
     outline = Color(0xFF7A7385),
@@ -64,6 +69,11 @@ private val DarkColors = darkColorScheme(
     onBackground = Mist,
     surface = InkRaised,
     onSurface = Mist,
+    surfaceContainerLowest = Color(0xFF0C0D11),
+    surfaceContainerLow = Color(0xFF15171E),
+    surfaceContainer = InkRaised,
+    surfaceContainerHigh = InkSoft,
+    surfaceContainerHighest = Color(0xFF2C303D),
     surfaceVariant = InkSoft,
     onSurfaceVariant = Muted,
     outline = Color(0xFF8F879B),
@@ -75,9 +85,9 @@ private val DarkColors = darkColorScheme(
 private val WorkoutShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(20.dp),
+    medium = RoundedCornerShape(16.dp),
+    large = RoundedCornerShape(20.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 private val WorkoutTypography = Typography(
@@ -97,9 +107,17 @@ private val WorkoutTypography = Typography(
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.sp,
     ),
-    labelLarge = Typography().labelLarge.copy(
+    titleSmall = Typography().titleSmall.copy(
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.sp,
+    ),
+    labelLarge = Typography().labelLarge.copy(
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.1.sp,
+    ),
+    labelMedium = Typography().labelMedium.copy(
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.6.sp,
     ),
 )
 

@@ -21,6 +21,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
@@ -50,6 +52,10 @@ import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.WorkoutEmptyState
+import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
+import com.jupiman.workouttracker.ui.theme.WorkoutIcon
+import com.jupiman.workouttracker.ui.theme.WorkoutScreenHeader
 import com.jupiman.workouttracker.ui.theme.workoutStateColors
 import com.jupiman.workouttracker.ui.viewmodel.HistoryViewModel
 import java.time.Instant
@@ -117,20 +123,13 @@ private fun WorkoutHistoryList(
             .padding(horizontal = WorkoutSpacing.screen),
         verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
     ) {
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "History",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        item { Spacer(modifier = Modifier.height(4.dp)) }
 
         if (sessions.isEmpty()) {
             item {
-                Text(
-                    text = "No completed workouts yet.",
-                    style = MaterialTheme.typography.bodyLarge,
+                WorkoutEmptyState(
+                    title = "No workout history",
+                    body = "Completed and partial workouts will appear here with their original exercise and set details.",
                 )
             }
         } else {
@@ -190,7 +189,7 @@ private fun HistoryCalendarCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
             modifier = Modifier.padding(WorkoutSpacing.card),
@@ -354,7 +353,7 @@ private fun HistorySessionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
             modifier = Modifier.padding(WorkoutSpacing.card),
@@ -372,6 +371,8 @@ private fun HistorySessionRow(
                 text = session.workoutNameSnapshot,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = formatHistoryDate(session.completedAt ?: session.startedAt),
@@ -404,23 +405,17 @@ private fun WorkoutHistoryDetail(
     ) {
         item {
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = onBack) {
-                Text("Back")
-            }
-        }
-
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = session.workoutNameSnapshot,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = session.programNameSnapshot,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            WorkoutScreenHeader(
+                title = session.workoutNameSnapshot,
+                eyebrow = "Workout history",
+                supportingText = session.programNameSnapshot,
+                navigation = {
+                    IconButton(onClick = onBack) {
+                        WorkoutGlyph(WorkoutIcon.Back, contentDescription = "Back to history")
+                    }
+                },
+            )
+            Column(modifier = Modifier.padding(start = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "${formatHistoryDate(session.completedAt ?: session.startedAt)} · " +
                         "${formatHistoryTime(session.startedAt)}-${formatHistoryTime(session.completedAt)}",
@@ -456,7 +451,7 @@ private fun HistoryExerciseCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
             modifier = Modifier.padding(WorkoutSpacing.card),
@@ -466,6 +461,8 @@ private fun HistoryExerciseCard(
                 text = exercise.exercise.exerciseNameSnapshot,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = "${exercise.exercise.plannedSetCountSnapshot} x " + trackingText(

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -53,6 +55,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
@@ -72,6 +75,8 @@ import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
+import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.theme.workoutStateColors
 import com.jupiman.workouttracker.ui.viewmodel.HomeUiState
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
@@ -116,6 +121,7 @@ fun WorkoutHomeScreen(
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             val activeWorkout = uiState.activeWorkout
@@ -131,14 +137,7 @@ fun WorkoutHomeScreen(
                 .padding(horizontal = WorkoutSpacing.screen),
             verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section),
         ) {
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Workout",
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
+            item { Spacer(modifier = Modifier.height(4.dp)) }
 
             val activeWorkout = uiState.activeWorkout
             val summary = completionSummary
@@ -195,7 +194,7 @@ private fun StartWorkoutPanel(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         ) {
             Column(
                 modifier = Modifier.padding(WorkoutSpacing.card),
@@ -452,6 +451,10 @@ private fun ActiveWorkoutPanel(
                         onDiscardWorkout()
                     },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
                 ) {
                     Text("Discard")
                 }
@@ -726,7 +729,7 @@ private fun SupersetExerciseGroup(
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "${block.exercises.size} exercises | Group rest ${groupRestSeconds}s",
+            text = "${block.exercises.size} exercises · Group rest ${groupRestSeconds}s",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
@@ -797,7 +800,7 @@ private fun SessionExerciseCard(
         colors = if (isSuperset) {
             CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.58f))
         } else {
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         },
     ) {
         Column(
@@ -812,12 +815,14 @@ private fun SessionExerciseCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (hasPending) Box {
                     IconButton(
                         onClick = { menuExpanded = true },
                         modifier = Modifier.semantics { contentDescription = "Exercise actions" },
-                    ) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                    ) { WorkoutGlyph(WorkoutIcon.Menu, contentDescription = "Exercise actions") }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         if (exercises.isNotEmpty()) DropdownMenuItem(
                             text = { Text("Replace for today") },

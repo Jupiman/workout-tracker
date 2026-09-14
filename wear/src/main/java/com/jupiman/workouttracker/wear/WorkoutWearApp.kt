@@ -2,6 +2,7 @@ package com.jupiman.workouttracker.wear
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -146,8 +147,14 @@ private fun ActiveWorkoutScreen(
     val restText = restText(state.restEndsAt, now)
     val restOverdue = isRestOverdue(state.restEndsAt, now)
     val durationTimerText = durationTimerText(state, now)
-    val targetText = durationTimerText ?: targetText(state)
+    val displayTargetText = durationTimerText ?: targetText(state)
     val durationStartsAt = state.durationStartsAt
+    val setLabel = state.setLabel.orEmpty().uppercase()
+    val targetSupport = when {
+        durationTimerText == null -> setLabel
+        durationStartsAt != null && now < durationStartsAt -> "GET READY · $setLabel"
+        else -> "TARGET ${targetText(state)} · $setLabel"
+    }
 
     Column(
         modifier = Modifier
@@ -167,14 +174,14 @@ private fun ActiveWorkoutScreen(
             textAlign = TextAlign.Center,
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )
         Spacer(modifier = Modifier.height(5.dp))
         TargetPanel(
-            targetText = targetText,
-            setLabel = state.setLabel.orEmpty().uppercase(),
+            targetText = displayTargetText,
+            setLabel = targetSupport,
         )
         if (restText != null) {
             Spacer(modifier = Modifier.height(6.dp))
@@ -275,6 +282,7 @@ private fun TargetPanel(
                 color = WearSurface,
                 shape = RoundedCornerShape(14.dp),
             )
+            .border(1.dp, WearLavender.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

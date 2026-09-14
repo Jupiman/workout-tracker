@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import kotlinx.coroutines.launch
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.ui.theme.WorkoutInlineError
 
 @Composable
 internal fun AddSessionExerciseDialog(
@@ -70,7 +71,7 @@ internal fun AddSessionExerciseDialog(
                     trackingMode = trackingMode, onTrackingModeChange = { trackingMode = it },
                     durationSeconds = durationSeconds, onDurationSecondsChange = { durationSeconds = it },
                 )
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                error?.let { WorkoutInlineError(it) }
             }
         },
         confirmButton = {

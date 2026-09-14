@@ -9,6 +9,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -36,6 +38,8 @@ import com.jupiman.workouttracker.ui.screen.HistoryScreen
 import com.jupiman.workouttracker.ui.screen.ProgramScreen
 import com.jupiman.workouttracker.ui.screen.SettingsScreen
 import com.jupiman.workouttracker.ui.screen.WorkoutHomeScreen
+import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
+import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.viewmodel.AppViewModelFactory
 import com.jupiman.workouttracker.ui.viewmodel.HistoryViewModel
 import com.jupiman.workouttracker.ui.viewmodel.HomeViewModel
@@ -108,18 +112,29 @@ fun WorkoutTrackerApp(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(if (currentRoute == SETTINGS_ROUTE) "Settings" else "Workout Companion") },
+                title = {
+                    Text(
+                        text = if (currentRoute == SETTINGS_ROUTE) {
+                            "Settings"
+                        } else {
+                            destinations.firstOrNull { it.route == currentRoute }?.label ?: "Workout Companion"
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     if (currentRoute == SETTINGS_ROUTE) {
-                        TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
+                        IconButton(onClick = { navController.popBackStack() }) {
+                            WorkoutGlyph(WorkoutIcon.Back, contentDescription = "Back")
+                        }
                     }
                 },
                 actions = {
                     if (currentRoute != SETTINGS_ROUTE) Box {
                         IconButton(
                             onClick = { appMenuExpanded = true },
-                            modifier = Modifier.semantics { contentDescription = "App menu" },
-                        ) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                        ) { WorkoutGlyph(WorkoutIcon.Menu, contentDescription = "App menu") }
                         DropdownMenu(expanded = appMenuExpanded, onDismissRequest = { appMenuExpanded = false }) {
                             DropdownMenuItem(text = { Text("Settings") }, onClick = {
                                 appMenuExpanded = false
@@ -128,11 +143,12 @@ fun WorkoutTrackerApp(
                         }
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             )
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
+            if (currentRoute != SETTINGS_ROUTE) NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 destinations.forEach { destination ->
@@ -148,7 +164,16 @@ fun WorkoutTrackerApp(
                             }
                         },
                         label = { Text(destination.label) },
-                        icon = {},
+                        icon = {
+                            WorkoutGlyph(
+                                icon = when (destination) {
+                                    WorkoutTrackerDestination.Workout -> WorkoutIcon.Workout
+                                    WorkoutTrackerDestination.Program -> WorkoutIcon.Program
+                                    WorkoutTrackerDestination.History -> WorkoutIcon.History
+                                },
+                                contentDescription = destination.label,
+                            )
+                        },
                     )
                 }
             }
