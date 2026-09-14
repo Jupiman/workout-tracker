@@ -3418,6 +3418,14 @@ Acceptance:
 
 STOP after Phase 3.
 
+### Phase 3 implementation decisions
+
+- Settings opens from the top app menu on every primary destination, including when no Program exists. It is a separate back-stack page and adds no bottom-navigation item. Back returns to the previous screen.
+- Data contains Export backup and Restore backup. The restore confirmation text, document picker contracts, backup repository, supported format, error/success feedback, and post-restore timer/notification synchronization remain unchanged.
+- History no longer contains backup controls or restore confirmation.
+- About shows Workout Companion and the installed package version when available. No future preference placeholders, unit toggle, schema migration, or backup version change is introduced.
+- Backup regression coverage verifies that export/restore preserves completed History, an active workout, progression, templates, and persisted rest scheduling. Phase 4 remains unimplemented.
+
 ## 57.4 Exercise tracking modes
 
 The current kg × reps model is not ideal for every exercise.

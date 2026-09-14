@@ -4,6 +4,13 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -11,9 +18,14 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,6 +34,7 @@ import androidx.navigation.compose.rememberNavController
 import com.jupiman.workouttracker.di.AppContainer
 import com.jupiman.workouttracker.ui.screen.HistoryScreen
 import com.jupiman.workouttracker.ui.screen.ProgramScreen
+import com.jupiman.workouttracker.ui.screen.SettingsScreen
 import com.jupiman.workouttracker.ui.screen.WorkoutHomeScreen
 import com.jupiman.workouttracker.ui.viewmodel.AppViewModelFactory
 import com.jupiman.workouttracker.ui.viewmodel.HistoryViewModel
@@ -30,6 +43,9 @@ import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
 import java.time.LocalDate
 import kotlinx.coroutines.launch
 
+private const val SETTINGS_ROUTE = "settings"
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutTrackerApp(
     container: AppContainer,
@@ -41,6 +57,11 @@ fun WorkoutTrackerApp(
     val destinations = WorkoutTrackerDestination.entries
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    var appMenuExpanded by remember { mutableStateOf(false) }
+    val versionName = remember(context) {
+        @Suppress("DEPRECATION")
+        runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    }
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     }
@@ -85,6 +106,30 @@ fun WorkoutTrackerApp(
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text(if (currentRoute == SETTINGS_ROUTE) "Settings" else "Workout Companion") },
+                navigationIcon = {
+                    if (currentRoute == SETTINGS_ROUTE) {
+                        TextButton(onClick = { navController.popBackStack() }) { Text("Back") }
+                    }
+                },
+                actions = {
+                    if (currentRoute != SETTINGS_ROUTE) Box {
+                        IconButton(
+                            onClick = { appMenuExpanded = true },
+                            modifier = Modifier.semantics { contentDescription = "App menu" },
+                        ) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                        DropdownMenu(expanded = appMenuExpanded, onDismissRequest = { appMenuExpanded = false }) {
+                            DropdownMenuItem(text = { Text("Settings") }, onClick = {
+                                appMenuExpanded = false
+                                navController.navigate(SETTINGS_ROUTE) { launchSingleTop = true }
+                            })
+                        }
+                    }
+                },
+            )
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,
@@ -124,8 +169,11 @@ fun WorkoutTrackerApp(
             }
             composable(WorkoutTrackerDestination.History.route) {
                 val historyViewModel: HistoryViewModel = viewModel(factory = viewModelFactory)
-                HistoryScreen(
-                    viewModel = historyViewModel,
+                HistoryScreen(viewModel = historyViewModel)
+            }
+            composable(SETTINGS_ROUTE) {
+                SettingsScreen(
+                    versionName = versionName,
                     onExportBackup = {
                         exportBackupLauncher.launch(
                             "workout-companion-backup-${LocalDate.now()}.json",

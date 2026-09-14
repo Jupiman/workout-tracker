@@ -1326,6 +1326,31 @@ class WorkoutSessionRepositoryTest {
         assertEquals(List(3) { CompletionTarget(8000, 10) }, repository.completionSummary.value!!.exercises.single().after)
     }
 
+    @Test
+    fun backupRoundTripPreservesHistoryActiveWorkoutAndProgression() = runTest {
+        val templateId = seedBenchWorkout()
+        val finishedId = repository.startWorkout(templateId)
+        firstSessionSets(finishedId).forEach { repository.completeSet(it.id, 7000, 10) }
+        repository.finishActiveWorkout(false)
+        val activeId = repository.startWorkout(templateId)
+        repository.completeSet(firstSessionSets(activeId).first().id, 7000, 11)
+        val activeBefore = database.workoutSessionDao().getActiveWithDetails()
+        val historyBefore = repository.historyWithDetails.first()
+        val templatesBefore = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId)
+        val progressionBefore = database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id)
+        val output = java.io.ByteArrayOutputStream()
+        val backup = DataBackupRepository(database)
+        backup.exportBackup(output)
+        repository.discardActiveWorkout()
+        backup.restoreBackup(java.io.ByteArrayInputStream(output.toByteArray()))
+        repository.syncRestTimerAlarm()
+        assertEquals(activeBefore, database.workoutSessionDao().getActiveWithDetails())
+        assertEquals(historyBefore, repository.historyWithDetails.first())
+        assertEquals(templatesBefore, database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId))
+        assertEquals(progressionBefore, database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id))
+        assertEquals(activeBefore!!.session.restEndsAt, restTimerScheduler.scheduledRestEndsAt)
+    }
+
     private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
         val now = 1_000L
         val programId = database.programDao().insert(
