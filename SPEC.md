@@ -2100,6 +2100,15 @@ After an Exercise is selected/created:
 - save it into the currently selected Training Day
 - return to the Day builder with the new exercise visible
 
+The add-exercise flow should present the primary fields in this order:
+
+- exercise name
+- sets
+- target reps
+- rep minimum
+- rep maximum
+- remaining details such as weight, increment, rest, and setup/warm-up options
+
 Do not navigate to a separate full-screen Exercise Library page merely to add an exercise.
 
 ### Exercise editor
@@ -2110,16 +2119,19 @@ Only one exercise should be edited at a time.
 
 The editor contains the existing configuration controls, including where applicable:
 
+- exercise name
 - sets
+- target reps
 - rep minimum
 - rep maximum
 - current/progression weight
-- target reps
 - increment
 - rest
 - per-set target configuration
 - warm-up configuration
 - superset membership/actions
+
+The Program exercise editor should use the same primary field order as the add-exercise flow: name, sets, target reps, rep minimum, rep maximum, then remaining details.
 
 Use the weight control defined in section 54.3.
 
@@ -2593,7 +2605,8 @@ For rest timing:
 - keep existing notification sound/vibration behavior
 - keep existing Android notification-area completion behavior
 - show the active rest timer at the bottom of the Workout screen while a rest deadline exists
-- keep timer controls such as `+30 sec` and `Skip` available in the bottom timer
+- keep the bottom timer display-only during workout logging
+- display overtime as a negative timer once the rest deadline has passed
 - do not also show a bottom snackbar when rest runs out
 
 The timer should not depend on the user being scrolled to the top of the workout.
@@ -2602,6 +2615,8 @@ Phase 54.8 implementation:
 
 - the Workout screen renders the active persisted rest deadline in a Scaffold bottom bar
 - the timer remains visible while scrolling the workout content
+- the timer counts into negative time after rest expires
+- the bottom timer no longer exposes `+30 sec` or `Skip`
 - rest completion no longer creates an in-app bottom snackbar
 - existing sound/vibration/background Android notification scheduling remains unchanged
 
@@ -2714,7 +2729,7 @@ The History screen should not become an unbounded chronological scroll as workou
 Calendar rules:
 
 - show a month calendar before the workout list
-- mark days that contain logged workouts
+- mark days that contain logged workouts with an explicit green square or circle indicator, not only a number
 - show the workout count on days with one or more workouts
 - selecting a date filters the visible history list to that date
 - if two or more workouts are logged on the same date, show all of them under that selected date
@@ -2769,7 +2784,8 @@ Wear polish rules:
 - show phone connection state on every watch screen
 - show pending set-completion commands clearly after the user taps complete
 - show command rejection or send failure messages without adding watch-side retry state
-- make rest and ready states glanceable during an active workout
+- make rest and overtime states glanceable during an active workout
+- keep the active Wear screen awake while a workout is active
 - keep the active workout screen focused on exercise name, target weight/reps, set label, and one-tap completion
 - do not add watch-side persistence, program editing, history, or progression logic
 - do not change the shared protocol unless the phone needs to send new workout data
@@ -2778,10 +2794,98 @@ Phase 54.14 implementation:
 
 - the active Wear screen uses compact status chips for phone connection, pending sync, and superset position
 - the prescribed target and set label are grouped in a single high-contrast panel
-- rest countdown and ready states use pill styling for quicker scanning
+- rest countdown and overtime states use pill styling for quicker scanning
+- long exercise names are truncated before they can push the complete button off-screen
+- the active Wear screen is scrollable on small round displays so rest state and complete action do not overlap
+- the active workout screen requests keep-screen-on while visible
+- rest completion triggers a clear one-time Wear haptic alert
 - pending complete-set commands show a disabled `SENT` button state with progress feedback
 - no-active and complete screens show phone connection status and transient command messages
 - no database, protocol, or phone-authoritative workflow changes are introduced
+
+---
+
+## 54.15 Replace for today
+
+Active workouts may need a session-only exercise substitution when equipment is unavailable.
+
+Replacement rules:
+
+- the replacement applies only to the current `WorkoutSession`
+- the source `WorkoutTemplateExercise` and future workouts are not modified
+- the active `SessionExercise` keeps its current set structure, prescribed weights, reps, rest, and superset placement for today
+- the active `SessionExercise` changes its exercise name snapshot to the selected Exercise Library item
+- the active `SessionExercise` clears `sourceWorkoutTemplateExerciseId`
+- all existing sets for the replaced session exercise stop counting for progression
+- replacing an exercise clears the setup note snapshot because the note belonged to the original exercise instance
+- completed history shows the replacement exercise name performed that day
+- last-time lookup and progression do not treat the replacement as the original exercise instance
+
+Phase 54.15 implementation:
+
+- active workout exercise cards expose `Replace for today`
+- the replacement picker lists active Exercise Library entries and explains the session-only behavior
+- `WorkoutSessionRepository.replaceExerciseForToday` updates only the active session snapshot
+- no database migration is required
+- Wear and phone notification state refresh from the updated active session
+
+---
+
+## 54.16 Duplicate training day and exercise configuration
+
+Program editing should support duplicating existing configuration without sharing mutable progression state.
+
+Duplicate Training Day rules:
+
+- create a new `WorkoutTemplate` in the same program
+- default the copied name to `<source name> copy`
+- append the copy at the end of the program's training days
+- copy all exercises, ordering, set configuration, rest, setup notes, warm-up schemes, per-set targets, and superset grouping
+- create new `WorkoutTemplateExercise` rows
+- create new `ProgressionState` rows initialized from the source values
+- create new `SupersetGroup` rows for copied supersets
+- do not modify workout history
+
+Duplicate Exercise rules:
+
+- create a new `WorkoutTemplateExercise` in the same training day
+- append the copy at the end of the day
+- copy exercise library reference, set configuration, rest, setup note, warm-up scheme, per-set targets, and current progression values
+- create a new independent `ProgressionState`
+- do not copy the source exercise into the original superset group; the duplicate starts standalone
+- do not modify workout history
+
+Phase 54.16 implementation:
+
+- Program training-day rows and the edit-day header expose `Duplicate`
+- Program exercise cards and exercise editor controls expose `Duplicate`
+- `ProgramRepository.duplicateWorkoutTemplate` performs a transactional deep copy
+- `ProgramRepository.duplicateTemplateExercise` performs a transactional standalone exercise copy
+- no database migration is required
+
+---
+
+## 54.17 Exercise rename access
+
+Exercise names are global Exercise Library names, but users must be able to rename them from the place where they notice the problem.
+
+Rename rules:
+
+- the Exercise Library subtab exposes rename for reusable exercises
+- the Program exercise editor exposes exercise name as an editable field alongside sets, reps, weight, rest, and setup notes
+- editing the Program exercise name re-links only that `WorkoutTemplateExercise` to the named Exercise Library record
+- if the typed exercise name does not exist, the save creates a new Exercise Library record and links only the edited row to it
+- if the typed exercise name already exists, the save links only the edited row to that existing exercise
+- duplicated exercises initially share the source exercise reference, but editing the duplicate name must not rename the source exercise
+- logged workout history keeps its existing exercise name snapshots
+- blank-name validation is enforced before saving a Program exercise name
+- Exercise Library rename still uses `ExerciseRepository.renameExercise` for duplicate-name and blank-name validation
+
+Superset action rules:
+
+- exercises that are not in a superset show `Superset previous`
+- exercises already in a superset show `Remove superset`
+- the two actions should not be shown together for the same exercise
 
 ---
 

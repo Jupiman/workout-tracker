@@ -19,9 +19,22 @@ fun restText(
 ): String? {
     val endsAt = restEndsAt ?: return null
     val remainingMillis = endsAt - now
-    if (remainingMillis <= 0L) return "READY"
-    val totalSeconds = max(1L, (remainingMillis + 999L) / 1_000L)
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return "Rest %d:%02d".format(minutes, seconds)
+    val totalSeconds = if (remainingMillis > 0L) {
+        max(1L, (remainingMillis + 999L) / 1_000L)
+    } else {
+        -(((-remainingMillis) + 999L) / 1_000L)
+    }
+    val sign = if (remainingMillis <= 0L) "-" else ""
+    val absoluteSeconds = kotlin.math.abs(totalSeconds)
+    val minutes = absoluteSeconds / 60L
+    val seconds = absoluteSeconds % 60L
+    return "Rest $sign%d:%02d".format(minutes, seconds)
+}
+
+fun isRestOverdue(
+    restEndsAt: Long?,
+    now: Long,
+): Boolean {
+    val endsAt = restEndsAt ?: return false
+    return now >= endsAt
 }

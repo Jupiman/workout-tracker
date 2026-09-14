@@ -14,6 +14,7 @@ class AppViewModelFactory(
                 HomeViewModel(
                     programRepository = container.programRepository,
                     workoutSessionRepository = container.workoutSessionRepository,
+                    exerciseRepository = container.exerciseRepository,
                 ) as T
             }
             modelClass.isAssignableFrom(ProgramViewModel::class.java) -> {

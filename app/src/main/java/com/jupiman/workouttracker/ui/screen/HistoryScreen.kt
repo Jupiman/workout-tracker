@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -33,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -301,9 +304,9 @@ private fun CalendarDayCell(
 ) {
     val inCurrentMonth = YearMonth.from(date) == currentMonth
     val hasWorkouts = workoutCount > 0
+    val workoutMarkerColor = Color(0xFF2E7D32)
     val background = when {
         selected -> MaterialTheme.colorScheme.primaryContainer
-        hasWorkouts -> MaterialTheme.colorScheme.surfaceVariant
         else -> MaterialTheme.colorScheme.surface
     }
     val content = when {
@@ -324,16 +327,30 @@ private fun CalendarDayCell(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = date.dayOfMonth.toString(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = content,
-                fontWeight = if (selected || hasWorkouts) FontWeight.SemiBold else FontWeight.Normal,
-            )
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(
+                        color = if (hasWorkouts) {
+                            workoutMarkerColor
+                        } else {
+                            Color.Transparent
+                        },
+                        shape = CircleShape,
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = date.dayOfMonth.toString(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (hasWorkouts) Color.White else content,
+                    fontWeight = if (selected || hasWorkouts) FontWeight.SemiBold else FontWeight.Normal,
+                )
+            }
             Text(
                 text = if (workoutCount > 0) workoutCount.toString() else "",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (hasWorkouts) workoutMarkerColor else MaterialTheme.colorScheme.onSurfaceVariant,
                 minLines = 1,
             )
         }

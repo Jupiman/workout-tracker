@@ -2,6 +2,7 @@ package com.jupiman.workouttracker.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
@@ -9,6 +10,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
+import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
@@ -26,6 +28,7 @@ data class HomeUiState(
     val nextWorkoutName: String? = null,
     val nextWorkoutTemplateId: Long? = null,
     val activeProgramTemplates: List<WorkoutTemplateEntity> = emptyList(),
+    val exercises: List<ExerciseEntity> = emptyList(),
     val lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext> = emptyMap(),
 )
 
@@ -47,29 +50,43 @@ data class LastTimeSetContext(
 class HomeViewModel(
     private val programRepository: ProgramRepository,
     private val workoutSessionRepository: WorkoutSessionRepository,
+    private val exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
 
-    val uiState: StateFlow<HomeUiState> = combine(
+    private val homeInputs = combine(
         programRepository.activeProgram,
         workoutSessionRepository.activeSessionWithDetails,
         programRepository.activeProgramTemplates,
+        exerciseRepository.exercises,
+    ) { activeProgram, activeWorkout, activeProgramTemplates, exercises ->
+        HomeInputs(
+            activeProgram = activeProgram,
+            activeWorkout = activeWorkout,
+            activeProgramTemplates = activeProgramTemplates,
+            exercises = exercises,
+        )
+    }
+
+    val uiState: StateFlow<HomeUiState> = combine(
+        homeInputs,
         workoutSessionRepository.latestFinishedSessionForActiveProgram,
         workoutSessionRepository.historyWithDetails,
-    ) { activeProgram, activeWorkout, activeProgramTemplates, latestFinishedSession, history ->
+    ) { inputs, latestFinishedSession, history ->
         val nextTemplate = recommendNextWorkoutTemplate(
-            templates = activeProgramTemplates,
+            templates = inputs.activeProgramTemplates,
             latestFinishedSession = latestFinishedSession,
         )
         HomeUiState(
-            activeProgram = activeProgram,
-            activeWorkout = activeWorkout,
+            activeProgram = inputs.activeProgram,
+            activeWorkout = inputs.activeWorkout,
             nextWorkoutName = nextTemplate?.name,
             nextWorkoutTemplateId = nextTemplate?.id,
-            activeProgramTemplates = activeProgramTemplates,
+            activeProgramTemplates = inputs.activeProgramTemplates,
+            exercises = inputs.exercises,
             lastTimeByTemplateExerciseId = lastTimeContextsForActiveWorkout(
-                activeWorkout = activeWorkout,
+                activeWorkout = inputs.activeWorkout,
                 history = history,
             ),
         )
@@ -147,6 +164,19 @@ class HomeViewModel(
         )
     }
 
+    fun replaceExerciseForToday(
+        sessionExerciseId: Long,
+        replacementExerciseId: Long,
+    ) = launchOperation("Exercise replaced for today.") {
+        val exercise = exerciseRepository.getExercise(replacementExerciseId)
+            ?: error("Exercise not found.")
+        require(!exercise.archived) { "Choose an active exercise." }
+        workoutSessionRepository.replaceExerciseForToday(
+            sessionExerciseId = sessionExerciseId,
+            replacementExerciseName = exercise.name,
+        )
+    }
+
     private fun launchOperation(
         successMessage: String,
         block: suspend () -> Unit,
@@ -160,6 +190,13 @@ class HomeViewModel(
         }
     }
 }
+
+private data class HomeInputs(
+    val activeProgram: ProgramEntity?,
+    val activeWorkout: WorkoutSessionWithDetails?,
+    val activeProgramTemplates: List<WorkoutTemplateEntity>,
+    val exercises: List<ExerciseEntity>,
+)
 
 internal fun lastTimeContextsForActiveWorkout(
     activeWorkout: WorkoutSessionWithDetails?,

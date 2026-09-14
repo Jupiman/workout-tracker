@@ -2,6 +2,8 @@ package com.jupiman.workouttracker.wear
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,11 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +44,15 @@ fun WorkoutWearApp(
     viewModel: WearWorkoutViewModel,
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val view = LocalView.current
+    val keepScreenOn = uiState.displayState?.sessionStatus == WearSessionStatus.ACTIVE
+
+    DisposableEffect(view, keepScreenOn) {
+        view.keepScreenOn = keepScreenOn
+        onDispose {
+            view.keepScreenOn = false
+        }
+    }
 
     MaterialTheme(
         colors = Colors(
@@ -107,10 +120,13 @@ private fun ActiveWorkoutScreen(
 ) {
     if (state == null) return
     val restText = restText(state.restEndsAt, now)
+    val restOverdue = isRestOverdue(state.restEndsAt, now)
     val targetText = "${formatCentiKg(state.weightCentiKg ?: 0)} kg x ${state.targetReps ?: 0}"
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -123,9 +139,9 @@ private fun ActiveWorkoutScreen(
         Text(
             text = state.exerciseName.orEmpty().uppercase(),
             textAlign = TextAlign.Center,
-            fontSize = 18.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -138,18 +154,18 @@ private fun ActiveWorkoutScreen(
             Spacer(modifier = Modifier.height(6.dp))
             StatusPill(
                 text = restText,
-                container = if (restText == "READY") WearReady.copy(alpha = 0.18f) else WearLavender.copy(alpha = 0.14f),
-                content = if (restText == "READY") WearReady else MaterialTheme.colors.primary,
+                container = if (restOverdue) WearReady.copy(alpha = 0.18f) else WearLavender.copy(alpha = 0.14f),
+                content = if (restOverdue) WearReady else MaterialTheme.colors.primary,
             )
         }
         if (transientMessage != null) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text = transientMessage,
                 textAlign = TextAlign.Center,
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 color = WearWarning,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -193,6 +209,7 @@ private fun ActiveWorkoutScreen(
                 )
             }
         }
+        Spacer(modifier = Modifier.height(4.dp))
     }
 }
 

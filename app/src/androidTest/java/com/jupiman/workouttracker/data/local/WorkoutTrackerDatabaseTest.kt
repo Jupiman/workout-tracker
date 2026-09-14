@@ -103,6 +103,7 @@ class WorkoutTrackerDatabaseTest {
                 prescribedWeightCentiKgSnapshot = 7000,
                 incrementCentiKgSnapshot = 250,
                 restSecondsSnapshot = 180,
+                setupNoteSnapshot = "",
                 supersetGroupSnapshot = null,
                 supersetRestSecondsSnapshot = null,
             ),

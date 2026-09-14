@@ -1426,6 +1426,7 @@ private fun TrainingDaysScreen(
                         onOpen = { onSelectDay(template.id) },
                         onRename = { viewModel.renameWorkoutTemplate(template.id, it) },
                         onMove = { offset -> viewModel.moveWorkoutTemplate(program.id, template.id, offset) },
+                        onDuplicate = { viewModel.duplicateWorkoutTemplate(template.id) },
                         onRemove = { viewModel.deleteWorkoutTemplate(template.id) },
                     )
                 }
@@ -1457,6 +1458,7 @@ private fun TrainingDayRow(
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onMove: (Int) -> Unit,
+    onDuplicate: () -> Unit,
     onRemove: () -> Unit,
 ) {
     var name by remember(day) { mutableStateOf(day.name) }
@@ -1518,6 +1520,9 @@ private fun TrainingDayRow(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = { onRename(name) }) {
                     Text("Save")
+                }
+                TextButton(onClick = onDuplicate) {
+                    Text("Duplicate")
                 }
                 TextButton(onClick = onRemove) {
                     Text("Remove")
@@ -1584,6 +1589,9 @@ private fun EditDayScreen(
                             enabled = !isLast,
                         ) {
                             Text("Move down")
+                        }
+                        TextButton(onClick = { viewModel.duplicateWorkoutTemplate(day.id) }) {
+                            Text("Duplicate")
                         }
                     }
                 }
@@ -1861,6 +1869,9 @@ private fun CompactTemplateExerciseCard(
                     }
                 }
             }
+            TextButton(onClick = { viewModel.duplicateTemplateExercise(item.id) }) {
+                Text("Duplicate")
+            }
             if (showDragHandle) {
                 ReorderDragHandle(
                     canDragUp = !isFirst,
@@ -1895,6 +1906,7 @@ private fun TemplateExerciseEditorDialog(
     fun saveCurrentDraft() {
         viewModel.updateTemplateExercise(
             item = item,
+            exerciseName = currentDraft.exerciseName,
             sets = currentDraft.sets,
             repMin = currentDraft.repMin,
             repMax = currentDraft.repMax,
@@ -1993,6 +2005,7 @@ private fun TemplateExerciseEditorDialog(
 }
 
 private data class TemplateExerciseEditorDraft(
+    val exerciseName: String,
     val sets: String,
     val repMin: String,
     val repMax: String,
@@ -2005,6 +2018,7 @@ private data class TemplateExerciseEditorDraft(
 
 private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(): TemplateExerciseEditorDraft =
     TemplateExerciseEditorDraft(
+        exerciseName = exerciseName,
         sets = plannedWorkingSets.toString(),
         repMin = repMin.toString(),
         repMax = repMax.toString(),
@@ -2028,6 +2042,7 @@ private fun TemplateExerciseEditor(
     onDraftChange: (TemplateExerciseEditorDraft) -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
+    var exerciseName by remember(item) { mutableStateOf(item.exerciseName) }
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
     var repMin by remember(item) { mutableStateOf(item.repMin.toString()) }
     var repMax by remember(item) { mutableStateOf(item.repMax.toString()) }
@@ -2051,6 +2066,7 @@ private fun TemplateExerciseEditor(
         Modifier.fillMaxWidth()
     }
     val draft = TemplateExerciseEditorDraft(
+        exerciseName = exerciseName,
         sets = sets,
         repMin = repMin,
         repMax = repMax,
@@ -2085,11 +2101,12 @@ private fun TemplateExerciseEditor(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = item.exerciseName,
+                OutlinedTextField(
+                    value = exerciseName,
+                    onValueChange = { exerciseName = it },
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    label = { Text("Exercise name") },
+                    singleLine = true,
                 )
                 if (showDragHandle) {
                     ReorderDragHandle(
@@ -2116,6 +2133,9 @@ private fun TemplateExerciseEditor(
             HorizontalDivider()
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallNumberField("Sets", sets, { sets = it }, Modifier.weight(1f))
+                SmallNumberField("Target reps", currentTargetReps, { currentTargetReps = it }, Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallNumberField("Rep min", repMin, { repMin = it }, Modifier.weight(1f))
                 SmallNumberField("Rep max", repMax, { repMax = it }, Modifier.weight(1f))
             }
@@ -2127,10 +2147,9 @@ private fun TemplateExerciseEditor(
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SmallNumberField("Target reps", currentTargetReps, { currentTargetReps = it }, Modifier.weight(1f))
                 SmallNumberField("Increment kg", increment, { increment = it }, Modifier.weight(1f), decimal = true)
+                SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.weight(1f))
             }
-            SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.fillMaxWidth())
             OutlinedTextField(
                 value = setupNote,
                 onValueChange = { setupNote = it },
@@ -2172,6 +2191,7 @@ private fun TemplateExerciseEditor(
                         onClick = {
                             viewModel.updateTemplateExercise(
                                 item = item,
+                                exerciseName = exerciseName,
                                 sets = sets,
                                 repMin = repMin,
                                 repMax = repMax,
@@ -2198,16 +2218,23 @@ private fun TemplateExerciseEditor(
                     Text("Remove")
                 }
                 TextButton(
-                    onClick = { viewModel.supersetWithPrevious(item.workoutTemplateId, item.id) },
-                    enabled = !isFirst,
+                    onClick = { viewModel.duplicateTemplateExercise(item.id) },
                 ) {
-                    Text("Superset previous")
+                    Text("Duplicate")
                 }
-                TextButton(
-                    onClick = { viewModel.removeFromSuperset(item.id) },
-                    enabled = item.supersetGroupId != null,
-                ) {
-                    Text("Remove superset")
+                if (item.supersetGroupId == null) {
+                    TextButton(
+                        onClick = { viewModel.supersetWithPrevious(item.workoutTemplateId, item.id) },
+                        enabled = !isFirst,
+                    ) {
+                        Text("Superset previous")
+                    }
+                } else {
+                    TextButton(
+                        onClick = { viewModel.removeFromSuperset(item.id) },
+                    ) {
+                        Text("Remove superset")
+                    }
                 }
             }
         }
@@ -2719,6 +2746,13 @@ private fun AddExerciseDialogContent(
     val selectedExercise = exercises.firstOrNull { it.id == selectedExerciseId }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = newExerciseName,
+            onValueChange = onNewExerciseNameChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Exercise name") },
+            singleLine = true,
+        )
         Box(modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
                 onClick = { exerciseMenuExpanded = true },
@@ -2742,20 +2776,13 @@ private fun AddExerciseDialogContent(
                 }
             }
         }
-        OutlinedTextField(
-            value = newExerciseName,
-            onValueChange = onNewExerciseNameChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Or new exercise") },
-            singleLine = true,
-        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SmallNumberField("Sets", sets, onSetsChange, Modifier.weight(1f))
-            SmallNumberField("Rep min", repMin, onRepMinChange, Modifier.weight(1f))
+            SmallNumberField("Target", currentTargetReps, onCurrentTargetRepsChange, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SmallNumberField("Rep min", repMin, onRepMinChange, Modifier.weight(1f))
             SmallNumberField("Rep max", repMax, onRepMaxChange, Modifier.weight(1f))
-            SmallNumberField("Target", currentTargetReps, onCurrentTargetRepsChange, Modifier.weight(1f))
         }
         WeightAdjuster(
             label = "Weight kg",

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
@@ -68,7 +70,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import kotlin.math.max
 
 @Composable
 fun WorkoutHomeScreen(
@@ -93,8 +94,6 @@ fun WorkoutHomeScreen(
             val activeWorkout = uiState.activeWorkout
             RestTimerBottomBar(
                 restEndsAt = activeWorkout?.session?.restEndsAt,
-                onAddRestTime = viewModel::addRestTime,
-                onSkipRest = viewModel::skipRest,
             )
         },
     ) { innerPadding ->
@@ -126,6 +125,7 @@ fun WorkoutHomeScreen(
                 item {
                     ActiveWorkoutPanel(
                         activeWorkout = activeWorkout,
+                        exercises = uiState.exercises,
                         lastTimeByTemplateExerciseId = uiState.lastTimeByTemplateExerciseId,
                         onCompleteSet = viewModel::completeSet,
                         onUncompleteSet = viewModel::uncompleteSet,
@@ -133,6 +133,7 @@ fun WorkoutHomeScreen(
                         onDiscardWorkout = viewModel::discardActiveWorkout,
                         onFinishWorkout = viewModel::finishActiveWorkout,
                         onAddSessionSet = viewModel::addSessionSet,
+                        onReplaceExerciseForToday = viewModel::replaceExerciseForToday,
                     )
                 }
             }
@@ -218,6 +219,7 @@ private fun WorkoutChoiceButton(
 @Composable
 private fun ActiveWorkoutPanel(
     activeWorkout: WorkoutSessionWithDetails,
+    exercises: List<ExerciseEntity>,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
@@ -225,6 +227,7 @@ private fun ActiveWorkoutPanel(
     onDiscardWorkout: () -> Unit,
     onFinishWorkout: (Boolean, Map<Long, ProgressionFinishChoice>) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
+    onReplaceExerciseForToday: (Long, Long) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
     var confirmingPartialFinish by remember { mutableStateOf(false) }
@@ -263,6 +266,7 @@ private fun ActiveWorkoutPanel(
                 is ActiveWorkoutDisplayBlock.SingleExercise -> {
                     SessionExerciseCard(
                         exercise = block.exercise,
+                        exercises = exercises,
                         currentSetId = currentSetFocus?.set?.id,
                         lastTime = block.exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                         shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
@@ -270,18 +274,21 @@ private fun ActiveWorkoutPanel(
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
                         onAddSessionSet = onAddSessionSet,
+                        onReplaceExerciseForToday = onReplaceExerciseForToday,
                     )
                 }
                 is ActiveWorkoutDisplayBlock.Superset -> {
                     SupersetExerciseGroup(
                         block = block,
                         activeWorkout = activeWorkout,
+                        exercises = exercises,
                         currentSetId = currentSetFocus?.set?.id,
                         lastTimeByTemplateExerciseId = lastTimeByTemplateExerciseId,
                         onCompleteSet = onCompleteSet,
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
                         onAddSessionSet = onAddSessionSet,
+                        onReplaceExerciseForToday = onReplaceExerciseForToday,
                     )
                 }
             }
@@ -436,8 +443,6 @@ private fun CurrentSetFocusCard(
 @Composable
 private fun RestTimerBottomBar(
     restEndsAt: Long?,
-    onAddRestTime: (Int) -> Unit,
-    onSkipRest: () -> Unit,
 ) {
     if (restEndsAt == null) return
 
@@ -450,16 +455,18 @@ private fun RestTimerBottomBar(
         }
     }
 
-    val remainingMillis = max(0L, restEndsAt - now)
-    val remainingSeconds = remainingMillis / 1_000L
-    val minutes = remainingSeconds / 60
-    val seconds = remainingSeconds % 60
-    val timerText = if (remainingMillis == 0L) {
-        "Rest finished"
+    val remainingMillis = restEndsAt - now
+    val timerSeconds = if (remainingMillis > 0L) {
+        (remainingMillis + 999L) / 1_000L
     } else {
-        "Rest %02d:%02d".format(minutes, seconds)
+        -(((-remainingMillis) + 999L) / 1_000L)
     }
-    val restState = if (remainingMillis == 0L) WorkoutVisualState.Ready else WorkoutVisualState.Rest
+    val sign = if (remainingMillis <= 0L) "-" else ""
+    val absoluteSeconds = kotlin.math.abs(timerSeconds)
+    val minutes = absoluteSeconds / 60
+    val seconds = absoluteSeconds % 60
+    val timerText = "Rest $sign%02d:%02d".format(minutes, seconds)
+    val restState = if (remainingMillis <= 0L) WorkoutVisualState.Ready else WorkoutVisualState.Rest
     val palette = workoutStateColors(restState)
 
     ElevatedCard(
@@ -484,23 +491,9 @@ private fun RestTimerBottomBar(
                     color = palette.content,
                 )
                 StatusPill(
-                    text = if (remainingMillis == 0L) "Ready" else "Rest",
+                    text = if (remainingMillis <= 0L) "Ready" else "Rest",
                     state = restState,
                 )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item)) {
-                Button(
-                    onClick = { onAddRestTime(30) },
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("+30 sec")
-                }
-                OutlinedButton(
-                    onClick = onSkipRest,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Skip")
-                }
             }
         }
     }
@@ -610,12 +603,14 @@ private fun ProgressionChoiceButton(
 private fun SupersetExerciseGroup(
     block: ActiveWorkoutDisplayBlock.Superset,
     activeWorkout: WorkoutSessionWithDetails,
+    exercises: List<ExerciseEntity>,
     currentSetId: Long?,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
+    onReplaceExerciseForToday: (Long, Long) -> Unit,
 ) {
     val shape = RoundedCornerShape(WorkoutRadii.card)
     val groupRestSeconds = block.exercises
@@ -647,6 +642,7 @@ private fun SupersetExerciseGroup(
             }
             SessionExerciseCard(
                 exercise = exercise,
+                exercises = exercises,
                 currentSetId = currentSetId,
                 lastTime = exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                 shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
@@ -654,6 +650,7 @@ private fun SupersetExerciseGroup(
                 onUncompleteSet = onUncompleteSet,
                 onSkipSet = onSkipSet,
                 onAddSessionSet = onAddSessionSet,
+                onReplaceExerciseForToday = onReplaceExerciseForToday,
                 showSupersetLabel = false,
             )
         }
@@ -663,6 +660,7 @@ private fun SupersetExerciseGroup(
 @Composable
 private fun SessionExerciseCard(
     exercise: SessionExerciseWithSets,
+    exercises: List<ExerciseEntity>,
     currentSetId: Long?,
     lastTime: LastTimeExerciseContext?,
     shouldCollapseSet: (SessionSetEntity) -> Boolean,
@@ -670,10 +668,12 @@ private fun SessionExerciseCard(
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
+    onReplaceExerciseForToday: (Long, Long) -> Unit,
     showSupersetLabel: Boolean = true,
 ) {
     val snapshot = exercise.exercise
     val isSuperset = showSupersetLabel && snapshot.supersetGroupSnapshot != null
+    var showingReplacementPicker by remember(snapshot.id) { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -711,6 +711,12 @@ private fun SessionExerciseCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
+            }
+            OutlinedButton(
+                onClick = { showingReplacementPicker = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Replace for today")
             }
             SetupNotePanel(note = snapshot.setupNoteSnapshot)
             LastTimePanel(lastTime = lastTime)
@@ -752,6 +758,71 @@ private fun SessionExerciseCard(
             }
         }
     }
+
+    if (showingReplacementPicker) {
+        ReplaceExerciseForTodayDialog(
+            currentExerciseName = snapshot.exerciseNameSnapshot,
+            exercises = exercises,
+            onDismiss = { showingReplacementPicker = false },
+            onReplace = { replacementExerciseId ->
+                showingReplacementPicker = false
+                onReplaceExerciseForToday(snapshot.id, replacementExerciseId)
+            },
+        )
+    }
+}
+
+@Composable
+private fun ReplaceExerciseForTodayDialog(
+    currentExerciseName: String,
+    exercises: List<ExerciseEntity>,
+    onDismiss: () -> Unit,
+    onReplace: (Long) -> Unit,
+) {
+    val replacements = exercises
+        .filterNot { it.name == currentExerciseName }
+        .sortedBy { it.name.lowercase(Locale.getDefault()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Replace for today") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "This changes only the active workout. The program and progression target stay unchanged.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (replacements.isEmpty()) {
+                    Text(
+                        text = "No other active exercises in the library.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 320.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(replacements.size) { index ->
+                            val exercise = replacements[index]
+                            OutlinedButton(
+                                onClick = { onReplace(exercise.id) },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(exercise.name)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable

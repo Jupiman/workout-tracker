@@ -100,6 +100,10 @@ class ProgramViewModel(
         programRepository.deleteWorkoutTemplate(id)
     }
 
+    fun duplicateWorkoutTemplate(id: Long) = launchOperation("Training day duplicated.") {
+        programRepository.duplicateWorkoutTemplate(id)
+    }
+
     fun moveWorkoutTemplate(programId: Long, id: Long, offset: Int) = launchOperation("Workout reordered.") {
         programRepository.moveWorkoutTemplate(programId, id, offset)
     }
@@ -159,6 +163,7 @@ class ProgramViewModel(
 
     fun updateTemplateExercise(
         item: WorkoutTemplateExerciseEditorItem,
+        exerciseName: String = item.exerciseName,
         sets: String,
         repMin: String,
         repMax: String,
@@ -167,9 +172,10 @@ class ProgramViewModel(
         increment: String,
         restSeconds: String,
         setupNote: String,
-    ) = launchOperation("Exercise configuration saved.") {
+    ) = launchOperation("Exercise saved.") {
         programRepository.updateTemplateExercise(
             item = item,
+            exerciseName = exerciseName,
             config = templateExerciseConfig(
                 sets = sets,
                 repMin = repMin,
@@ -185,6 +191,10 @@ class ProgramViewModel(
 
     fun removeTemplateExercise(id: Long) = launchOperation("Exercise removed from workout.") {
         programRepository.removeTemplateExercise(id)
+    }
+
+    fun duplicateTemplateExercise(id: Long) = launchOperation("Exercise duplicated.") {
+        programRepository.duplicateTemplateExercise(id)
     }
 
     fun updateTemplateSetTarget(

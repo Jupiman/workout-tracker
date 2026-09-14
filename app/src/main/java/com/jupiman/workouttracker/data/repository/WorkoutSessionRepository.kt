@@ -305,6 +305,36 @@ class WorkoutSessionRepository(
         return setId
     }
 
+    suspend fun replaceExerciseForToday(
+        sessionExerciseId: Long,
+        replacementExerciseName: String,
+    ) {
+        val trimmedName = replacementExerciseName.trim()
+        require(trimmedName.isNotEmpty()) { "Choose an exercise first." }
+
+        database.withTransaction {
+            val sessionExercise = sessionExerciseDao.getById(sessionExerciseId)
+                ?: error("Session exercise not found.")
+            val session = workoutSessionDao.getById(sessionExercise.sessionId)
+                ?: error("Workout session not found.")
+            require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+
+            sessionExerciseDao.update(
+                sessionExercise.copy(
+                    sourceWorkoutTemplateExerciseId = null,
+                    exerciseNameSnapshot = trimmedName,
+                    setupNoteSnapshot = "",
+                ),
+            )
+            sessionSetDao.getForSessionExercise(sessionExerciseId).forEach { set ->
+                if (set.countsForProgression) {
+                    sessionSetDao.update(set.copy(countsForProgression = false))
+                }
+            }
+        }
+        workoutNotificationUpdater.refresh()
+    }
+
     suspend fun uncompleteSet(setId: Long) {
         database.withTransaction {
             val set = sessionSetDao.getById(setId) ?: error("Set not found.")

@@ -254,15 +254,24 @@ class WearWorkoutViewModel(
     }
 
     private fun vibrateReady() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+        if (!vibrator.hasVibrator()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(
+                VibrationEffect.createWaveform(
+                    longArrayOf(0L, 180L, 90L, 180L),
+                    intArrayOf(0, 255, 0, 255),
+                    -1,
+                ),
+            )
         } else {
-            vibrate(180)
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(longArrayOf(0L, 180L, 90L, 180L), -1)
         }
     }
 
     @Suppress("DEPRECATION")
     private fun vibrate(durationMillis: Long) {
+        if (!vibrator.hasVibrator()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator.vibrate(VibrationEffect.createOneShot(durationMillis, VibrationEffect.DEFAULT_AMPLITUDE))
         } else {

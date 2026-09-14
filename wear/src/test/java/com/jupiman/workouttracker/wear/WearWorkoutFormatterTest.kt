@@ -9,7 +9,9 @@ class WearWorkoutFormatterTest {
     fun restCountdownIsReconstructedFromDeadline() {
         assertEquals("Rest 1:30", restText(restEndsAt = 90_000L, now = 0L))
         assertEquals("Rest 0:01", restText(restEndsAt = 90_000L, now = 89_500L))
-        assertEquals("READY", restText(restEndsAt = 90_000L, now = 90_000L))
+        assertEquals("Rest -0:00", restText(restEndsAt = 90_000L, now = 90_000L))
+        assertEquals("Rest -0:01", restText(restEndsAt = 90_000L, now = 90_001L))
+        assertEquals("Rest -1:30", restText(restEndsAt = 90_000L, now = 180_000L))
     }
 
     @Test

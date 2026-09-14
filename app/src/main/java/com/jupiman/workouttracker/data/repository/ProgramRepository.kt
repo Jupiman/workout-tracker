@@ -111,6 +111,41 @@ class ProgramRepository(
         }
     }
 
+    suspend fun duplicateWorkoutTemplate(workoutTemplateId: Long): Long =
+        database.withTransaction {
+            val sourceTemplate = workoutTemplateDao.getById(workoutTemplateId)
+                ?: error("Workout not found.")
+            val targetTemplateId = workoutTemplateDao.insert(
+                sourceTemplate.copy(
+                    id = 0,
+                    name = "${sourceTemplate.name} copy",
+                    sortOrder = workoutTemplateDao.countForProgram(sourceTemplate.programId),
+                ),
+            )
+            val sourceSupersetGroups = supersetGroupDao
+                .getForWorkoutTemplate(sourceTemplate.id)
+                .associateBy { it.id }
+            val targetSupersetGroupIds = sourceSupersetGroups.mapValues { (_, sourceGroup) ->
+                supersetGroupDao.insert(
+                    sourceGroup.copy(
+                        id = 0,
+                        workoutTemplateId = targetTemplateId,
+                    ),
+                )
+            }
+            workoutTemplateExerciseDao
+                .getForWorkoutTemplate(sourceTemplate.id)
+                .forEach { sourceExercise ->
+                    copyTemplateExercise(
+                        sourceExercise = sourceExercise,
+                        targetWorkoutTemplateId = targetTemplateId,
+                        targetSortOrder = sourceExercise.sortOrder,
+                        targetSupersetGroupId = sourceExercise.supersetGroupId?.let(targetSupersetGroupIds::get),
+                    )
+                }
+            targetTemplateId
+        }
+
     suspend fun moveWorkoutTemplate(programId: Long, workoutTemplateId: Long, offset: Int) {
         require(offset != 0) { "Move offset must not be 0." }
 
@@ -216,21 +251,30 @@ class ProgramRepository(
 
     suspend fun updateTemplateExercise(
         item: WorkoutTemplateExerciseEditorItem,
+        exerciseName: String = item.exerciseName,
         config: TemplateExerciseConfig,
         setupNote: String,
     ) {
+        val trimmedExerciseName = exerciseName.trim()
+        require(trimmedExerciseName.isNotEmpty()) { "Exercise name cannot be empty." }
         val validConfig = config.validatedForUpdate()
         val trimmedSetupNote = setupNote.trim()
 
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(item.id)
                 ?: error("Workout exercise not found.")
+            val targetExerciseId = if (trimmedExerciseName == item.exerciseName) {
+                templateExercise.exerciseId
+            } else {
+                getOrCreateActiveExerciseId(trimmedExerciseName)
+            }
             requireSupersetSetCountMatches(
                 templateExercise = templateExercise,
                 plannedWorkingSets = validConfig.plannedWorkingSets,
             )
             workoutTemplateExerciseDao.update(
                 templateExercise.copy(
+                    exerciseId = targetExerciseId,
                     plannedWorkingSets = validConfig.plannedWorkingSets,
                     repMin = validConfig.repMin,
                     repMax = validConfig.repMax,
@@ -256,6 +300,23 @@ class ProgramRepository(
             } else {
                 progressionStateDao.update(state)
             }
+        }
+    }
+
+    private suspend fun getOrCreateActiveExerciseId(name: String): Long {
+        val existing = exerciseDao.getByName(name)
+        return when {
+            existing == null -> exerciseDao.insert(
+                ExerciseEntity(
+                    name = name,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+            existing.archived -> {
+                exerciseDao.update(existing.copy(archived = false))
+                existing.id
+            }
+            else -> existing.id
         }
     }
 
@@ -330,6 +391,18 @@ class ProgramRepository(
             )
         }
     }
+
+    suspend fun duplicateTemplateExercise(workoutTemplateExerciseId: Long): Long =
+        database.withTransaction {
+            val sourceExercise = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
+                ?: error("Workout exercise not found.")
+            copyTemplateExercise(
+                sourceExercise = sourceExercise,
+                targetWorkoutTemplateId = sourceExercise.workoutTemplateId,
+                targetSortOrder = workoutTemplateExerciseDao.countForWorkoutTemplate(sourceExercise.workoutTemplateId),
+                targetSupersetGroupId = null,
+            )
+        }
 
     suspend fun moveTemplateExercise(
         workoutTemplateId: Long,
@@ -524,6 +597,52 @@ class ProgramRepository(
         } else {
             workoutTemplateSetTargetDao.update(target)
         }
+    }
+
+    private suspend fun copyTemplateExercise(
+        sourceExercise: WorkoutTemplateExerciseEntity,
+        targetWorkoutTemplateId: Long,
+        targetSortOrder: Int,
+        targetSupersetGroupId: Long?,
+    ): Long {
+        val targetExerciseId = workoutTemplateExerciseDao.insert(
+            sourceExercise.copy(
+                id = 0,
+                workoutTemplateId = targetWorkoutTemplateId,
+                sortOrder = targetSortOrder,
+                supersetGroupId = targetSupersetGroupId,
+            ),
+        )
+        val sourceProgression = progressionStateDao.getForTemplateExercise(sourceExercise.id)
+            ?: error("Progression state not found.")
+        progressionStateDao.insert(
+            sourceProgression.copy(
+                workoutTemplateExerciseId = targetExerciseId,
+                updatedAt = System.currentTimeMillis(),
+            ),
+        )
+        workoutTemplateSetTargetDao
+            .getForTemplateExercise(sourceExercise.id)
+            .forEach { sourceTarget ->
+                workoutTemplateSetTargetDao.insert(
+                    sourceTarget.copy(
+                        id = 0,
+                        workoutTemplateExerciseId = targetExerciseId,
+                    ),
+                )
+            }
+        val warmupSets = workoutTemplateWarmupSetDao
+            .getForTemplateExercise(sourceExercise.id)
+            .map { sourceWarmup ->
+                sourceWarmup.copy(
+                    id = 0,
+                    workoutTemplateExerciseId = targetExerciseId,
+                )
+            }
+        if (warmupSets.isNotEmpty()) {
+            workoutTemplateWarmupSetDao.insertAll(warmupSets)
+        }
+        return targetExerciseId
     }
 
     private data class DefaultWarmupSet(

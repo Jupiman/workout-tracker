@@ -267,6 +267,42 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
+    fun replaceExerciseForTodayUpdatesOnlySessionAndDoesNotProgressOriginalTrack() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 10)
+        val templateExerciseId = database.workoutTemplateExerciseDao()
+            .getForWorkoutTemplate(templateId)
+            .single()
+            .id
+        val sessionId = repository.startWorkout(templateId)
+        val sessionExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+
+        repository.replaceExerciseForToday(
+            sessionExerciseId = sessionExercise.id,
+            replacementExerciseName = "Dumbbell Press",
+        )
+
+        val replacedExercise = database.sessionExerciseDao().getById(sessionExercise.id)
+        val replacedSets = database.sessionSetDao().getForSessionExercise(sessionExercise.id)
+        assertEquals("Dumbbell Press", replacedExercise?.exerciseNameSnapshot)
+        assertNull(replacedExercise?.sourceWorkoutTemplateExerciseId)
+        assertEquals("", replacedExercise?.setupNoteSnapshot)
+        assertEquals(listOf(false, false, false), replacedSets.map { it.countsForProgression })
+        assertEquals(listOf(7000, 7000, 7000), replacedSets.map { it.prescribedWeightCentiKg })
+        assertEquals(listOf(10, 10, 10), replacedSets.map { it.prescribedReps })
+
+        completeAllSets(sessionId, actualWeight = 7000, actualReps = 10)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val historyExercise = database.sessionExerciseDao()
+            .getForSession(sessionId)
+            .single()
+        val originalProgression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
+        assertEquals("Dumbbell Press", historyExercise?.exerciseNameSnapshot)
+        assertNull(historyExercise?.sourceWorkoutTemplateExerciseId)
+        assertEquals(10, originalProgression?.currentTargetReps)
+    }
+
+    @Test
     fun supersetRestsOnlyAfterLastExerciseInGroup() = runTest {
         val seed = seedTwoExerciseWorkout()
         val groupId = database.supersetGroupDao().insert(

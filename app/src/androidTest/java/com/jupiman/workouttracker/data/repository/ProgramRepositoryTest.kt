@@ -96,6 +96,7 @@ class ProgramRepositoryTest {
             repository.updateTemplateExercise(
                 item = secondEditorItem,
                 config = config(plannedWorkingSets = 2, restSeconds = 120),
+                setupNote = secondEditorItem.setupNote,
             )
             fail("Expected mismatched set count update to be rejected.")
         } catch (expected: IllegalArgumentException) {
@@ -326,6 +327,7 @@ class ProgramRepositoryTest {
         repository.updateTemplateExercise(
             item = editorItem,
             config = config(plannedWorkingSets = 2, restSeconds = 180),
+            setupNote = editorItem.setupNote,
         )
 
         assertEquals(
@@ -355,6 +357,158 @@ class ProgramRepositoryTest {
                 .getForTemplateExercise(seed.firstTemplateExerciseId)
                 .map { it.id },
         )
+    }
+
+    @Test
+    fun duplicateWorkoutTemplateCopiesExercisesSupersetsTargetsWarmupsAndSetupNotesIndependently() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+        val firstEditorItem = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+        repository.updateTemplateExercise(
+            item = firstEditorItem,
+            config = config(restSeconds = 180),
+            setupNote = "Seat 4",
+        )
+        repository.updateTemplateSetTarget(
+            workoutTemplateExerciseId = seed.firstTemplateExerciseId,
+            setOrder = 1,
+            prescribedWeightCentiKg = 7250,
+            prescribedReps = 9,
+            countsForProgression = false,
+        )
+        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+
+        val copyId = repository.duplicateWorkoutTemplate(seed.templateId)
+
+        val templates = database.workoutTemplateDao().getForProgram(
+            database.workoutTemplateDao().getById(seed.templateId)!!.programId,
+        )
+        val copiedExercises = database.workoutTemplateExerciseDao().getForWorkoutTemplate(copyId)
+        val copiedFirst = copiedExercises[0]
+        val copiedSecond = copiedExercises[1]
+        val copiedProgression = database.progressionStateDao().getForTemplateExercise(copiedFirst.id)
+        val copiedTargets = database.workoutTemplateSetTargetDao().getForTemplateExercise(copiedFirst.id)
+        val copiedWarmups = database.workoutTemplateWarmupSetDao().getForTemplateExercise(copiedFirst.id)
+        val sourceFirst = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+
+        assertEquals(listOf("Day A", "Day A copy"), templates.map { it.name })
+        assertEquals(listOf(0, 1), templates.map { it.sortOrder })
+        assertEquals(2, copiedExercises.size)
+        assertEquals(listOf("Bench Press", "Machine Row"), editorExerciseNames(copyId))
+        assertEquals("Seat 4", copiedFirst.setupNote)
+        assertEquals(false, seed.firstTemplateExerciseId == copiedFirst.id)
+        assertEquals(sourceFirst.exerciseId, copiedFirst.exerciseId)
+        assertNotNull(copiedFirst.supersetGroupId)
+        assertEquals(copiedFirst.supersetGroupId, copiedSecond.supersetGroupId)
+        assertEquals(false, copiedFirst.supersetGroupId == sourceFirst.supersetGroupId)
+        assertEquals(7000, copiedProgression?.currentWeightCentiKg)
+        assertEquals(10, copiedProgression?.currentTargetReps)
+        assertEquals(listOf(1), copiedTargets.map { it.setOrder })
+        assertEquals(7250, copiedTargets.single().prescribedWeightCentiKg)
+        assertEquals(9, copiedTargets.single().prescribedReps)
+        assertEquals(false, copiedTargets.single().countsForProgression)
+        assertEquals(listOf(10, 3, 3), copiedWarmups.map { it.reps })
+        assertEquals(listOf(30, 70, 75), copiedWarmups.map { it.percentOfWorkingWeight })
+
+        repository.updateTemplateExercise(
+            item = database.workoutTemplateExerciseDao()
+                .getEditorItemsForWorkoutTemplate(copyId)
+                .first { it.id == copiedFirst.id },
+            config = config(restSeconds = 180).copy(currentTargetReps = 11),
+            setupNote = copiedFirst.setupNote,
+        )
+
+        val sourceProgression = database.progressionStateDao().getForTemplateExercise(seed.firstTemplateExerciseId)
+        val updatedCopiedProgression = database.progressionStateDao().getForTemplateExercise(copiedFirst.id)
+        assertEquals(10, sourceProgression?.currentTargetReps)
+        assertEquals(11, updatedCopiedProgression?.currentTargetReps)
+    }
+
+    @Test
+    fun duplicateTemplateExerciseCopiesConfigurationAsStandaloneIndependentExercise() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.supersetWithPrevious(seed.templateId, seed.secondTemplateExerciseId)
+        val firstEditorItem = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+        repository.updateTemplateExercise(
+            item = firstEditorItem,
+            config = config(restSeconds = 180).copy(currentWeightCentiKg = 7500),
+            setupNote = "Bench 3",
+        )
+        repository.updateTemplateSetTarget(
+            workoutTemplateExerciseId = seed.firstTemplateExerciseId,
+            setOrder = 0,
+            prescribedWeightCentiKg = 7500,
+            prescribedReps = 8,
+        )
+        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+
+        val copyExerciseId = repository.duplicateTemplateExercise(seed.firstTemplateExerciseId)
+
+        val exercises = database.workoutTemplateExerciseDao().getForWorkoutTemplate(seed.templateId)
+        val source = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+        val copy = database.workoutTemplateExerciseDao().getById(copyExerciseId)!!
+        val copiedProgression = database.progressionStateDao().getForTemplateExercise(copyExerciseId)
+        val copiedTargets = database.workoutTemplateSetTargetDao().getForTemplateExercise(copyExerciseId)
+        val copiedWarmups = database.workoutTemplateWarmupSetDao().getForTemplateExercise(copyExerciseId)
+
+        assertEquals(3, exercises.size)
+        assertEquals(2, copy.sortOrder)
+        assertEquals(source.exerciseId, copy.exerciseId)
+        assertEquals(source.plannedWorkingSets, copy.plannedWorkingSets)
+        assertEquals(source.repMin, copy.repMin)
+        assertEquals(source.repMax, copy.repMax)
+        assertEquals(source.incrementCentiKg, copy.incrementCentiKg)
+        assertEquals(source.restSeconds, copy.restSeconds)
+        assertEquals("Bench 3", copy.setupNote)
+        assertNull(copy.supersetGroupId)
+        assertEquals(7500, copiedProgression?.currentWeightCentiKg)
+        assertEquals(10, copiedProgression?.currentTargetReps)
+        assertEquals(listOf(0), copiedTargets.map { it.setOrder })
+        assertEquals(7500, copiedTargets.single().prescribedWeightCentiKg)
+        assertEquals(8, copiedTargets.single().prescribedReps)
+        assertEquals(listOf(10, 3, 3), copiedWarmups.map { it.reps })
+
+        repository.updateTemplateExercise(
+            item = database.workoutTemplateExerciseDao()
+                .getEditorItemsForWorkoutTemplate(seed.templateId)
+                .first { it.id == copyExerciseId },
+            config = config(restSeconds = 180).copy(currentWeightCentiKg = 8000),
+            setupNote = copy.setupNote,
+        )
+
+        val sourceProgression = database.progressionStateDao().getForTemplateExercise(seed.firstTemplateExerciseId)
+        val updatedCopiedProgression = database.progressionStateDao().getForTemplateExercise(copyExerciseId)
+        assertEquals(7500, sourceProgression?.currentWeightCentiKg)
+        assertEquals(8000, updatedCopiedProgression?.currentWeightCentiKg)
+    }
+
+    @Test
+    fun changingDuplicatedTemplateExerciseNameDoesNotRenameSourceExercise() = runTest {
+        val seed = seedTwoExerciseTemplate()
+
+        val copyExerciseId = repository.duplicateTemplateExercise(seed.firstTemplateExerciseId)
+        val copyEditorItem = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == copyExerciseId }
+
+        repository.updateTemplateExercise(
+            item = copyEditorItem,
+            exerciseName = "Incline Bench Press",
+            config = config(restSeconds = 180),
+            setupNote = copyEditorItem.setupNote,
+        )
+
+        val source = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+        val copy = database.workoutTemplateExerciseDao().getById(copyExerciseId)!!
+        val editorItems = database.workoutTemplateExerciseDao().getEditorItemsForWorkoutTemplate(seed.templateId)
+
+        assertEquals("Bench Press", editorItems.first { it.id == source.id }.exerciseName)
+        assertEquals("Incline Bench Press", editorItems.first { it.id == copy.id }.exerciseName)
+        assertEquals(false, source.exerciseId == copy.exerciseId)
     }
 
     private suspend fun seedTwoExerciseTemplate(secondPlannedWorkingSets: Int = 3): TwoExerciseTemplateSeed {
