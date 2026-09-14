@@ -45,7 +45,10 @@ class WorkoutSessionRepositoryTest {
             .build()
         restTimerScheduler = FakeRestTimerScheduler()
         workoutNotificationUpdater = FakeWorkoutNotificationUpdater()
-        repository = WorkoutSessionRepository(
+        repository = createRepository()
+    }
+
+    private fun createRepository() = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
             sessionExerciseDao = database.sessionExerciseDao(),
@@ -60,7 +63,6 @@ class WorkoutSessionRepositoryTest {
             restTimerScheduler = restTimerScheduler,
             workoutNotificationUpdater = workoutNotificationUpdater,
         )
-    }
 
     @After
     fun closeDatabase() {
@@ -946,6 +948,276 @@ class WorkoutSessionRepositoryTest {
         database.sessionSetDao().getForSessionExercise(
             database.sessionExerciseDao().getForSession(sessionId).first().id,
         )
+
+    @Test
+    fun skippingLastSupersetMemberStillRestsAfterRemainingRound() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val groupId = database.supersetGroupDao().insert(SupersetGroupEntity(workoutTemplateId = seed.templateId, restSeconds = 90))
+        database.workoutTemplateExerciseDao().getForWorkoutTemplate(seed.templateId).forEach {
+            database.workoutTemplateExerciseDao().update(it.copy(supersetGroupId = groupId))
+        }
+        val sessionId = repository.startWorkout(seed.templateId)
+        val exercises = database.sessionExerciseDao().getForSession(sessionId)
+        repository.skipExercise(exercises.last().id)
+        val set = database.sessionSetDao().getForSessionExercise(exercises.first().id).first()
+        val undo = repository.completeSet(set.id, 7000, 10)!!
+        assertNotNull(database.workoutSessionDao().getActive()!!.restEndsAt)
+        assertTrue(repository.undoCompletion(undo))
+        assertNull(database.workoutSessionDao().getActive()!!.restEndsAt)
+        assertTrue(database.sessionSetDao().getForSessionExercise(exercises.last().id).all { it.status == SessionSetStatus.SKIPPED })
+    }
+
+    @Test
+    fun invalidSessionExerciseConfigurationDoesNotInsertAnything() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val id = database.exerciseDao().getByName("Bench Press")!!.id
+        val before = database.workoutSessionDao().getActiveWithDetails()
+        val invalid = listOf(listOf(0, 8, 0, 30), listOf(1, 0, 0, 30), listOf(1, 8, -1, 30), listOf(1, 8, 0, -1))
+        invalid.forEach { config ->
+            try {
+                repository.addExerciseForToday(sessionId, id, config[0], config[1], config[2], config[3])
+                fail("Expected validation failure")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals(before, database.workoutSessionDao().getActiveWithDetails())
+        }
+    }
+
+    @Test
+    fun skipExercisePreservesLoggedAndSkippedSetsAndBlocksProgression() = runTest {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        val progression = database.progressionStateDao().getForTemplateExercise(template.id)
+        database.workoutTemplateWarmupSetDao().insertAll(listOf(
+            WorkoutTemplateWarmupSetEntity(workoutTemplateExerciseId = template.id, sortOrder = 0, reps = 5, percentOfWorkingWeight = 50),
+        ))
+        val sessionId = repository.startWorkout(templateId)
+        val exercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val sets = firstSessionSets(sessionId)
+        repository.completeSet(sets[1].id, 7000, 10)
+        repository.skipSet(sets[2].id)
+        val completed = database.sessionSetDao().getById(sets[1].id)
+        val skipped = database.sessionSetDao().getById(sets[2].id)
+        repository.skipExercise(exercise.id)
+        repository.skipExercise(exercise.id)
+        assertEquals(completed, database.sessionSetDao().getById(sets[1].id))
+        assertEquals(skipped, database.sessionSetDao().getById(sets[2].id))
+        assertEquals(listOf(SessionSetStatus.SKIPPED, SessionSetStatus.COMPLETED, SessionSetStatus.SKIPPED, SessionSetStatus.SKIPPED), firstSessionSets(sessionId).map { it.status })
+        repository.finishActiveWorkout(true)
+        assertEquals(progression, database.progressionStateDao().getForTemplateExercise(template.id))
+        assertEquals(template, database.workoutTemplateExerciseDao().getById(template.id))
+        val history = repository.historyWithDetails.first().single()
+        assertEquals(3, history.exercises.single().sets.count { it.status == SessionSetStatus.SKIPPED })
+        assertEquals(WorkoutSessionStatus.PARTIAL, history.session.status)
+    }
+
+    @Test
+    fun addForTodayHasNoProgressionTrackAndSnapshotsHistory() = runTest {
+        val templateId = seedBenchWorkout()
+        val templatesBefore = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId)
+        val original = database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id)
+        val sessionId = repository.startWorkout(templateId)
+        val library = database.exerciseDao().getByName("Bench Press")!!
+        val addedId = repository.addExerciseForToday(sessionId, library.id, 2, 15, 4000, 60)
+        val added = database.sessionExerciseDao().getById(addedId)!!
+        assertNull(added.sourceWorkoutTemplateExerciseId)
+        assertNull(added.supersetGroupSnapshot)
+        database.sessionSetDao().getForSessionExercise(addedId).forEach {
+            assertTrue(!it.countsForProgression)
+            repository.completeSet(it.id, 4250, 16)
+        }
+        repository.skipExercise(database.sessionExerciseDao().getForSession(sessionId).first().id)
+        repository.finishActiveWorkout(true)
+        database.exerciseDao().update(library.copy(name = "Renamed"))
+        val history = repository.historyWithDetails.first().single().exercises.first { it.exercise.id == addedId }
+        assertEquals("Bench Press", history.exercise.exerciseNameSnapshot)
+        assertTrue(history.sets.all { it.actualWeightCentiKg == 4250 && it.actualReps == 16 })
+        assertEquals(original, database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id))
+        assertEquals(templatesBefore, database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId))
+        repository.startWorkout(templateId)
+        assertEquals(1, database.workoutSessionDao().getActiveWithDetails()!!.exercises.size)
+    }
+
+    @Test
+    fun doLaterMovesWholeSupersetAndWearRejectsOldCurrentSet() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val groupId = database.supersetGroupDao().insert(SupersetGroupEntity(workoutTemplateId = seed.templateId, restSeconds = 90))
+        val originals = database.workoutTemplateExerciseDao().getForWorkoutTemplate(seed.templateId)
+        originals.forEach { database.workoutTemplateExerciseDao().update(it.copy(supersetGroupId = groupId)) }
+        val sessionId = repository.startWorkout(seed.templateId)
+        val group = database.sessionExerciseDao().getForSession(sessionId)
+        val oldCurrent = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails()).currentSetId!!
+        val libraryId = database.exerciseDao().getByName("Bench Press")!!.id
+        val addedId = repository.addExerciseForToday(sessionId, libraryId, 1, 8, 1000, 30)
+        repository.doExerciseLater(group.first().id)
+        val reordered = database.sessionExerciseDao().getForSession(sessionId)
+        assertEquals(listOf(addedId) + group.map { it.id }, reordered.map { it.id })
+        assertEquals(listOf(0, 1, 2), reordered.map { it.sortOrderSnapshot })
+        assertEquals(listOf(groupId, groupId), reordered.drop(1).map { it.supersetGroupSnapshot })
+        val workout = database.workoutSessionDao().getActiveWithDetails()!!
+        assertEquals(WorkoutNotificationProjector.nextActionableSet(workout)?.setId, WorkoutWearStateProjector.stateFor(workout).currentSetId)
+        assertTrue(!repository.completeSetFromWearCommand(sessionId, oldCurrent))
+        assertEquals(originals.map { it.sortOrder }, database.workoutTemplateExerciseDao().getForWorkoutTemplate(seed.templateId).map { it.sortOrder })
+    }
+
+    @Test
+    fun sessionEditsSurviveDatabaseCloseAndReopen() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "phase-one-${System.nanoTime()}.db"
+        database.close()
+        try {
+            database = Room.databaseBuilder(context, WorkoutTrackerDatabase::class.java, name).allowMainThreadQueries().build()
+            repository = createRepository()
+            val seed = seedTwoExerciseWorkout()
+            val sessionId = repository.startWorkout(seed.templateId)
+            val original = database.sessionExerciseDao().getForSession(sessionId)
+            val addedId = repository.addExerciseForToday(sessionId, database.exerciseDao().getByName("Bench Press")!!.id, 2, 9, 3000, 45)
+            repository.doExerciseLater(original.first().id)
+            repository.skipExercise(original.last().id)
+            val expected = database.sessionExerciseDao().getForSession(sessionId)
+            database.close()
+            database = Room.databaseBuilder(context, WorkoutTrackerDatabase::class.java, name).allowMainThreadQueries().build()
+            repository = createRepository()
+            assertEquals(expected, database.sessionExerciseDao().getForSession(sessionId))
+            val workout = database.workoutSessionDao().getActiveWithDetails()!!
+            assertTrue(workout.exercises.first { it.exercise.id == original.last().id }.sets.all { it.status == SessionSetStatus.SKIPPED })
+            val added = workout.exercises.first { it.exercise.id == addedId }
+            assertEquals(2, added.sets.size)
+            assertTrue(added.sets.none { it.countsForProgression })
+            assertEquals(added.sets.minBy { it.setOrder }.id, WorkoutWearStateProjector.stateFor(workout).currentSetId)
+        } finally {
+            database.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun undoRestoresEditableValuesAndCancelsOnlyItsOwnRest() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val set = firstSessionSets(sessionId).first()
+        val undo = repository.completeSet(set.id, 6750, 9)!!
+        assertTrue(repository.undoCompletion(undo))
+        val pending = database.sessionSetDao().getById(set.id)!!
+        assertEquals(SessionSetStatus.PENDING, pending.status)
+        assertEquals(6750, pending.actualWeightCentiKg)
+        assertEquals(9, pending.actualReps)
+        assertNull(pending.completedAt)
+        assertNull(database.workoutSessionDao().getActive()!!.restEndsAt)
+        assertTrue(restTimerScheduler.cancelled)
+        assertTrue(!repository.undoCompletion(undo))
+    }
+
+    @Test
+    fun undoCannotRevertSubsequentPhoneOrWearCompletion() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sets = firstSessionSets(sessionId)
+        val firstUndo = repository.completeSet(sets[0].id, 7000, 10)!!
+        val secondUndo = repository.completeSet(sets[1].id, 7000, 10)!!
+        assertTrue(!repository.undoCompletion(firstUndo))
+        assertTrue(repository.completeSetFromWearCommand(sessionId, sets[2].id))
+        val rest = database.workoutSessionDao().getActive()!!.restEndsAt
+        assertTrue(!repository.undoCompletion(secondUndo))
+        assertEquals(rest, database.workoutSessionDao().getActive()!!.restEndsAt)
+        assertTrue(firstSessionSets(sessionId).all { it.status == SessionSetStatus.COMPLETED })
+    }
+
+    @Test
+    fun undoPreservesExtendedRestAndCompletedEditsInvalidateReceipt() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val set = firstSessionSets(sessionId).first()
+        val undo = repository.completeSet(set.id, 7000, 10)!!
+        repository.addRestTime(30)
+        val rest = database.workoutSessionDao().getActive()!!.restEndsAt
+        assertTrue(repository.undoCompletion(undo))
+        assertEquals(rest, database.workoutSessionDao().getActive()!!.restEndsAt)
+        assertTrue(!restTimerScheduler.cancelled)
+        val nextUndo = repository.completeSet(set.id, 7000, 10)!!
+        assertNull(repository.completeSet(set.id, 7000, 11))
+        assertTrue(!repository.undoCompletion(nextUndo))
+        assertEquals(11, database.sessionSetDao().getById(set.id)!!.actualReps)
+    }
+
+    @Test
+    fun warmupUndoLeavesEarlierRestAlone() = runTest {
+        val templateId = seedBenchWorkout()
+        val templateExercise = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateWarmupSetDao().insertAll(listOf(
+            WorkoutTemplateWarmupSetEntity(workoutTemplateExerciseId = templateExercise.id, sortOrder = 0, reps = 5, percentOfWorkingWeight = 50),
+        ))
+        val sessionId = repository.startWorkout(templateId)
+        val sets = firstSessionSets(sessionId)
+        repository.completeSet(sets[1].id, 7000, 10)
+        val rest = database.workoutSessionDao().getActive()!!.restEndsAt
+        val undo = repository.completeSet(sets[0].id, 3500, 5)!!
+        assertTrue(repository.undoCompletion(undo))
+        assertEquals(rest, database.workoutSessionDao().getActive()!!.restEndsAt)
+    }
+
+    @Test
+    fun finalizedHistoryRejectsSessionActionsAndUndo() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val exercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        val set = firstSessionSets(sessionId).first()
+        val undo = repository.completeSet(set.id, 7000, 10)!!
+        repository.finishActiveWorkout(true)
+        val before = repository.historyWithDetails.first()
+        val library = database.exerciseDao().getByName("Bench Press")!!
+        val actions: List<suspend () -> Unit> = listOf(
+            { repository.skipExercise(exercise.id) },
+            { repository.doExerciseLater(exercise.id) },
+            { repository.addExerciseForToday(sessionId, library.id, 1, 8, 0, 0) },
+            { repository.uncompleteSet(set.id) },
+            { repository.skipSet(set.id) },
+        )
+        actions.forEach { action ->
+            try { action(); fail("Expected active-session guard") } catch (_: IllegalArgumentException) { }
+        }
+        assertTrue(!repository.undoCompletion(undo))
+        assertEquals(before, repository.historyWithDetails.first())
+    }
+
+    @Test
+    fun wearFinishUsesExistingProgressionAndRejectsDuplicateOrDifferentSession() = runTest {
+        val templateId = seedBenchWorkout()
+        val sessionId = repository.startWorkout(templateId)
+        firstSessionSets(sessionId).forEach { repository.completeSet(it.id, 7000, 10) }
+        repository.finishActiveWorkout(false, expectedWearSessionId = sessionId)
+        val exercise = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        val progressed = database.progressionStateDao().getForTemplateExercise(exercise.id)
+        assertEquals(11, progressed!!.currentTargetReps)
+        assertEquals(WorkoutSessionStatus.COMPLETED, database.workoutSessionDao().getById(sessionId)!!.status)
+        assertTrue(restTimerScheduler.cancelled)
+        try {
+            repository.finishActiveWorkout(false, expectedWearSessionId = sessionId)
+            fail("Duplicate finish must fail")
+        } catch (_: IllegalStateException) { }
+        val nextId = repository.startWorkout(templateId)
+        firstSessionSets(nextId).forEach { repository.completeSet(it.id, 7000, 11) }
+        try {
+            repository.finishActiveWorkout(false, expectedWearSessionId = sessionId)
+            fail("Stale finish must fail")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(nextId, database.workoutSessionDao().getActive()!!.id)
+        assertEquals(progressed, database.progressionStateDao().getForTemplateExercise(exercise.id))
+    }
+
+    @Test
+    fun wearFinishPreservesPendingPartialAndChangedTargetReview() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val sets = firstSessionSets(sessionId)
+        suspend fun assertRejected() {
+            val before = database.workoutSessionDao().getActiveWithDetails()
+            try {
+                repository.finishActiveWorkout(false, expectedWearSessionId = sessionId)
+                fail("Must finish on phone")
+            } catch (_: IllegalArgumentException) { }
+            assertEquals(before, database.workoutSessionDao().getActiveWithDetails())
+        }
+        assertRejected()
+        sets.forEach { repository.skipSet(it.id) }
+        assertRejected()
+        sets.forEach { repository.completeSet(it.id, 6750, 10) }
+        assertRejected()
+    }
 
     private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
         val now = 1_000L

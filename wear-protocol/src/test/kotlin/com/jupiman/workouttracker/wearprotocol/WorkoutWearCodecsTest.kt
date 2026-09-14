@@ -5,6 +5,11 @@ import org.junit.Test
 
 class WorkoutWearCodecsTest {
     @Test
+    fun finishCommandRoundTripsThroughBytes() {
+        val command = FinishWorkoutCommand(42, "finish-42")
+        assertEquals(command, WorkoutWearCodecs.decodeFinishWorkoutCommand(WorkoutWearCodecs.encodeFinishWorkoutCommand(command)))
+    }
+    @Test
     fun stateRoundTripsThroughBytes() {
         val state = WorkoutWearState(
             sessionId = 7,

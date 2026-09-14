@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +23,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -36,9 +42,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +64,7 @@ import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
+import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
@@ -78,9 +88,21 @@ fun WorkoutHomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val undo by viewModel.undo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(message) {
+    LaunchedEffect(message, undo, uiState.activeWorkout?.session?.id) {
+        val receipt = undo
+        if (receipt != null && uiState.activeWorkout != null) {
+            val result = snackbarHostState.showSnackbar(
+                message = receipt.label,
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) viewModel.undoCompletion(receipt)
+            else viewModel.dismissUndo(receipt)
+            return@LaunchedEffect
+        }
         val currentMessage = message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(currentMessage)
         viewModel.clearMessage()
@@ -134,6 +156,9 @@ fun WorkoutHomeScreen(
                         onFinishWorkout = viewModel::finishActiveWorkout,
                         onAddSessionSet = viewModel::addSessionSet,
                         onReplaceExerciseForToday = viewModel::replaceExerciseForToday,
+                        onSkipExercise = viewModel::skipExercise,
+                        onDoLater = viewModel::doExerciseLater,
+                        onAddExercise = viewModel::addExerciseForToday,
                     )
                 }
             }
@@ -226,10 +251,14 @@ private fun ActiveWorkoutPanel(
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
     onFinishWorkout: (Boolean, Map<Long, ProgressionFinishChoice>) -> Unit,
+    onAddExercise: suspend (Long, Long, String, String, String, String) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
     onReplaceExerciseForToday: (Long, Long) -> Unit,
+    onSkipExercise: (Long) -> Unit,
+    onDoLater: (Long) -> Unit,
 ) {
     var confirmingDiscard by remember { mutableStateOf(false) }
+    var addingExercise by remember(activeWorkout.session.id) { mutableStateOf(false) }
     var confirmingPartialFinish by remember { mutableStateOf(false) }
     var showingProgressionReview by remember { mutableStateOf(false) }
     var pendingFinishAllowsPartial by remember { mutableStateOf(false) }
@@ -260,40 +289,58 @@ private fun ActiveWorkoutPanel(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         CurrentSetFocusCard(currentSetFocus)
+        OutlinedButton(onClick = { addingExercise = true }) { Text("Add exercise for today") }
 
         activeWorkout.exerciseDisplayBlocks().forEach { block ->
-            when (block) {
-                is ActiveWorkoutDisplayBlock.SingleExercise -> {
-                    SessionExerciseCard(
-                        exercise = block.exercise,
-                        exercises = exercises,
-                        currentSetId = currentSetFocus?.set?.id,
-                        lastTime = block.exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
-                        shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
-                        onCompleteSet = onCompleteSet,
-                        onUncompleteSet = onUncompleteSet,
-                        onSkipSet = onSkipSet,
-                        onAddSessionSet = onAddSessionSet,
-                        onReplaceExerciseForToday = onReplaceExerciseForToday,
-                    )
-                }
-                is ActiveWorkoutDisplayBlock.Superset -> {
-                    SupersetExerciseGroup(
-                        block = block,
-                        activeWorkout = activeWorkout,
-                        exercises = exercises,
-                        currentSetId = currentSetFocus?.set?.id,
-                        lastTimeByTemplateExerciseId = lastTimeByTemplateExerciseId,
-                        onCompleteSet = onCompleteSet,
-                        onUncompleteSet = onUncompleteSet,
-                        onSkipSet = onSkipSet,
-                        onAddSessionSet = onAddSessionSet,
-                        onReplaceExerciseForToday = onReplaceExerciseForToday,
-                    )
+            key(when (block) {
+                is ActiveWorkoutDisplayBlock.SingleExercise -> block.exercise.exercise.id
+                is ActiveWorkoutDisplayBlock.Superset -> block.exercises.first().exercise.id
+            }) {
+                when (block) {
+                    is ActiveWorkoutDisplayBlock.SingleExercise -> {
+                        SessionExerciseCard(
+                            exercise = block.exercise,
+                            exercises = exercises,
+                            currentSetId = currentSetFocus?.set?.id,
+                            lastTime = block.exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
+                            shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
+                            onCompleteSet = onCompleteSet,
+                            onUncompleteSet = onUncompleteSet,
+                            onSkipSet = onSkipSet,
+                            onAddSessionSet = onAddSessionSet,
+                            onReplaceExerciseForToday = onReplaceExerciseForToday,
+                            onSkipExercise = onSkipExercise,
+                            onDoLater = onDoLater,
+                        )
+                    }
+                    is ActiveWorkoutDisplayBlock.Superset -> {
+                        SupersetExerciseGroup(
+                            block = block,
+                            activeWorkout = activeWorkout,
+                            exercises = exercises,
+                            currentSetId = currentSetFocus?.set?.id,
+                            lastTimeByTemplateExerciseId = lastTimeByTemplateExerciseId,
+                            onCompleteSet = onCompleteSet,
+                            onUncompleteSet = onUncompleteSet,
+                            onSkipSet = onSkipSet,
+                            onAddSessionSet = onAddSessionSet,
+                            onReplaceExerciseForToday = onReplaceExerciseForToday,
+                            onSkipExercise = onSkipExercise,
+                            onDoLater = onDoLater,
+                        )
+                    }
                 }
             }
         }
 
+        if (addingExercise) {
+            AddSessionExerciseDialog(
+                sessionId = activeWorkout.session.id,
+                exercises = exercises,
+                onDismiss = { addingExercise = false },
+                onAdd = onAddExercise,
+            )
+        }
         HorizontalDivider()
 
         if (!confirmingPartialFinish) {
@@ -611,6 +658,8 @@ private fun SupersetExerciseGroup(
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
     onReplaceExerciseForToday: (Long, Long) -> Unit,
+    onSkipExercise: (Long) -> Unit,
+    onDoLater: (Long) -> Unit,
 ) {
     val shape = RoundedCornerShape(WorkoutRadii.card)
     val groupRestSeconds = block.exercises
@@ -651,6 +700,8 @@ private fun SupersetExerciseGroup(
                 onSkipSet = onSkipSet,
                 onAddSessionSet = onAddSessionSet,
                 onReplaceExerciseForToday = onReplaceExerciseForToday,
+                onSkipExercise = onSkipExercise,
+                onDoLater = onDoLater,
                 showSupersetLabel = false,
             )
         }
@@ -669,11 +720,16 @@ private fun SessionExerciseCard(
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
     onReplaceExerciseForToday: (Long, Long) -> Unit,
+    onSkipExercise: (Long) -> Unit,
+    onDoLater: (Long) -> Unit,
     showSupersetLabel: Boolean = true,
 ) {
     val snapshot = exercise.exercise
     val isSuperset = showSupersetLabel && snapshot.supersetGroupSnapshot != null
     var showingReplacementPicker by remember(snapshot.id) { mutableStateOf(false) }
+    var menuExpanded by remember(snapshot.id) { mutableStateOf(false) }
+    var confirmingSkip by remember(snapshot.id) { mutableStateOf(false) }
+    val hasPending = exercise.sets.any { it.status == SessionSetStatus.PENDING }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -689,11 +745,34 @@ private fun SessionExerciseCard(
                 .padding(WorkoutSpacing.card),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = snapshot.exerciseNameSnapshot,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = snapshot.exerciseNameSnapshot,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                if (hasPending) Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.semantics { contentDescription = "Exercise actions" },
+                    ) { Text("⋮", style = MaterialTheme.typography.headlineSmall) }
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        if (exercises.isNotEmpty()) DropdownMenuItem(
+                            text = { Text("Replace for today") },
+                            onClick = { menuExpanded = false; showingReplacementPicker = true },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (snapshot.supersetGroupSnapshot == null) "Do later" else "Do superset later") },
+                            onClick = { menuExpanded = false; onDoLater(snapshot.id) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Skip exercise") },
+                            onClick = { menuExpanded = false; confirmingSkip = true },
+                        )
+                    }
+                }
+            }
             Text(
                 text = "${snapshot.plannedSetCountSnapshot} x ${snapshot.targetRepsSnapshot} @ " +
                     "${formatCentiKg(snapshot.prescribedWeightCentiKgSnapshot)} kg",
@@ -711,12 +790,6 @@ private fun SessionExerciseCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
-            }
-            OutlinedButton(
-                onClick = { showingReplacementPicker = true },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text("Replace for today")
             }
             SetupNotePanel(note = snapshot.setupNoteSnapshot)
             LastTimePanel(lastTime = lastTime)
@@ -759,6 +832,17 @@ private fun SessionExerciseCard(
         }
     }
 
+    if (confirmingSkip) {
+        AlertDialog(
+            onDismissRequest = { confirmingSkip = false },
+            title = { Text("Skip remaining sets?") },
+            text = { Text("Skip all ${exercise.sets.count { it.status == SessionSetStatus.PENDING }} remaining sets for ${snapshot.exerciseNameSnapshot}, including warm-ups. Completed sets stay logged. This applies to today only.") },
+            confirmButton = {
+                TextButton(onClick = { confirmingSkip = false; onSkipExercise(snapshot.id) }) { Text("Skip exercise") }
+            },
+            dismissButton = { TextButton(onClick = { confirmingSkip = false }) { Text("Cancel") } },
+        )
+    }
     if (showingReplacementPicker) {
         ReplaceExerciseForTodayDialog(
             currentExerciseName = snapshot.exerciseNameSnapshot,
@@ -1264,17 +1348,8 @@ private data class CurrentSetFocus(
     val set: SessionSetEntity,
 )
 
-private fun WorkoutSessionWithDetails.currentSetFocus(): CurrentSetFocus? =
-    exercises
-        .sortedBy { it.exercise.sortOrderSnapshot }
-        .firstNotNullOfOrNull { exercise ->
-            exercise.sets
-                .sortedBy { it.setOrder }
-                .firstOrNull { it.status == SessionSetStatus.PENDING }
-                ?.let { set ->
-                    CurrentSetFocus(
-                        exerciseName = exercise.exercise.exerciseNameSnapshot,
-                        set = set,
-                    )
-                }
-        }
+private fun WorkoutSessionWithDetails.currentSetFocus(): CurrentSetFocus? {
+    val actionable = WorkoutNotificationProjector.nextActionableSet(this) ?: return null
+    val set = exercises.flatMap { it.sets }.first { it.id == actionable.setId }
+    return CurrentSetFocus(actionable.exerciseName, set)
+}

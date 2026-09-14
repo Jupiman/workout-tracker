@@ -15,6 +15,11 @@ class PhoneWearListenerService : WearableListenerService() {
     override fun onMessageReceived(messageEvent: MessageEvent) {
         val bridge = (applicationContext as WorkoutTrackerApplication).container.wearWorkoutBridge
         when (messageEvent.path) {
+            WorkoutWearPaths.FINISH_WORKOUT -> {
+                scope.launch {
+                    bridge.handleFinishWorkoutCommand(messageEvent.data, messageEvent.sourceNodeId)
+                }
+            }
             WorkoutWearPaths.REQUEST_STATE -> {
                 scope.launch {
                     bridge.publishCurrentState()

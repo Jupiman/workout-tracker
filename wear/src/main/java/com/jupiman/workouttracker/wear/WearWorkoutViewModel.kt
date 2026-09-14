@@ -17,6 +17,7 @@ import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.jupiman.workouttracker.wearprotocol.CommandAck
 import com.jupiman.workouttracker.wearprotocol.CompleteSetCommand
+import com.jupiman.workouttracker.wearprotocol.FinishWorkoutCommand
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearCodecs
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearPaths
@@ -48,18 +49,12 @@ data class WearWorkoutUiState(
             pendingCommandId == null &&
             workoutState?.hasActionableSet == true
 
+    val canFinish: Boolean
+        get() = connected && pendingCommandId == null && workoutState?.sessionId != null &&
+            workoutState.sessionStatus == WearSessionStatus.WORKOUT_COMPLETE
+
     val displayState: WorkoutWearState?
-        get() {
-            val state = workoutState ?: return null
-            return if (
-                state.sessionStatus == WearSessionStatus.WORKOUT_COMPLETE &&
-                phoneNow - state.updatedAt > 4_000L
-            ) {
-                WorkoutWearState.noActive(phoneNow)
-            } else {
-                state
-            }
-        }
+        get() = workoutState
 }
 
 class WearWorkoutViewModel(
@@ -171,6 +166,41 @@ class WearWorkoutViewModel(
         }
     }
 
+    fun finishWorkout() {
+        val snapshot = _uiState.value
+        if (!snapshot.canFinish) return
+        val sessionId = snapshot.workoutState?.sessionId ?: return
+        val commandId = UUID.randomUUID().toString()
+        _uiState.update { it.copy(pendingCommandId = commandId, pendingSetId = null, transientMessage = null) }
+        vibrateClick()
+        viewModelScope.launch {
+            delay(10_000L)
+            _uiState.update {
+                if (it.pendingCommandId == commandId) it.copy(
+                    pendingCommandId = null,
+                    transientMessage = "Phone did not respond. Try again.",
+                ) else it
+            }
+        }
+        viewModelScope.launch {
+            runCatching {
+                val nodes = connectedNodes()
+                require(nodes.isNotEmpty()) { "Phone disconnected" }
+                val payload = WorkoutWearCodecs.encodeFinishWorkoutCommand(FinishWorkoutCommand(sessionId, commandId))
+                nodes.forEach { node ->
+                    messageClient.sendMessage(node.id, WorkoutWearPaths.FINISH_WORKOUT, payload).await()
+                }
+            }.onFailure { failure ->
+                _uiState.update {
+                    if (it.pendingCommandId == commandId) it.copy(
+                        pendingCommandId = null,
+                        transientMessage = failure.message ?: "Could not reach phone",
+                    ) else it
+                }
+            }
+        }
+    }
+
     override fun onMessageReceived(messageEvent: MessageEvent) {
         if (messageEvent.path != WorkoutWearPaths.COMMAND_ACK) return
         val ack = runCatching { WorkoutWearCodecs.decodeCommandAck(messageEvent.data) }.getOrNull()
@@ -180,15 +210,16 @@ class WearWorkoutViewModel(
     private fun acceptState(state: WorkoutWearState) {
         val receivedAt = System.currentTimeMillis()
         _uiState.update { current ->
-            val pendingSetChanged = current.pendingSetId != null &&
-                current.pendingSetId != state.currentSetId
+            val pendingSetChanged = (current.pendingSetId != null &&
+                current.pendingSetId != state.currentSetId) ||
+                current.workoutState?.sessionId != state.sessionId
             current.copy(
                 workoutState = state,
                 now = receivedAt,
                 phoneClockOffsetMillis = state.updatedAt - receivedAt,
                 pendingCommandId = if (pendingSetChanged) null else current.pendingCommandId,
                 pendingSetId = if (pendingSetChanged) null else current.pendingSetId,
-                transientMessage = null,
+                transientMessage = if (current.workoutState?.sessionStatus != state.sessionStatus) null else current.transientMessage,
             )
         }
         if (state.restEndsAt != alertedRestEndsAt && state.restEndsAt?.let { it > state.updatedAt } == true) {

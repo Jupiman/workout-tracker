@@ -45,6 +45,9 @@ class WorkoutSessionRepository(
     private val restTimerScheduler: RestTimerScheduler,
     private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
 ) {
+    // Only the short-lived affordance is transient; the set and timer live in Room.
+    private var latestUndo: SetCompletionUndo? = null
+    private var undoRestDeadline: Long? = null
     val activeSession = workoutSessionDao.observeActive()
     val activeSessionWithDetails = workoutSessionDao.observeActiveWithDetails()
     val latestFinishedSessionForActiveProgram = workoutSessionDao.observeLatestFinishedForActiveProgram()
@@ -151,18 +154,21 @@ class WorkoutSessionRepository(
         setId: Long,
         actualWeightCentiKg: Int,
         actualReps: Int,
-    ) {
+    ): SetCompletionUndo? {
         require(actualWeightCentiKg >= 0) { "Weight cannot be negative." }
         require(actualReps >= 0) { "Reps cannot be negative." }
 
+        var undo: SetCompletionUndo? = null
         completeSetInternal(
             setId = setId,
             expectedSessionId = null,
             actualWeightCentiKg = actualWeightCentiKg,
             actualReps = actualReps,
             pendingOnly = false,
+            onUndoAvailable = { undo = it },
         )
         workoutNotificationUpdater.refresh()
+        return undo
     }
 
     suspend fun completeSetFromNotification(
@@ -204,6 +210,7 @@ class WorkoutSessionRepository(
         actualReps: Int?,
         pendingOnly: Boolean,
         requireCurrentActionable: Boolean = false,
+        onUndoAvailable: (SetCompletionUndo?) -> Unit = {},
     ): Boolean {
         var restEndsAtToSchedule: Long? = null
         var shouldCancelRest = false
@@ -222,9 +229,10 @@ class WorkoutSessionRepository(
                 if (activeWorkout.session.id != session.id || currentSetId != setId) return@withTransaction
             }
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+            latestUndo = null
+            undoRestDeadline = null
             val now = System.currentTimeMillis()
-            sessionSetDao.update(
-                set.copy(
+            val completedSet = set.copy(
                     actualWeightCentiKg = actualWeightCentiKg
                         ?: set.prescribedWeightCentiKg
                         ?: sessionExercise.prescribedWeightCentiKgSnapshot,
@@ -233,8 +241,8 @@ class WorkoutSessionRepository(
                         ?: sessionExercise.targetRepsSnapshot,
                     status = SessionSetStatus.COMPLETED,
                     completedAt = now,
-                ),
-            )
+                )
+            sessionSetDao.update(completedSet)
             completed = true
 
             val restSeconds = restSecondsAfterCompletedWorkingSet(
@@ -250,10 +258,136 @@ class WorkoutSessionRepository(
                 workoutSessionDao.update(session.copy(restEndsAt = null))
                 shouldCancelRest = true
             }
+            if (set.status == SessionSetStatus.PENDING && !pendingOnly) {
+                latestUndo = SetCompletionUndo(session.id, set, completedSet)
+                undoRestDeadline = restEndsAtToSchedule
+            }
+            onUndoAvailable(latestUndo)
         }
         restEndsAtToSchedule?.let(restTimerScheduler::schedule)
         if (shouldCancelRest) restTimerScheduler.cancel()
         return completed
+    }
+
+    suspend fun undoCompletion(undo: SetCompletionUndo): Boolean {
+        var cancelRest = false
+        val restored = database.withTransaction {
+            if (latestUndo !== undo) return@withTransaction false
+            val session = workoutSessionDao.getActive() ?: return@withTransaction false
+            if (session.id != undo.sessionId || sessionSetDao.getById(undo.completed.id) != undo.completed) {
+                return@withTransaction false
+            }
+            sessionSetDao.update(undo.previous.copy(
+                actualWeightCentiKg = undo.completed.actualWeightCentiKg,
+                actualReps = undo.completed.actualReps,
+            ))
+            if (undoRestDeadline != null && session.restEndsAt == undoRestDeadline) {
+                workoutSessionDao.update(session.copy(restEndsAt = null))
+                cancelRest = true
+            }
+            latestUndo = null
+            undoRestDeadline = null
+            true
+        }
+        if (cancelRest) restTimerScheduler.cancel()
+        if (restored) workoutNotificationUpdater.refresh()
+        return restored
+    }
+
+    suspend fun skipExercise(sessionExerciseId: Long) {
+        database.withTransaction {
+            requireActiveExercise(sessionExerciseId)
+            latestUndo = null
+            sessionSetDao.getForSessionExercise(sessionExerciseId)
+                .filter { it.status == SessionSetStatus.PENDING }
+                .forEach { set ->
+                    sessionSetDao.update(set.copy(
+                        status = SessionSetStatus.SKIPPED,
+                        actualWeightCentiKg = null,
+                        actualReps = null,
+                        completedAt = System.currentTimeMillis(),
+                    ))
+                }
+        }
+        workoutNotificationUpdater.refresh()
+    }
+
+    suspend fun doExerciseLater(sessionExerciseId: Long) {
+        database.withTransaction {
+            val exercise = requireActiveExercise(sessionExerciseId)
+            val exercises = sessionExerciseDao.getForSession(exercise.sessionId)
+            val group = exercises.filter {
+                it.id == exercise.id || (exercise.supersetGroupSnapshot != null &&
+                    it.supersetGroupSnapshot == exercise.supersetGroupSnapshot)
+            }
+            require(group.any { member ->
+                sessionSetDao.getForSessionExercise(member.id).any { it.status == SessionSetStatus.PENDING }
+            }) { "No remaining sets to postpone." }
+            val reordered = exercises.filterNot { it in group } + group
+            reordered.forEachIndexed { index, member ->
+                sessionExerciseDao.update(member.copy(sortOrderSnapshot = index))
+            }
+        }
+        workoutNotificationUpdater.refresh()
+    }
+
+    suspend fun addExerciseForToday(
+        sessionId: Long,
+        exerciseId: Long,
+        sets: Int,
+        reps: Int,
+        weightCentiKg: Int,
+        restSeconds: Int,
+    ): Long {
+        require(sets >= 1) { "Sets must be at least 1." }
+        require(reps >= 1) { "Reps must be at least 1." }
+        require(weightCentiKg >= 0) { "Weight cannot be negative." }
+        require(restSeconds >= 0) { "Rest time cannot be negative." }
+        val id = database.withTransaction {
+            val session = workoutSessionDao.getActive()
+            require(session?.id == sessionId) { "Only active workouts can be edited." }
+            val exercise = database.exerciseDao().getById(exerciseId) ?: error("Exercise not found.")
+            require(!exercise.archived) { "Choose an active exercise." }
+            val order = (sessionExerciseDao.getForSession(sessionId).maxOfOrNull { it.sortOrderSnapshot } ?: -1) + 1
+            val exerciseSnapshotId = sessionExerciseDao.insert(SessionExerciseEntity(
+                sessionId = sessionId,
+                sourceWorkoutTemplateExerciseId = null,
+                exerciseNameSnapshot = exercise.name,
+                sortOrderSnapshot = order,
+                plannedSetCountSnapshot = sets,
+                repMinSnapshot = reps,
+                repMaxSnapshot = reps,
+                targetRepsSnapshot = reps,
+                prescribedWeightCentiKgSnapshot = weightCentiKg,
+                incrementCentiKgSnapshot = 250,
+                restSecondsSnapshot = restSeconds,
+                setupNoteSnapshot = "",
+                supersetGroupSnapshot = null,
+                supersetRestSecondsSnapshot = null,
+            ))
+            sessionSetDao.insertAll((0 until sets).map { order ->
+                SessionSetEntity(
+                    sessionExerciseId = exerciseSnapshotId,
+                    setOrder = order,
+                    setType = SetType.WORKING,
+                    isPlanned = true,
+                    countsForProgression = false,
+                    prescribedWeightCentiKg = weightCentiKg,
+                    prescribedReps = reps,
+                )
+            })
+            exerciseSnapshotId
+        }
+        workoutNotificationUpdater.refresh()
+        return id
+    }
+
+    private suspend fun requireActiveExercise(id: Long): SessionExerciseEntity {
+        val exercise = sessionExerciseDao.getById(id) ?: error("Session exercise not found.")
+        require(workoutSessionDao.getById(exercise.sessionId)?.status == WorkoutSessionStatus.ACTIVE) {
+            "Only active workouts can be edited."
+        }
+        return exercise
     }
 
     suspend fun addSessionSet(
@@ -338,6 +472,8 @@ class WorkoutSessionRepository(
     suspend fun uncompleteSet(setId: Long) {
         database.withTransaction {
             val set = sessionSetDao.getById(setId) ?: error("Set not found.")
+            requireActiveExercise(set.sessionExerciseId)
+            latestUndo = null
             sessionSetDao.update(
                 set.copy(
                     actualWeightCentiKg = null,
@@ -353,6 +489,8 @@ class WorkoutSessionRepository(
     suspend fun skipSet(setId: Long) {
         database.withTransaction {
             val set = sessionSetDao.getById(setId) ?: error("Set not found.")
+            requireActiveExercise(set.sessionExerciseId)
+            latestUndo = null
             sessionSetDao.update(
                 set.copy(
                     actualWeightCentiKg = null,
@@ -378,6 +516,7 @@ class WorkoutSessionRepository(
     suspend fun finishActiveWorkout(
         allowPartial: Boolean,
         progressionChoices: Map<Long, ProgressionFinishChoice> = emptyMap(),
+        expectedWearSessionId: Long? = null,
     ) {
         database.withTransaction {
             val activeSession = workoutSessionDao.getActive()
@@ -387,6 +526,14 @@ class WorkoutSessionRepository(
             val sessionExercises = sessionExerciseDao.getForSession(activeSession.id)
             val setsByExerciseId = sessionExercises.associate { sessionExercise ->
                 sessionExercise.id to sessionSetDao.getForSessionExercise(sessionExercise.id)
+            }
+            if (expectedWearSessionId != null) {
+                require(activeSession.id == expectedWearSessionId) { "Workout changed. Refresh your watch." }
+                val sets = setsByExerciseId.values.flatten()
+                require(sets.none { it.status == SessionSetStatus.PENDING }) { "There are still sets to log." }
+                require(sets.filter { it.isPlanned && it.setType != SetType.WARMUP }
+                    .all { it.status == SessionSetStatus.COMPLETED }) { "Finish this partial workout on your phone." }
+                require(sets.changedProgressionSets().isEmpty()) { "Review changed targets and finish on your phone." }
             }
             val allPlannedSetsCompleted = setsByExerciseId.values
                 .flatten()
@@ -509,6 +656,7 @@ class WorkoutSessionRepository(
     suspend fun addRestTime(seconds: Int) {
         require(seconds > 0) { "Rest time adjustment must be positive." }
         val restEndsAt = database.withTransaction {
+            undoRestDeadline = null
             val activeSession = workoutSessionDao.getActive()
                 ?: error("No active workout.")
             val now = System.currentTimeMillis()
@@ -522,6 +670,7 @@ class WorkoutSessionRepository(
 
     suspend fun skipRest() {
         database.withTransaction {
+            undoRestDeadline = null
             workoutSessionDao.getActive()?.let { activeSession ->
                 workoutSessionDao.update(activeSession.copy(restEndsAt = null))
             }
@@ -542,7 +691,7 @@ class WorkoutSessionRepository(
         workoutNotificationUpdater.refresh()
     }
 
-    private fun restSecondsAfterCompletedWorkingSet(
+    private suspend fun restSecondsAfterCompletedWorkingSet(
         completedSet: SessionSetEntity,
         sessionExercise: SessionExerciseEntity,
         sessionExercises: List<SessionExerciseEntity>,
@@ -557,8 +706,12 @@ class WorkoutSessionRepository(
             .sortedBy { it.sortOrderSnapshot }
         if (groupExercises.isEmpty()) return sessionExercise.restSecondsSnapshot
 
-        val isLastExerciseInSuperset = groupExercises.last().id == sessionExercise.id
-        return if (isLastExerciseInSuperset) {
+        val roundHasPendingSets = groupExercises.any { member ->
+            sessionSetDao.getForSessionExercise(member.id).any {
+                it.setOrder == completedSet.setOrder && it.status == SessionSetStatus.PENDING
+            }
+        }
+        return if (!roundHasPendingSets) {
             sessionExercise.supersetRestSecondsSnapshot ?: sessionExercise.restSecondsSnapshot
         } else {
             0

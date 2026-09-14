@@ -93,6 +93,20 @@ fun WorkoutWearApp(
                             body = null,
                             connected = uiState.connected,
                             transientMessage = uiState.transientMessage,
+                            action = {
+                                Button(
+                                    onClick = viewModel::finishWorkout,
+                                    enabled = uiState.canFinish,
+                                    modifier = Modifier.fillMaxWidth(0.9f).height(48.dp),
+                                    shape = RoundedCornerShape(24.dp),
+                                ) {
+                                    Text(
+                                        text = if (uiState.pendingCommandId != null) "Finishing…" else "Finish workout",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            },
                         )
                         WearSessionStatus.NO_ACTIVE,
                         WearSessionStatus.UNAVAILABLE -> SimpleStateScreen(
@@ -320,8 +334,10 @@ private fun SimpleStateScreen(
     body: String?,
     connected: Boolean,
     transientMessage: String?,
+    action: (@Composable () -> Unit)? = null,
 ) {
     Column(
+        modifier = Modifier.verticalScroll(rememberScrollState()).padding(vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -346,6 +362,10 @@ private fun SimpleStateScreen(
                 lineHeight = 18.sp,
                 color = MaterialTheme.colors.onBackground.copy(alpha = 0.78f),
             )
+        }
+        if (action != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            action()
         }
         if (transientMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))

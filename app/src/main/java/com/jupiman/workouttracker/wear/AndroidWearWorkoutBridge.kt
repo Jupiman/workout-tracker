@@ -83,6 +83,24 @@ class AndroidWearWorkoutBridge(
             .setUrgent()
         dataClient.putDataItem(request).await()
     }
+
+    suspend fun handleFinishWorkoutCommand(bytes: ByteArray, sourceNodeId: String) {
+        val command = runCatching { WorkoutWearCodecs.decodeFinishWorkoutCommand(bytes) }.getOrNull() ?: return
+        val result = runCatching {
+            workoutSessionRepository.finishActiveWorkout(
+                allowPartial = false,
+                expectedWearSessionId = command.sessionId,
+            )
+        }
+        val state = publishCurrentState()
+        val ack = CommandAck(
+            commandId = command.commandId,
+            accepted = result.isSuccess,
+            stateVersion = state.stateVersion,
+            message = result.exceptionOrNull()?.message,
+        )
+        messageClient.sendMessage(sourceNodeId, WorkoutWearPaths.COMMAND_ACK, WorkoutWearCodecs.encodeCommandAck(ack)).await()
+    }
 }
 
 suspend fun <T> Task<T>.await(): T =

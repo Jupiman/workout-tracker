@@ -9,6 +9,7 @@ object WorkoutWearPaths {
     const val STATE = "/workout_tracker/wear/state"
     const val REQUEST_STATE = "/workout_tracker/wear/request_state"
     const val COMPLETE_SET = "/workout_tracker/wear/complete_set"
+    const val FINISH_WORKOUT = "/workout_tracker/wear/finish_workout"
     const val COMMAND_ACK = "/workout_tracker/wear/command_ack"
 }
 
@@ -92,8 +93,22 @@ data class CommandAck(
     val message: String?,
 )
 
+data class FinishWorkoutCommand(val sessionId: Long, val commandId: String)
+
 object WorkoutWearCodecs {
     private const val VERSION = 1
+
+    fun encodeFinishWorkoutCommand(command: FinishWorkoutCommand): ByteArray = writeBytes {
+        writeInt(VERSION)
+        writeLong(command.sessionId)
+        writeUTF(command.commandId)
+    }
+
+    fun decodeFinishWorkoutCommand(bytes: ByteArray): FinishWorkoutCommand =
+        DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+            input.requireVersion()
+            FinishWorkoutCommand(input.readLong(), input.readUTF())
+        }
 
     fun encodeState(state: WorkoutWearState): ByteArray =
         writeBytes {

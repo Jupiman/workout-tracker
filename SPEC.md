@@ -3262,6 +3262,24 @@ Acceptance criteria:
 
 STOP after Phase 1.
 
+### Phase 1 implementation decisions
+
+- Exercise overflow contains Replace for today, Do later (labelled Do superset later for grouped exercises), and Skip exercise. Skip confirms the number of remaining sets, including warm-ups.
+- A workout-level Add exercise for today dialog reuses the Program add-exercise search and numeric controls. It selects an existing library exercise and configures today's sets, reps, weight, and rest; no future progression controls are shown.
+- Session-only exercises append to the active workout, have no source template-exercise ID, and have no progression-relevant sets. Their planned working sets still count toward workout completion and remain in History.
+- Do later moves the entire superset when applicable. It writes the existing session `sortOrderSnapshot` fields transactionally, preserving membership and member order. No schema migration or backup version change is needed.
+- Undo uses a short-lived phone snackbar and an identity-bound completion receipt. It restores pending/editable state with the entered values, clears the completion timestamp, and only cancels rest owned by that completion. Later completions (including Wear), manual set edits, and finalized sessions cannot be reverted using a stale receipt. Extended or unrelated rest is preserved.
+- The phone current-set indicator uses the same actionable-set projection as notification/Wear command validation. Skipping a superset member allows the remaining round to start rest when its actionable work is complete.
+- Room instrumentation covers session-only changes, immutable history, progression isolation, closing/reopening the database, superset order/rest, stale Wear commands, Undo ownership, and input validation. Phase 2 remains unimplemented.
+
+### Wear finish action
+
+- When no actionable sets remain, keep the Wear completion screen visible until the phone reports the session finalized; do not dismiss it on a timer.
+- Offer Finish workout, disabled while disconnected or while a command is pending. Send a session-specific command to the authoritative phone and show pending/error feedback, with a timeout allowing retry.
+- The phone validates the session and completion state inside the existing finish transaction. Stale/duplicate commands must not finish another session or apply progression twice.
+- Workouts needing partial-finish confirmation or changed-target progression review remain on the phone; return a clear instruction to finish there. Normal completed workouts finish directly using the existing progression/history logic.
+- This focused companion action does not implement the Phase 2 completion summary.
+
 ## 57.2 Workout completion summary
 
 After finishing a workout, do not immediately discard all context and return straight to the normal home state.

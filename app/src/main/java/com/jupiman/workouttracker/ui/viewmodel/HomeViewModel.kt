@@ -14,6 +14,7 @@ import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
+import com.jupiman.workouttracker.data.repository.SetCompletionUndo
 import com.jupiman.workouttracker.data.repository.parseCentiKg
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +55,17 @@ class HomeViewModel(
 ) : ViewModel() {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message
+    private val _undo = MutableStateFlow<SetCompletionUndo?>(null)
+    val undo: StateFlow<SetCompletionUndo?> = _undo
+
+    fun dismissUndo(receipt: SetCompletionUndo) {
+        if (_undo.value === receipt) _undo.value = null
+    }
+
+    fun undoCompletion(receipt: SetCompletionUndo) = launchOperation("Completion undone.") {
+        dismissUndo(receipt)
+        require(workoutSessionRepository.undoCompletion(receipt)) { "This completion can no longer be undone." }
+    }
 
     private val homeInputs = combine(
         programRepository.activeProgram,
@@ -115,12 +127,12 @@ class HomeViewModel(
         setId: Long,
         actualWeight: String,
         actualReps: String,
-    ) = launchOperation("Set logged.") {
+    ) = launchOperation("") {
         val reps = actualReps.trim().toIntOrNull()
             ?: throw IllegalArgumentException("Reps must be a whole number.")
         require(reps >= 0) { "Reps cannot be negative." }
 
-        workoutSessionRepository.completeSet(
+        _undo.value = workoutSessionRepository.completeSet(
             setId = setId,
             actualWeightCentiKg = parseCentiKg(actualWeight),
             actualReps = reps,
@@ -177,13 +189,34 @@ class HomeViewModel(
         )
     }
 
+    fun skipExercise(id: Long) = launchOperation("Remaining sets skipped.") {
+        workoutSessionRepository.skipExercise(id)
+    }
+
+    fun doExerciseLater(id: Long) = launchOperation("Moved to the end for today.") {
+        workoutSessionRepository.doExerciseLater(id)
+    }
+
+    suspend fun addExerciseForToday(
+        sessionId: Long, exerciseId: Long, sets: String, reps: String, weight: String, rest: String,
+    ) {
+        workoutSessionRepository.addExerciseForToday(
+            sessionId = sessionId,
+            exerciseId = exerciseId,
+            sets = sets.toIntOrNull() ?: error("Sets must be a whole number."),
+            reps = reps.toIntOrNull() ?: error("Reps must be a whole number."),
+            weightCentiKg = parseCentiKg(weight),
+            restSeconds = rest.toIntOrNull() ?: error("Rest must be a whole number of seconds."),
+        )
+    }
+
     private fun launchOperation(
         successMessage: String,
         block: suspend () -> Unit,
     ) {
         viewModelScope.launch {
             runCatching { block() }
-                .onSuccess { _message.value = successMessage }
+                .onSuccess { _message.value = successMessage.takeIf { it.isNotEmpty() } }
                 .onFailure { throwable ->
                     _message.value = throwable.message ?: "Something went wrong."
                 }

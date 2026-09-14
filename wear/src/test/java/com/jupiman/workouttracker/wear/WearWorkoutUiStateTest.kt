@@ -17,7 +17,7 @@ class WearWorkoutUiStateTest {
     }
 
     @Test
-    fun completedWorkoutTimeoutUsesPhoneAdjustedTime() {
+    fun completedWorkoutRemainsVisibleUntilPhoneFinalizesIt() {
         val completed = WorkoutWearState(
             sessionId = 1,
             sessionStatus = WearSessionStatus.WORKOUT_COMPLETE,
@@ -40,6 +40,16 @@ class WearWorkoutUiStateTest {
             phoneClockOffsetMillis = 14_000L,
         )
 
-        assertEquals(WearSessionStatus.NO_ACTIVE, state.displayState?.sessionStatus)
+        assertEquals(WearSessionStatus.WORKOUT_COMPLETE, state.displayState?.sessionStatus)
+    }
+
+    @Test
+    fun finishRequiresCompletedWorkoutConnectionAndNoPendingCommand() {
+        val state = WearWorkoutUiState(workoutState = WorkoutWearState.workoutComplete(1, 0), connected = true)
+        assertEquals(true, state.canFinish)
+        assertEquals(false, state.copy(connected = false).canFinish)
+        assertEquals(false, state.copy(pendingCommandId = "finish").canFinish)
+        assertEquals(false, state.copy(workoutState = WorkoutWearState.noActive(0)).canFinish)
+        assertEquals(false, state.copy(workoutState = state.workoutState!!.copy(sessionStatus = WearSessionStatus.ACTIVE)).canFinish)
     }
 }

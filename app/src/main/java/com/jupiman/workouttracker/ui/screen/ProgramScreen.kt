@@ -2756,7 +2756,7 @@ private fun AddExerciseDialog(
 }
 
 @Composable
-private fun AddExerciseDialogContent(
+internal fun AddExerciseDialogContent(
     exercises: List<ExerciseEntity>,
     selectedExerciseId: Long?,
     onSelectedExerciseChange: (Long?) -> Unit,
@@ -2776,6 +2776,7 @@ private fun AddExerciseDialogContent(
     onIncrementChange: (String) -> Unit,
     restSeconds: String,
     onRestSecondsChange: (String) -> Unit,
+    sessionOnly: Boolean = false,
 ) {
     var dismissedSuggestionQuery by remember { mutableStateOf<String?>(null) }
     var exerciseNameField by remember {
@@ -2833,9 +2834,11 @@ private fun AddExerciseDialogContent(
             SmallNumberField("Sets", sets, onSetsChange, Modifier.weight(1f))
             SmallNumberField("Target", currentTargetReps, onCurrentTargetRepsChange, Modifier.weight(1f))
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallNumberField("Rep min", repMin, onRepMinChange, Modifier.weight(1f))
-            SmallNumberField("Rep max", repMax, onRepMaxChange, Modifier.weight(1f))
+        if (!sessionOnly) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SmallNumberField("Rep min", repMin, onRepMinChange, Modifier.weight(1f))
+                SmallNumberField("Rep max", repMax, onRepMaxChange, Modifier.weight(1f))
+            }
         }
         WeightAdjuster(
             label = "Weight kg",
@@ -2845,7 +2848,7 @@ private fun AddExerciseDialogContent(
             modifier = Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SmallNumberField("Inc kg", increment, onIncrementChange, Modifier.weight(1f), decimal = true)
+            if (!sessionOnly) SmallNumberField("Inc kg", increment, onIncrementChange, Modifier.weight(1f), decimal = true)
             SmallNumberField("Rest sec", restSeconds, onRestSecondsChange, Modifier.weight(1f))
         }
     }
