@@ -3034,3 +3034,1023 @@ The MVP is complete when I can:
 21. Change the current program later without corrupting old history.
 
 Do not add additional product scope until all of the above works reliably.
+
+---
+
+# 57. Post-MVP Roadmap
+
+Workout Companion is past the original MVP stage. Preserve all completed requirements and historical sections above. This roadmap is deliberately focused rather than a feature-heavy fitness platform.
+
+Priorities: workout logging speed, correctness of stored data, progression correctness, real gym usability, simple architecture, visual quality, then feature richness.
+
+Delivery gate: this entire roadmap must exist in SPEC.md before any Phase 1 production changes. Report the specification addition, inspect the relevant implementation, briefly state the approach, implement Phase 1 only, add/update tests, run relevant Gradle tests/builds, fix regressions, summarize, and STOP. Phase 2 requires explicit instruction.
+
+For every later phase: reread its SPEC section, inspect existing implementation, produce a short implementation plan, implement only that phase, add/update tests, run relevant Gradle builds/tests, fix regressions, summarize, and STOP for approval. Never implement multiple phases at once.
+## 57.1 Active workout ergonomics
+
+Add four session-level features:
+
+1. Skip exercise
+2. Add exercise for today
+3. Do later
+4. Undo recently completed set
+
+The principle for this phase is:
+
+Actions performed during an active workout should not modify the permanent Program unless explicitly requested.
+
+------------------------------------------
+1A — SKIP EXERCISE
+------------------------------------------
+
+During an ACTIVE workout, allow the user to skip the remaining work for an exercise.
+
+Expose a compact action such as:
+
+Exercise overflow menu
+→ Skip exercise
+
+Behavior:
+
+- already COMPLETED sets remain completed
+- already SKIPPED sets remain skipped
+- all remaining PENDING sets for that SessionExercise become SKIPPED
+- warm-up and working sets that are still pending should be handled consistently
+- the Program / WorkoutTemplateExercise is not modified
+- future workouts are unchanged
+- history records the skipped sets
+- progression must follow the existing rule:
+  a skipped progression-relevant planned set prevents automatic progression for that exercise
+
+Require confirmation if accidental skipping would be costly.
+
+Example:
+
+Bench Press
+
+Set 1 COMPLETED
+Set 2 COMPLETED
+Set 3 PENDING
+
+Skip exercise
+
+Result:
+
+Set 1 COMPLETED
+Set 2 COMPLETED
+Set 3 SKIPPED
+
+Do not create fake completed sets.
+
+------------------------------------------
+1B — ADD EXERCISE FOR TODAY
+------------------------------------------
+
+Allow adding an exercise only to the current WorkoutSession.
+
+This is the opposite of Replace for today.
+
+Possible entry points:
+
+- workout-level "Add exercise for today"
+- exercise overflow → "Add exercise after this"
+
+Use whichever integrates cleanly with the current UI.
+
+Flow:
+
+Add exercise for today
+→ choose/search Exercise Library
+→ configure today's sets / reps / weight / rest as appropriate
+→ add to active workout
+
+Rules:
+
+- do NOT modify WorkoutTemplate
+- do NOT modify future workouts
+- create a session-only SessionExercise
+- it must not have a source WorkoutTemplateExercise progression relationship
+- session-only sets must NOT affect automatic progression
+- history must store the exercise exactly as performed
+- Wear OS must receive the new actionable exercise when appropriate
+- app restart during the workout must preserve it
+
+Prefer reusing existing Program/session editor controls rather than creating an unrelated editor implementation.
+
+If a new exercise has no permanent progression track, all of its sets should be considered session-only for progression purposes.
+
+------------------------------------------
+1C — DO LATER
+------------------------------------------
+
+Allow an exercise to be postponed inside the ACTIVE workout.
+
+Use case:
+
+The machine is occupied.
+
+The user does not want to:
+
+- skip the exercise
+- replace it
+- modify the permanent program
+
+Action:
+
+Do later
+
+Behavior:
+
+- move the exercise later in the active workout execution order
+- preferably to the end of the remaining actionable exercises
+- do not alter permanent WorkoutTemplate sortOrder
+- future workouts keep their normal order
+- active-session order must survive application restart
+- phone and Wear must agree on the same next actionable set
+
+Do not silently change superset membership.
+
+If the exercise belongs to a superset:
+
+do not invent complicated partial-superset behavior.
+
+Either:
+
+- move the entire superset group together
+
+or:
+
+- disable Do later for an individual superset member and explain why
+
+Choose the simplest behavior consistent with the current architecture.
+
+Persist session-level ordering if required.
+
+A Room migration is acceptable if there is a genuine persistence need.
+
+Do not abuse transient UI state for this.
+
+------------------------------------------
+1D — UNDO RECENTLY COMPLETED SET
+------------------------------------------
+
+Make accidental set completion easy to reverse.
+
+After completing a set on the phone, provide a short-lived Undo affordance.
+
+Example:
+
+Set 2 completed                         UNDO
+
+This may use an appropriate snackbar or equivalent lightweight Material interaction.
+
+Behavior:
+
+- restore the just-completed set to its previous editable/pending state
+- do not undo an arbitrary old set through this action
+- only undo the most recently completed set associated with that UI action
+- do not allow Undo to accidentally revert a different subsequent set
+
+If completing that set started the current rest timer:
+
+Undo should cancel that rest timer if the timer belongs to the completion being undone.
+
+If another action has since superseded the timer/state, do not destroy unrelated state.
+
+Existing manual editing of completed sets should remain available.
+
+Wear:
+
+Do not add complicated watch-side Undo in this phase.
+
+A set completed from Wear may still surface the phone-side Undo affordance if this integrates cleanly with the existing state flow.
+
+Phone remains authoritative.
+
+------------------------------------------
+PHASE 1 UI
+------------------------------------------
+
+Exercise secondary actions should become coherent.
+
+Conceptually:
+
+[exercise] ⋮
+
+Replace for today
+Do later
+Skip exercise
+Add exercise after this
+
+Do not expose actions that are invalid for the current exercise/state.
+
+Do not clutter every card with permanent text buttons.
+
+Use overflow/menu actions where appropriate.
+
+Acceptance criteria:
+
+- Skip exercise affects current session only
+- Add exercise for today affects current session only
+- Do later affects current session order only
+- Undo safely restores the latest accidental completion
+- active workout survives process restart correctly
+- Wear follows updated actionable state
+- progression remains correct
+- permanent Program remains unchanged
+- History accurately records what happened
+
+STOP after Phase 1.
+
+## 57.2 Workout completion summary
+
+After finishing a workout, do not immediately discard all context and return straight to the normal home state.
+
+Show a concise Workout Complete summary.
+
+This is NOT an analytics dashboard.
+
+The goal is to answer:
+
+"What did I just do and what changed for next time?"
+
+Example:
+
+WORKOUT COMPLETE
+
+Chest + Shoulders
+57 min
+18 / 19 working sets
+
+Progression
+────────────────
+
+Bench Press
+70 kg × 10
+→ 70 kg × 11
+
+Incline Dumbbell Press
+30 kg × 12
+→ 32.5 kg × 8
+
+Cable Lateral Raise
+No change
+
+1 skipped set
+
+[ Done ]
+
+Show where relevant:
+
+- workout / Training Day name
+- duration
+- completed working set count
+- skipped set count
+- exercise progression result
+- old target → new target
+- unchanged progression when useful
+
+Do not add:
+
+- PR scoring
+- 1RM
+- calorie estimates
+- muscle-volume scores
+- achievements
+- workout rating
+- social sharing
+
+Automatic progression and explicit per-set target decisions must remain authoritative.
+
+The summary must report what actually happened after finish logic; it must not independently recalculate progression using separate rules.
+
+Prefer having finish logic return or expose a clear summary result instead of duplicating progression logic in the UI.
+
+Partial workout behavior must be represented correctly.
+
+A session-only / Replace-for-today exercise should not claim permanent progression.
+
+Acceptance:
+
+- summary matches persisted progression state
+- completed and skipped counts are correct
+- session-only exercises do not report fake progression
+- leaving the summary does not mutate workout data
+- History remains unchanged/read-only
+
+STOP after Phase 2.
+
+## 57.3 Settings
+
+Add a small Settings surface.
+
+Do NOT add a fourth bottom-navigation destination.
+
+Access Settings from a small top-level menu / icon.
+
+Move configuration that does not belong in normal workout workflow into Settings.
+
+Initial Settings scope:
+
+DATA
+
+- Export backup
+- Restore backup
+
+ABOUT
+
+- app name
+- version if easily available
+
+Move Backup / Restore out of History once Settings exists.
+
+Do not duplicate them in both places permanently.
+
+Preserve all existing backup/restore behavior and compatibility.
+
+Design Settings so future preferences can be added cleanly.
+
+Future, NOT IMPLEMENTED NOW:
+
+- kg / lb unit preference
+- notification preferences
+- optional vibration preferences
+
+Do NOT add the unit toggle yet.
+
+Do not add placeholder or disabled UI merely to advertise future functionality.
+
+Document future unit support in SPEC only.
+
+Acceptance:
+
+- Backup and Restore work exactly as before
+- History is simplified
+- Settings does not become another primary navigation destination
+- no data migration solely for moving UI
+
+STOP after Phase 3.
+
+## 57.4 Exercise tracking modes
+
+The current kg × reps model is not ideal for every exercise.
+
+Examples:
+
+Bench Press:
+70 kg × 10
+
+Pull-Up:
+8 reps
+
+Plank:
+60 sec
+
+Add support for three exercise tracking modes:
+
+WEIGHT_REPS
+REPS
+DURATION
+
+Do not add more modes in this phase.
+
+IMPORTANT:
+
+Inspect the current data model before deciding where tracking mode belongs.
+
+Prefer a model that allows the same reusable Exercise name to be configured differently in different Training Day instances when that is useful.
+
+For example:
+
+Pull-Up may be bodyweight/reps-only in one context but weighted in another.
+
+Therefore strongly consider storing tracking mode on WorkoutTemplateExercise rather than making the global Exercise Library definition unnecessarily restrictive.
+
+Snapshot the relevant mode into SessionExercise so History remains immutable.
+
+------------------------------------------
+WEIGHT_REPS
+------------------------------------------
+
+Existing behavior.
+
+Example:
+
+Bench Press
+70 kg × 10
+
+Preserve current double-progression behavior completely.
+
+No regression is acceptable.
+
+------------------------------------------
+REPS
+------------------------------------------
+
+Example:
+
+Pull-Up
+10 reps
+
+Do not show meaningless:
+
+0 kg × 10
+
+Weight input is hidden/not required.
+
+Sets still contain actual reps.
+
+Progression:
+
+keep it deliberately simple.
+
+If the current architecture can safely use the existing rep-range target logic:
+
+- successful planned sets may advance target reps through the configured rep range
+- once repMax is reached, do NOT invent a weight increase
+- target may remain at repMax until the user changes configuration
+
+Do not invent advanced bodyweight progression.
+
+------------------------------------------
+DURATION
+------------------------------------------
+
+Example:
+
+Plank
+60 sec
+
+Use seconds as the stored workout duration target.
+
+UI may display:
+
+45 sec
+1:00
+1:30
+
+using sensible formatting.
+
+The user should be able to enter/edit actual duration.
+
+Do not implement automatic rep counting, motion detection, or timer-based exercise detection.
+
+Keep automatic progression for duration conservative.
+
+It is acceptable for DURATION to use a manually configured future target rather than inventing a new automatic progression algorithm.
+
+If a clean duration increment model naturally fits the existing progression architecture, explain it before implementing it.
+
+Do not shoehorn seconds into a field named reps just to avoid a schema change.
+
+Use explicit semantics.
+
+------------------------------------------
+TRACKING MODE UX
+------------------------------------------
+
+Program exercise configuration should allow selecting:
+
+Tracking:
+
+Weight + reps
+Reps
+Duration
+
+Only show controls relevant to that mode.
+
+Workout and History must also display the mode correctly.
+
+Wear OS must display the correct target format.
+
+Examples:
+
+Bench Press
+70 kg × 10
+
+Pull-Up
+10 reps
+
+Plank
+60 sec
+
+Backup/restore and Program export/import introduced later must preserve tracking mode.
+
+Existing databases must migrate safely with existing exercises defaulting to WEIGHT_REPS.
+
+Acceptance:
+
+- existing workouts behave identically after migration
+- REPS does not display fake 0 kg
+- DURATION does not pretend seconds are reps
+- History snapshots preserve historical tracking semantics
+- Wear renders all supported modes
+- progression for WEIGHT_REPS is unchanged
+
+STOP after Phase 4.
+
+## 57.5 Exercise progress and graph
+
+Add a useful progress view for a specific exercise progression track.
+
+This may contain a graph.
+
+Do NOT create a general analytics dashboard.
+
+The progress view should answer:
+
+"How has this exercise been progressing?"
+
+Matching must respect WorkoutTemplateExercise identity.
+
+Do not mix:
+
+Day A Bench Press
+
+with:
+
+Day C Bench Press
+
+just because both reference "Bench Press".
+
+If accessed from the global Exercise Library and one Exercise exists in multiple Training Day instances:
+
+allow the user to select the relevant progression track rather than silently combining them.
+
+Example:
+
+Bench Press
+
+Chest + Shoulders
+Current target:
+72.5 kg × 9
+3 sets · 8–12
+
+Progress
+
+[ line chart ]
+
+Recent sessions
+
+14 Sep
+72.5 × 8
+72.5 × 8
+72.5 × 8
+
+08 Sep
+70 × 12
+70 × 12
+70 × 12
+
+etc.
+
+------------------------------------------
+GRAPH
+------------------------------------------
+
+Use a simple line chart.
+
+Avoid adding a large charting dependency unless there is a compelling reason.
+
+Prefer a lightweight Compose implementation if practical.
+
+For WEIGHT_REPS:
+
+primary graph:
+working weight over time
+
+A sensible historical metric such as top completed progression-relevant working weight per session is acceptable.
+
+Exclude:
+
+- warm-ups
+- drop sets
+- AMRAP
+- unrelated EXTRA sets
+
+Be explicit in the UI about what is graphed if ambiguity exists.
+
+For REPS:
+
+graph an understandable rep-performance metric such as best completed planned-set reps.
+
+For DURATION:
+
+graph completed duration.
+
+Keep the detailed historical sets below the chart so the graph is not the only source of truth.
+
+No:
+
+- estimated 1RM
+- strength score
+- volume score
+- trend prediction
+- AI analysis
+- muscle analytics
+
+Support an empty state for exercises with insufficient history.
+
+Acceptance:
+
+- correct template-instance isolation
+- graph derives only from immutable History snapshots
+- editing the current Program does not rewrite graph history
+- recent-session list agrees with History
+- visually useful in light/dark themes
+
+STOP after Phase 5.
+
+## 57.6 Visual polish
+
+Perform a screen-by-screen visual quality pass.
+
+This phase has broad permission to improve visual presentation.
+
+It does NOT have permission to redesign core workflows or business logic.
+
+Review:
+
+- Workout
+- Program
+- Exercise Library
+- dialogs
+- bottom sheets
+- History
+- Progress
+- Settings
+- Workout Complete summary
+- empty states
+- error states
+- Wear OS
+
+Improve where appropriate:
+
+- typography hierarchy
+- spacing
+- alignment
+- component density
+- card hierarchy
+- surface hierarchy
+- iconography
+- app bars
+- dialogs
+- bottom sheets
+- touch target consistency
+- active/current states
+- completed/skipped states
+- superset presentation
+- visual grouping
+- text truncation
+- long-name handling
+- empty states
+- confirmation dialogs
+- animation
+- haptic feedback
+- scrolling behavior
+- edge-to-edge/system bars
+- dark/light theme consistency
+
+Continue using the Workout Companion identity:
+
+- dark-first
+- restrained
+- lavender/purple accent
+- focused utility
+- calm
+- clean
+
+Avoid:
+
+- gradients unless there is a very strong reason
+- glassmorphism
+- neon/gaming aesthetic
+- bodybuilding clichés
+- excessive animation
+- decorative dashboards
+
+------------------------------------------
+APP ICON
+------------------------------------------
+
+Finish Android launcher-icon integration properly.
+
+Review:
+
+- adaptive icon foreground
+- adaptive icon background
+- safe zones
+- round launcher presentation
+- monochrome/themed icon support
+- phone launcher
+- Wear launcher
+
+Use the accepted Workout Companion visual identity.
+
+Do not rename applicationId/package/Room identifiers solely for branding.
+
+------------------------------------------
+MOTION
+------------------------------------------
+
+Use subtle motion when it communicates:
+
+- set completion
+- expansion/collapse
+- reorder
+- current exercise transition
+- dialog/sheet state
+- rest → ready
+- workout completion
+
+Never make a frequently used action slower for decorative animation.
+
+------------------------------------------
+ACCESSIBILITY
+------------------------------------------
+
+Maintain:
+
+- readable contrast
+- proper touch targets
+- readable text
+- state not conveyed only through color
+
+Before changing UI:
+
+perform a short visual audit and document the main inconsistencies you intend to fix.
+
+Then implement them consistently rather than applying isolated cosmetic tweaks.
+
+Acceptance:
+
+- application feels visually coherent
+- phone and Wear feel like the same product
+- no workout workflow becomes slower
+- no business behavior changes
+- icon works correctly with modern Android themed icons
+
+STOP after Phase 6.
+
+## 57.7 First-run onboarding
+
+Improve first-run experience without creating a tutorial slideshow.
+
+Do NOT build:
+
+- multi-page marketing carousel
+- feature-tour popup sequence
+- mandatory tutorial
+- account creation
+
+The seeded Exercise Library already exists.
+
+The first-run goal is therefore:
+
+help the user create the first usable Program quickly.
+
+Preferred experience:
+
+No Program exists
+
+Workout Companion
+
+Create your first program to get started.
+
+[ Create program ]
+
+Then guide naturally through existing UI:
+
+Create program
+→ create Training Day
+→ add exercises
+→ activate program
+→ start workout
+
+Use contextual empty states and focused calls to action.
+
+Do not create a separate duplicate onboarding implementation of the Program builder.
+
+Reuse the real Program UI.
+
+Optional short explanatory copy is fine.
+
+Do not automatically create a sample program unless explicitly requested later.
+
+Backup restore must remain easily accessible for a user reinstalling the app who wants to restore instead of creating a new program.
+
+Settings / restore should therefore remain reachable even without an existing Program.
+
+Acceptance:
+
+- fresh user understands the next action
+- no mandatory tutorial
+- seeded exercises are immediately useful
+- creating the first program uses normal production flows
+- restore remains possible without completing onboarding
+
+STOP after Phase 7.
+
+## 57.8 Program export / import
+
+Add portable export/import for ONE training Program.
+
+This is separate from full application backup.
+
+Purpose:
+
+- copy a Program between installations
+- share a Program
+- duplicate/transfer Program configuration without transferring History
+
+Use a versioned JSON format.
+
+Example conceptual metadata:
+
+{
+    "format": "workout-companion-program",
+    "formatVersion": 1,
+    "exportedAt": "...",
+    "program": ...
+}
+
+Export:
+
+include the selected Program and everything needed to reconstruct it:
+
+- Program name
+- Training Days
+- Day ordering
+- exercise references/names
+- exercise ordering
+- tracking mode
+- planned sets
+- rep configuration
+- duration configuration where applicable
+- weight
+- increment
+- rest
+- setup notes
+- warm-up configuration
+- per-set targets
+- supersets
+- current configured progression targets
+
+Do NOT include:
+
+- WorkoutSession history
+- historical SessionExercises
+- historical SessionSets
+- unrelated Programs
+- active workout
+- application settings
+
+Import:
+
+- create a NEW Program
+- do not overwrite an existing Program automatically
+- create new template IDs
+- create independent progression state
+- create new superset IDs
+- imported Program should not become active automatically unless the user explicitly chooses it
+
+Exercise Library handling:
+
+If an imported exercise name already exists:
+
+reuse the existing Exercise where safe.
+
+If it does not exist:
+
+create a new Exercise.
+
+Prefer case-insensitive exact-name matching.
+
+Do not create duplicate library exercises unnecessarily.
+
+Program-name conflict:
+
+handle safely.
+
+For example:
+
+Push Pull Legs
+→ Push Pull Legs imported
+
+or ask for a new name.
+
+Do not overwrite silently.
+
+Use Android document picker.
+
+No filesystem permission.
+
+No cloud backend.
+
+No sharing service dependency.
+
+Backup/restore remains the mechanism for cloning the complete application including History.
+
+Program export/import is intentionally narrower.
+
+Acceptance:
+
+- export one Program
+- import into a clean installation
+- Program configuration is reconstructed accurately
+- no History is imported
+- source and imported Program do not share mutable progression IDs
+- existing Programs remain untouched
+- repeated import does not corrupt existing data
+
+STOP after Phase 8.
+
+## 57.9 Deferred / non-goals
+
+Document these in SPEC as deferred or explicitly out of scope.
+
+DO NOT IMPLEMENT THEM as part of this roadmap.
+
+Deferred:
+
+- workout/session free-text notes
+- kg / lb unit switching
+  - future Settings preference
+  - architecture should not unnecessarily block it
+  - do not implement yet
+- plate calculator
+
+Not planned:
+
+- automatic rep counting
+- motion-based rep detection
+- per-exercise temporary rest override
+
+Continue to avoid unless explicitly requested later:
+
+- estimated 1RM
+- generic PR scoring
+- workout volume dashboards
+- weekly muscle-volume analysis
+- muscle maps
+- bodyweight tracking
+- calories
+- nutrition
+- AI coaching
+- social features
+- accounts
+- cloud backend
+- achievements
+- streaks
+- gamification
+- Health Connect
+
+ARCHITECTURE RULES
+
+Phone remains authoritative.
+
+Wear OS is a companion.
+
+Room remains the source of truth.
+
+Historical Session data remains immutable after completion.
+
+Snapshots remain authoritative for History.
+
+Do not retroactively reconstruct historical data from current Program configuration.
+
+Avoid adding schema fields simply because they may be useful someday.
+
+Schema migrations are acceptable when required by a real feature.
+
+Every migration must preserve existing user data.
+
+Backup format changes must be versioned if schema additions require them.
+
+Program import format must also be versioned.
+
+Do not silently change progression semantics.
+
+QUALITY RULES
+
+For every phase:
+
+- preserve existing tests
+- add tests for new business rules
+- run unit tests
+- run relevant instrumentation tests where practical
+- build :app
+- build :wear when shared state/protocol/UI is affected
+- do not leave TODO implementations
+- do not leave dead duplicate code
+- do not introduce a dependency when a small existing/native implementation is sufficient
+
+When requirements conflict, prefer:
+
+1. historical data correctness
+2. progression correctness
+3. active-workout persistence
+4. workout logging speed
+5. simple architecture
+6. visual polish
+
