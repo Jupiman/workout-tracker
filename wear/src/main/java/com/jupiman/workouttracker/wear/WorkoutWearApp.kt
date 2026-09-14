@@ -38,6 +38,8 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
+import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
+import kotlin.math.ceil
 
 @Composable
 fun WorkoutWearApp(
@@ -86,7 +88,11 @@ fun WorkoutWearApp(
                             now = uiState.phoneNow,
                             transientMessage = uiState.transientMessage,
                             canComplete = uiState.canComplete,
+                            canDurationAction = uiState.canDurationAction,
                             onComplete = viewModel::completeCurrentSet,
+                            onStartDuration = viewModel::startDurationSet,
+                            onStopDuration = viewModel::stopDurationSet,
+                            onCancelDuration = viewModel::cancelDurationSet,
                         )
                         WearSessionStatus.WORKOUT_COMPLETE -> SimpleStateScreen(
                             title = "Workout complete",
@@ -130,12 +136,18 @@ private fun ActiveWorkoutScreen(
     now: Long,
     transientMessage: String?,
     canComplete: Boolean,
+    canDurationAction: Boolean,
     onComplete: () -> Unit,
+    onStartDuration: () -> Unit,
+    onStopDuration: () -> Unit,
+    onCancelDuration: () -> Unit,
 ) {
     if (state == null) return
     val restText = restText(state.restEndsAt, now)
     val restOverdue = isRestOverdue(state.restEndsAt, now)
-    val targetText = targetText(state)
+    val durationTimerText = durationTimerText(state, now)
+    val targetText = durationTimerText ?: targetText(state)
+    val durationStartsAt = state.durationStartsAt
 
     Column(
         modifier = Modifier
@@ -186,8 +198,13 @@ private fun ActiveWorkoutScreen(
         }
         Spacer(modifier = Modifier.height(10.dp))
         Button(
-            onClick = onComplete,
-            enabled = canComplete,
+            onClick = when {
+                state.trackingMode != WearTrackingMode.DURATION -> onComplete
+                durationStartsAt == null -> onStartDuration
+                now < durationStartsAt -> onCancelDuration
+                else -> onStopDuration
+            },
+            enabled = if (state.trackingMode == WearTrackingMode.DURATION) canDurationAction else canComplete,
             modifier = Modifier
                 .fillMaxWidth(0.86f)
                 .height(52.dp),
@@ -216,7 +233,12 @@ private fun ActiveWorkoutScreen(
                 }
             } else {
                 Text(
-                    text = "COMPLETE SET",
+                    text = when {
+                        state.trackingMode != WearTrackingMode.DURATION -> "COMPLETE SET"
+                        durationStartsAt == null -> "START SET"
+                        now < durationStartsAt -> "CANCEL"
+                        else -> "STOP"
+                    },
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
@@ -225,6 +247,14 @@ private fun ActiveWorkoutScreen(
         }
         Spacer(modifier = Modifier.height(4.dp))
     }
+}
+
+private fun durationTimerText(state: WorkoutWearState, now: Long): String? {
+    val startsAt = state.durationStartsAt ?: return null
+    val endsAt = state.durationEndsAt ?: return null
+    if (now < startsAt) return ceil((startsAt - now) / 1_000.0).toInt().coerceIn(1, 3).toString()
+    if (now < startsAt + 1_000L) return "GO"
+    return ceil((endsAt - now).coerceAtLeast(0L) / 1_000.0).toInt().toString()
 }
 
 private val WearInk = Color(0xFF101116)

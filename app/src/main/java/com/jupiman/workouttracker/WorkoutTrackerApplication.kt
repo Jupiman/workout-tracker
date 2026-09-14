@@ -19,7 +19,7 @@ class WorkoutTrackerApplication : Application() {
         container = AppContainer(this)
         container.wearWorkoutBridge.start()
         applicationScope.launch {
-            container.workoutSessionRepository.syncRestTimerAlarm()
+            container.workoutSessionRepository.syncTimers()
             container.workoutNotificationCoordinator.showCurrentState()
             container.wearWorkoutBridge.refresh()
         }

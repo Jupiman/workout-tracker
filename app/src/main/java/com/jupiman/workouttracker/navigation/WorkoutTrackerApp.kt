@@ -94,7 +94,7 @@ fun WorkoutTrackerApp(
                 inputStream.use { stream ->
                     container.dataBackupRepository.restoreBackup(stream)
                 }
-                container.workoutSessionRepository.syncRestTimerAlarm()
+                container.workoutSessionRepository.syncTimers()
                 container.workoutNotificationCoordinator.refresh()
             }.onSuccess {
                 showToast("Backup restored.")

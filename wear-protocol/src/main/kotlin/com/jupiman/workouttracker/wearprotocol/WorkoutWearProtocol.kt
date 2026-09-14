@@ -9,6 +9,9 @@ object WorkoutWearPaths {
     const val STATE = "/workout_tracker/wear/state"
     const val REQUEST_STATE = "/workout_tracker/wear/request_state"
     const val COMPLETE_SET = "/workout_tracker/wear/complete_set"
+    const val START_DURATION_SET = "/workout_tracker/wear/start_duration_set"
+    const val STOP_DURATION_SET = "/workout_tracker/wear/stop_duration_set"
+    const val CANCEL_DURATION_SET = "/workout_tracker/wear/cancel_duration_set"
     const val FINISH_WORKOUT = "/workout_tracker/wear/finish_workout"
     const val COMMAND_ACK = "/workout_tracker/wear/command_ack"
 }
@@ -34,6 +37,8 @@ data class WorkoutWearState(
     val setNumber: Int?,
     val totalSets: Int?,
     val restEndsAt: Long?,
+    val durationStartsAt: Long? = null,
+    val durationEndsAt: Long? = null,
     val supersetPosition: Int?,
     val supersetSize: Int?,
     val stateVersion: Long,
@@ -57,6 +62,8 @@ data class WorkoutWearState(
                 setNumber = null,
                 totalSets = null,
                 restEndsAt = null,
+                durationStartsAt = null,
+                durationEndsAt = null,
                 supersetPosition = null,
                 supersetSize = null,
                 stateVersion = now,
@@ -77,6 +84,8 @@ data class WorkoutWearState(
                 setNumber = null,
                 totalSets = null,
                 restEndsAt = null,
+                durationStartsAt = null,
+                durationEndsAt = null,
                 supersetPosition = null,
                 supersetSize = null,
                 stateVersion = now,
@@ -86,6 +95,14 @@ data class WorkoutWearState(
 }
 
 data class CompleteSetCommand(
+    val sessionId: Long,
+    val sessionSetId: Long,
+    val commandId: String,
+    val observedStateVersion: Long,
+    val createdAt: Long,
+)
+
+data class DurationSetCommand(
     val sessionId: Long,
     val sessionSetId: Long,
     val commandId: String,
@@ -119,7 +136,7 @@ object WorkoutWearCodecs {
 
     fun encodeState(state: WorkoutWearState): ByteArray =
         writeBytes {
-            writeInt(2)
+            writeInt(3)
             writeNullableLong(state.sessionId)
             writeInt(state.sessionStatus.ordinal)
             writeNullableLong(state.currentSetId)
@@ -132,6 +149,8 @@ object WorkoutWearCodecs {
             writeNullableInt(state.setNumber)
             writeNullableInt(state.totalSets)
             writeNullableLong(state.restEndsAt)
+            writeNullableLong(state.durationStartsAt)
+            writeNullableLong(state.durationEndsAt)
             writeNullableInt(state.supersetPosition)
             writeNullableInt(state.supersetSize)
             writeLong(state.stateVersion)
@@ -141,7 +160,7 @@ object WorkoutWearCodecs {
     fun decodeState(bytes: ByteArray): WorkoutWearState =
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             val version = input.readInt()
-            require(version in 1..2) { "Unsupported Wear state version $version." }
+            require(version in 1..3) { "Unsupported Wear state version $version." }
             WorkoutWearState(
                 sessionId = input.readNullableLong(),
                 sessionStatus = WearSessionStatus.entries[input.readInt()],
@@ -155,6 +174,8 @@ object WorkoutWearCodecs {
                 setNumber = input.readNullableInt(),
                 totalSets = input.readNullableInt(),
                 restEndsAt = input.readNullableLong(),
+                durationStartsAt = if (version >= 3) input.readNullableLong() else null,
+                durationEndsAt = if (version >= 3) input.readNullableLong() else null,
                 supersetPosition = input.readNullableInt(),
                 supersetSize = input.readNullableInt(),
                 stateVersion = input.readLong(),
@@ -176,6 +197,27 @@ object WorkoutWearCodecs {
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             input.requireVersion()
             CompleteSetCommand(
+                sessionId = input.readLong(),
+                sessionSetId = input.readLong(),
+                commandId = input.readUTF(),
+                observedStateVersion = input.readLong(),
+                createdAt = input.readLong(),
+            )
+        }
+
+    fun encodeDurationSetCommand(command: DurationSetCommand): ByteArray = writeBytes {
+        writeInt(VERSION)
+        writeLong(command.sessionId)
+        writeLong(command.sessionSetId)
+        writeUTF(command.commandId)
+        writeLong(command.observedStateVersion)
+        writeLong(command.createdAt)
+    }
+
+    fun decodeDurationSetCommand(bytes: ByteArray): DurationSetCommand =
+        DataInputStream(ByteArrayInputStream(bytes)).use { input ->
+            input.requireVersion()
+            DurationSetCommand(
                 sessionId = input.readLong(),
                 sessionSetId = input.readLong(),
                 commandId = input.readUTF(),

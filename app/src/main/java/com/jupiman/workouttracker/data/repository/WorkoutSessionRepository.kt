@@ -25,6 +25,8 @@ import com.jupiman.workouttracker.domain.progression.ProgressionConfig
 import com.jupiman.workouttracker.domain.progression.ProgressionEngine
 import com.jupiman.workouttracker.domain.progression.ProgressionSet
 import com.jupiman.workouttracker.notification.RestTimerScheduler
+import com.jupiman.workouttracker.notification.DurationTimerScheduler
+import com.jupiman.workouttracker.notification.NoOpDurationTimerScheduler
 import com.jupiman.workouttracker.notification.NoOpWorkoutNotificationUpdater
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
@@ -32,6 +34,8 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+private const val DURATION_PREP_MILLIS = 3_000L
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -46,6 +50,7 @@ class WorkoutSessionRepository(
     private val progressionStateDao: ProgressionStateDao,
     private val supersetGroupDao: SupersetGroupDao,
     private val restTimerScheduler: RestTimerScheduler,
+    private val durationTimerScheduler: DurationTimerScheduler = NoOpDurationTimerScheduler,
     private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
 ) {
     // Only the short-lived affordance is transient; the set and timer live in Room.
@@ -187,6 +192,150 @@ class WorkoutSessionRepository(
         return undo
     }
 
+    suspend fun startDurationSet(
+        expectedSessionId: Long,
+        setId: Long,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        var endToSchedule: Long? = null
+        val started = database.withTransaction {
+            val activeWorkout = workoutSessionDao.getActiveWithDetails() ?: return@withTransaction false
+            val session = activeWorkout.session
+            if (session.id != expectedSessionId) return@withTransaction false
+            if (session.activeDurationSetId == setId && session.durationStartsAt != null && session.durationEndsAt != null) {
+                endToSchedule = session.durationEndsAt
+                return@withTransaction true
+            }
+            if (session.activeDurationSetId != null) return@withTransaction false
+            val currentSetId = WorkoutNotificationProjector.nextActionableSet(activeWorkout)?.setId
+            if (currentSetId != setId) return@withTransaction false
+            val set = sessionSetDao.getById(setId) ?: return@withTransaction false
+            val exercise = sessionExerciseDao.getById(set.sessionExerciseId) ?: return@withTransaction false
+            if (set.status != SessionSetStatus.PENDING || exercise.trackingModeSnapshot != TrackingMode.DURATION) {
+                return@withTransaction false
+            }
+            val target = set.prescribedDurationSeconds ?: exercise.targetDurationSecondsSnapshot
+            if (target == null || target <= 0) return@withTransaction false
+            val startsAt = now + DURATION_PREP_MILLIS
+            val endsAt = startsAt + target * 1_000L
+            workoutSessionDao.update(
+                session.copy(
+                    restEndsAt = null,
+                    activeDurationSetId = setId,
+                    durationStartsAt = startsAt,
+                    durationEndsAt = endsAt,
+                ),
+            )
+            endToSchedule = endsAt
+            true
+        }
+        if (started) {
+            restTimerScheduler.cancel()
+            endToSchedule?.let(durationTimerScheduler::schedule)
+            workoutNotificationUpdater.refresh()
+        }
+        return started
+    }
+
+    suspend fun cancelDurationSet(
+        expectedSessionId: Long,
+        setId: Long,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val cancelled = database.withTransaction {
+            val session = workoutSessionDao.getActive() ?: return@withTransaction false
+            if (session.id != expectedSessionId || session.activeDurationSetId != setId) return@withTransaction false
+            val startsAt = session.durationStartsAt ?: return@withTransaction false
+            if (now >= startsAt) return@withTransaction false
+            workoutSessionDao.update(session.withoutDurationTimer())
+            true
+        }
+        if (cancelled) {
+            durationTimerScheduler.cancel()
+            workoutNotificationUpdater.refresh()
+        }
+        return cancelled
+    }
+
+    suspend fun stopDurationSet(
+        expectedSessionId: Long,
+        setId: Long,
+        now: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val session = workoutSessionDao.getActive() ?: return false
+        if (session.id != expectedSessionId || session.activeDurationSetId != setId) return false
+        val startsAt = session.durationStartsAt ?: return false
+        val endsAt = session.durationEndsAt ?: return false
+        if (now < startsAt) return false
+        val set = sessionSetDao.getById(setId) ?: return false
+        val target = set.prescribedDurationSeconds
+            ?: sessionExerciseDao.getById(set.sessionExerciseId)?.targetDurationSecondsSnapshot
+            ?: return false
+        val elapsed = ((minOf(now, endsAt) - startsAt) / 1_000L).toInt().coerceIn(0, target)
+        return completeSetInternal(
+            setId = setId,
+            expectedSessionId = expectedSessionId,
+            actualWeightCentiKg = null,
+            actualReps = null,
+            actualDurationSeconds = elapsed,
+            pendingOnly = true,
+            requireCurrentActionable = true,
+            expectedDurationTimerSetId = setId,
+            completionTimeMillis = now,
+        ).also { completed ->
+            if (completed) {
+                durationTimerScheduler.cancel()
+                workoutNotificationUpdater.refresh()
+            }
+        }
+    }
+
+    suspend fun reconcileDurationTimer(now: Long = System.currentTimeMillis()): Boolean {
+        val session = workoutSessionDao.getActive()
+        val setId = session?.activeDurationSetId
+        val endsAt = session?.durationEndsAt
+        if (session == null || setId == null || session.durationStartsAt == null || endsAt == null) {
+            durationTimerScheduler.cancel()
+            return false
+        }
+        if (endsAt > now) {
+            durationTimerScheduler.schedule(endsAt)
+            return false
+        }
+        val set = sessionSetDao.getById(setId)
+        val target = set?.prescribedDurationSeconds
+            ?: set?.let { sessionExerciseDao.getById(it.sessionExerciseId)?.targetDurationSecondsSnapshot }
+        if (set == null || target == null || target <= 0) {
+            database.withTransaction {
+                workoutSessionDao.getActive()?.takeIf { it.id == session.id && it.activeDurationSetId == setId }
+                    ?.let { workoutSessionDao.update(it.withoutDurationTimer()) }
+            }
+            durationTimerScheduler.cancel()
+            workoutNotificationUpdater.refresh()
+            return false
+        }
+        val completed = completeSetInternal(
+            setId = setId,
+            expectedSessionId = session.id,
+            actualWeightCentiKg = null,
+            actualReps = null,
+            actualDurationSeconds = target,
+            pendingOnly = true,
+            requireCurrentActionable = true,
+            expectedDurationTimerSetId = setId,
+            completionTimeMillis = endsAt,
+        )
+        if (!completed) {
+            database.withTransaction {
+                workoutSessionDao.getActive()?.takeIf { it.id == session.id && it.activeDurationSetId == setId }
+                    ?.let { workoutSessionDao.update(it.withoutDurationTimer()) }
+            }
+        }
+        durationTimerScheduler.cancel()
+        workoutNotificationUpdater.refresh()
+        return completed
+    }
+
     suspend fun completeSetFromNotification(
         expectedSessionId: Long,
         setId: Long,
@@ -230,6 +379,8 @@ class WorkoutSessionRepository(
         requireCurrentActionable: Boolean = false,
         onUndoAvailable: (SetCompletionUndo?) -> Unit = {},
         actualDurationSeconds: Int? = null,
+        expectedDurationTimerSetId: Long? = null,
+        completionTimeMillis: Long = System.currentTimeMillis(),
     ): Boolean {
         var restEndsAtToSchedule: Long? = null
         var shouldCancelRest = false
@@ -248,9 +399,14 @@ class WorkoutSessionRepository(
                 if (activeWorkout.session.id != session.id || currentSetId != setId) return@withTransaction
             }
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+            if (expectedDurationTimerSetId != null) {
+                if (session.activeDurationSetId != expectedDurationTimerSetId) return@withTransaction
+            } else {
+                require(session.activeDurationSetId == null) { "Stop or cancel the running duration set first." }
+            }
             latestUndo = null
             undoRestDeadline = null
-            val now = System.currentTimeMillis()
+            val now = completionTimeMillis
             val mode = sessionExercise.trackingModeSnapshot
             val duration = if (mode == TrackingMode.DURATION) actualDurationSeconds
                 ?: set.prescribedDurationSeconds ?: sessionExercise.targetDurationSecondsSnapshot else null
@@ -274,14 +430,16 @@ class WorkoutSessionRepository(
                 sessionExercise = sessionExercise,
                 sessionExercises = sessionExerciseDao.getForSession(session.id),
             )
+            var updatedSession = if (expectedDurationTimerSetId != null) session.withoutDurationTimer() else session
             if (restSeconds != null && restSeconds > 0) {
                 val restEndsAt = now + restSeconds * 1_000L
-                workoutSessionDao.update(session.copy(restEndsAt = restEndsAt))
+                updatedSession = updatedSession.copy(restEndsAt = restEndsAt)
                 restEndsAtToSchedule = restEndsAt
             } else if (restSeconds != null) {
-                workoutSessionDao.update(session.copy(restEndsAt = null))
+                updatedSession = updatedSession.copy(restEndsAt = null)
                 shouldCancelRest = true
             }
+            if (updatedSession != session) workoutSessionDao.update(updatedSession)
             if (set.status == SessionSetStatus.PENDING && !pendingOnly) {
                 latestUndo = SetCompletionUndo(session.id, set, completedSet)
                 undoRestDeadline = restEndsAtToSchedule
@@ -375,6 +533,7 @@ class WorkoutSessionRepository(
         val id = database.withTransaction {
             val session = workoutSessionDao.getActive()
             require(session?.id == sessionId) { "Only active workouts can be edited." }
+            requireNoDurationTimer(session)
             val exercise = database.exerciseDao().getById(exerciseId) ?: error("Exercise not found.")
             require(!exercise.archived) { "Choose an active exercise." }
             val order = (sessionExerciseDao.getForSession(sessionId).maxOfOrNull { it.sortOrderSnapshot } ?: -1) + 1
@@ -419,6 +578,7 @@ class WorkoutSessionRepository(
         require(workoutSessionDao.getById(exercise.sessionId)?.status == WorkoutSessionStatus.ACTIVE) {
             "Only active workouts can be edited."
         }
+        requireNoDurationTimer(workoutSessionDao.getById(exercise.sessionId)!!)
         return exercise
     }
 
@@ -435,6 +595,7 @@ class WorkoutSessionRepository(
             val session = workoutSessionDao.getById(sessionExercise.sessionId)
                 ?: error("Workout session not found.")
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+            requireNoDurationTimer(session)
 
             val existingSets = sessionSetDao.getForSessionExercise(sessionExerciseId)
             require(sessionExercise.trackingModeSnapshot != TrackingMode.DURATION || setType == SetType.EXTRA) {
@@ -491,6 +652,7 @@ class WorkoutSessionRepository(
             val session = workoutSessionDao.getById(sessionExercise.sessionId)
                 ?: error("Workout session not found.")
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
+            requireNoDurationTimer(session)
 
             sessionExerciseDao.update(
                 sessionExercise.copy(
@@ -551,6 +713,7 @@ class WorkoutSessionRepository(
             }
         }
         restTimerScheduler.cancel()
+        durationTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
     }
 
@@ -562,6 +725,7 @@ class WorkoutSessionRepository(
         val summary = database.withTransaction {
             val activeSession = workoutSessionDao.getActive()
                 ?: error("No active workout to finish.")
+            requireNoDurationTimer(activeSession)
             require(!activeSession.progressionApplied) { "Progression has already been applied." }
 
             val sessionExercises = sessionExerciseDao.getForSession(activeSession.id)
@@ -732,6 +896,7 @@ class WorkoutSessionRepository(
         _completionSummary.value = summary
         latestUndo = null
         restTimerScheduler.cancel()
+        durationTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
         return summary
     }
@@ -758,6 +923,7 @@ class WorkoutSessionRepository(
             undoRestDeadline = null
             val activeSession = workoutSessionDao.getActive()
                 ?: error("No active workout.")
+            requireNoDurationTimer(activeSession)
             val now = System.currentTimeMillis()
             val updatedRestEndsAt = max(activeSession.restEndsAt ?: now, now) + seconds * 1_000L
             workoutSessionDao.update(activeSession.copy(restEndsAt = updatedRestEndsAt))
@@ -771,6 +937,7 @@ class WorkoutSessionRepository(
         database.withTransaction {
             undoRestDeadline = null
             workoutSessionDao.getActive()?.let { activeSession ->
+                requireNoDurationTimer(activeSession)
                 workoutSessionDao.update(activeSession.copy(restEndsAt = null))
             }
         }
@@ -789,6 +956,21 @@ class WorkoutSessionRepository(
         }
         workoutNotificationUpdater.refresh()
     }
+
+    suspend fun syncTimers() {
+        syncRestTimerAlarm()
+        reconcileDurationTimer()
+    }
+
+    private fun requireNoDurationTimer(session: WorkoutSessionEntity) {
+        require(session.activeDurationSetId == null) { "Stop or cancel the running duration set first." }
+    }
+
+    private fun WorkoutSessionEntity.withoutDurationTimer() = copy(
+        activeDurationSetId = null,
+        durationStartsAt = null,
+        durationEndsAt = null,
+    )
 
     private suspend fun restSecondsAfterCompletedWorkingSet(
         completedSet: SessionSetEntity,

@@ -31,6 +31,10 @@
             android:name=".notification.RestTimerReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".notification.DurationTimerReceiver"
+            android:exported="false" />
+
         <service
             android:name=".wear.PhoneWearListenerService"
             android:exported="true">

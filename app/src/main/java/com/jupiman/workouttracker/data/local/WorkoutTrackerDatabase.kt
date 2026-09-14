@@ -42,7 +42,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEnti
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -74,6 +74,13 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN durationIncrementSeconds INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE session_exercises ADD COLUMN durationIncrementSecondsSnapshot INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN activeDurationSetId INTEGER")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN durationStartsAt INTEGER")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN durationEndsAt INTEGER")
             }
         }
         val SEED_DEFAULT_EXERCISES_ON_CREATE = object : RoomDatabase.Callback() {

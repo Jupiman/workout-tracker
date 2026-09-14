@@ -16,6 +16,7 @@ sealed interface WorkoutNotificationState {
         val setId: Long,
         val title: String,
         val text: String,
+        val trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
     ) : WorkoutNotificationState
 
     data class Resting(
@@ -177,5 +178,6 @@ data class ActionableSet(
             setId = setId,
             title = exerciseName,
             text = "$label • $targetText",
+            trackingMode = trackingMode,
         )
 }

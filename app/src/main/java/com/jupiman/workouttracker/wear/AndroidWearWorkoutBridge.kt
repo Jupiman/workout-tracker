@@ -12,6 +12,7 @@ import com.jupiman.workouttracker.wearprotocol.WorkoutWearCodecs
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearPaths
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,8 @@ class AndroidWearWorkoutBridge(
     private val messageClient = Wearable.getMessageClient(appContext)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
+    private val durationCommandResults = ConcurrentHashMap<String, Boolean>()
+    @Volatile private var latestPublishedStateVersion: Long = 0L
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -82,6 +85,7 @@ class AndroidWearWorkoutBridge(
             .setData(WorkoutWearCodecs.encodeState(state))
             .setUrgent()
         dataClient.putDataItem(request).await()
+        latestPublishedStateVersion = state.stateVersion
     }
 
     suspend fun handleFinishWorkoutCommand(bytes: ByteArray, sourceNodeId: String) {
@@ -100,6 +104,44 @@ class AndroidWearWorkoutBridge(
             message = result.exceptionOrNull()?.message,
         )
         messageClient.sendMessage(sourceNodeId, WorkoutWearPaths.COMMAND_ACK, WorkoutWearCodecs.encodeCommandAck(ack)).await()
+    }
+
+    suspend fun handleDurationSetCommand(path: String, bytes: ByteArray, sourceNodeId: String) {
+        val command = runCatching { WorkoutWearCodecs.decodeDurationSetCommand(bytes) }.getOrNull() ?: return
+        val accepted = durationCommandResults[command.commandId] ?: run {
+            val currentVersion = latestPublishedStateVersion
+            val stateIsFresh = currentVersion == 0L || command.observedStateVersion == currentVersion
+            val result = if (!stateIsFresh) false else when (path) {
+                WorkoutWearPaths.START_DURATION_SET -> workoutSessionRepository.startDurationSet(
+                    expectedSessionId = command.sessionId,
+                    setId = command.sessionSetId,
+                )
+                WorkoutWearPaths.STOP_DURATION_SET -> workoutSessionRepository.stopDurationSet(
+                    expectedSessionId = command.sessionId,
+                    setId = command.sessionSetId,
+                )
+                WorkoutWearPaths.CANCEL_DURATION_SET -> workoutSessionRepository.cancelDurationSet(
+                    expectedSessionId = command.sessionId,
+                    setId = command.sessionSetId,
+                )
+                else -> false
+            }
+            if (durationCommandResults.size >= 128) durationCommandResults.clear()
+            durationCommandResults[command.commandId] = result
+            result
+        }
+        val state = publishCurrentState()
+        val ack = CommandAck(
+            commandId = command.commandId,
+            accepted = accepted,
+            stateVersion = state.stateVersion,
+            message = if (accepted) null else "Command ignored because the duration set changed.",
+        )
+        messageClient.sendMessage(
+            sourceNodeId,
+            WorkoutWearPaths.COMMAND_ACK,
+            WorkoutWearCodecs.encodeCommandAck(ack),
+        ).await()
     }
 }
 

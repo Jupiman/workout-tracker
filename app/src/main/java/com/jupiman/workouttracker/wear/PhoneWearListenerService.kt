@@ -33,6 +33,17 @@ class PhoneWearListenerService : WearableListenerService() {
                     )
                 }
             }
+            WorkoutWearPaths.START_DURATION_SET,
+            WorkoutWearPaths.STOP_DURATION_SET,
+            WorkoutWearPaths.CANCEL_DURATION_SET -> {
+                scope.launch {
+                    bridge.handleDurationSetCommand(
+                        path = messageEvent.path,
+                        bytes = messageEvent.data,
+                        sourceNodeId = messageEvent.sourceNodeId,
+                    )
+                }
+            }
         }
     }
 }

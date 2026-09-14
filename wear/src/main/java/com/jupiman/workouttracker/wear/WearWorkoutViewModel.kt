@@ -18,6 +18,8 @@ import com.google.android.gms.wearable.Wearable
 import com.jupiman.workouttracker.wearprotocol.CommandAck
 import com.jupiman.workouttracker.wearprotocol.CompleteSetCommand
 import com.jupiman.workouttracker.wearprotocol.FinishWorkoutCommand
+import com.jupiman.workouttracker.wearprotocol.DurationSetCommand
+import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearCodecs
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearPaths
@@ -47,7 +49,12 @@ data class WearWorkoutUiState(
     val canComplete: Boolean
         get() = connected &&
             pendingCommandId == null &&
-            workoutState?.hasActionableSet == true
+            workoutState?.hasActionableSet == true &&
+            workoutState.trackingMode != WearTrackingMode.DURATION
+
+    val canDurationAction: Boolean
+        get() = connected && pendingCommandId == null &&
+            workoutState?.hasActionableSet == true && workoutState.trackingMode == WearTrackingMode.DURATION
 
     val canFinish: Boolean
         get() = connected && pendingCommandId == null && workoutState?.sessionId != null &&
@@ -69,6 +76,8 @@ class WearWorkoutViewModel(
     private val nodeClient = Wearable.getNodeClient(appContext)
     private val vibrator = appContext.vibrator()
     private var alertedRestEndsAt: Long? = null
+    private var alertedDurationStartsAt: Long? = null
+    private var alertedDurationEndsAt: Long? = null
 
     private val _uiState = MutableStateFlow(WearWorkoutUiState())
     val uiState: StateFlow<WearWorkoutUiState> = _uiState
@@ -153,6 +162,44 @@ class WearWorkoutViewModel(
         }
     }
 
+    fun startDurationSet() = sendDurationCommand(WorkoutWearPaths.START_DURATION_SET)
+    fun stopDurationSet() = sendDurationCommand(WorkoutWearPaths.STOP_DURATION_SET)
+    fun cancelDurationSet() = sendDurationCommand(WorkoutWearPaths.CANCEL_DURATION_SET)
+
+    private fun sendDurationCommand(path: String) {
+        val snapshot = _uiState.value
+        val state = snapshot.workoutState ?: return
+        val sessionId = state.sessionId ?: return
+        val setId = state.currentSetId ?: return
+        if (!snapshot.canDurationAction) return
+        val commandId = UUID.randomUUID().toString()
+        _uiState.update { it.copy(pendingCommandId = commandId, pendingSetId = setId, transientMessage = null) }
+        vibrateClick()
+        viewModelScope.launch {
+            runCatching {
+                val nodes = connectedNodes()
+                require(nodes.isNotEmpty()) { "Phone disconnected" }
+                val command = DurationSetCommand(
+                    sessionId = sessionId,
+                    sessionSetId = setId,
+                    commandId = commandId,
+                    observedStateVersion = state.stateVersion,
+                    createdAt = System.currentTimeMillis(),
+                )
+                val payload = WorkoutWearCodecs.encodeDurationSetCommand(command)
+                nodes.forEach { node -> messageClient.sendMessage(node.id, path, payload).await() }
+            }.onFailure { failure ->
+                _uiState.update {
+                    if (it.pendingCommandId == commandId) it.copy(
+                        pendingCommandId = null,
+                        pendingSetId = null,
+                        transientMessage = failure.message ?: "Could not reach phone",
+                    ) else it
+                }
+            }
+        }
+    }
+
     override fun onDataChanged(dataEvents: DataEventBuffer) {
         dataEvents.forEach { event ->
             val item = event.dataItem
@@ -225,6 +272,12 @@ class WearWorkoutViewModel(
         if (state.restEndsAt != alertedRestEndsAt && state.restEndsAt?.let { it > state.updatedAt } == true) {
             alertedRestEndsAt = null
         }
+        if (state.durationStartsAt != alertedDurationStartsAt && state.durationStartsAt?.let { it > state.updatedAt } == true) {
+            alertedDurationStartsAt = null
+        }
+        if (state.durationEndsAt != alertedDurationEndsAt && state.durationEndsAt?.let { it > state.updatedAt } == true) {
+            alertedDurationEndsAt = null
+        }
     }
 
     private fun acceptAck(ack: CommandAck) {
@@ -273,9 +326,20 @@ class WearWorkoutViewModel(
         val now = System.currentTimeMillis()
         _uiState.update { it.copy(now = now) }
         val snapshot = _uiState.value
-        val restEndsAt = snapshot.workoutState?.restEndsAt ?: return
-        if (snapshot.phoneNow >= restEndsAt && alertedRestEndsAt != restEndsAt) {
+        val state = snapshot.workoutState ?: return
+        val restEndsAt = state.restEndsAt
+        if (restEndsAt != null && snapshot.phoneNow >= restEndsAt && alertedRestEndsAt != restEndsAt) {
             alertedRestEndsAt = restEndsAt
+            vibrateReady()
+        }
+        val startsAt = state.durationStartsAt
+        if (startsAt != null && snapshot.phoneNow >= startsAt && alertedDurationStartsAt != startsAt) {
+            alertedDurationStartsAt = startsAt
+            vibrateReady()
+        }
+        val endsAt = state.durationEndsAt
+        if (endsAt != null && snapshot.phoneNow >= endsAt && alertedDurationEndsAt != endsAt) {
+            alertedDurationEndsAt = endsAt
             vibrateReady()
         }
     }

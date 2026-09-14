@@ -84,6 +84,25 @@ class AndroidWorkoutNotificationCoordinator(
         }
     }
 
+    fun showDurationFinishedAlert() {
+        if (!canPostNotifications()) return
+        val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_rest_timer)
+            .setContentTitle("Set complete")
+            .setContentText("Duration target reached.")
+            .setContentIntent(contentIntent())
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setOnlyAlertOnce(false)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVibrate(longArrayOf(0, 250, 120, 250))
+            .build()
+        notificationManager.notify(DURATION_TIMER_NOTIFICATION_ID, notification)
+        refresh()
+    }
+
     private fun buildNotification(
         state: WorkoutNotificationState,
     ): android.app.Notification {
@@ -134,10 +153,14 @@ class AndroidWorkoutNotificationCoordinator(
     ): NotificationCompat.Builder =
         addAction(
             R.drawable.ic_stat_rest_timer,
-            "Complete set",
+            if (action.trackingMode == com.jupiman.workouttracker.data.local.entity.TrackingMode.DURATION) "Start set" else "Complete set",
             WorkoutNotificationActionReceiver.pendingIntent(
                 context = appContext,
-                action = WorkoutNotificationActionReceiver.ACTION_COMPLETE_SET,
+                action = if (action.trackingMode == com.jupiman.workouttracker.data.local.entity.TrackingMode.DURATION) {
+                    WorkoutNotificationActionReceiver.ACTION_START_DURATION_SET
+                } else {
+                    WorkoutNotificationActionReceiver.ACTION_COMPLETE_SET
+                },
                 requestCode = action.setId.toInt(),
                 sessionId = action.sessionId,
                 setId = action.setId,
@@ -174,5 +197,6 @@ class AndroidWorkoutNotificationCoordinator(
     companion object {
         const val WORKOUT_NOTIFICATION_ID = 1002
         const val REST_TIMER_NOTIFICATION_ID = 1001
+        const val DURATION_TIMER_NOTIFICATION_ID = 1003
     }
 }

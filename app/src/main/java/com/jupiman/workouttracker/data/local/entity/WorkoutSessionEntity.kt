@@ -29,6 +29,8 @@ data class WorkoutSessionEntity(
     val completedAt: Long? = null,
     val status: WorkoutSessionStatus = WorkoutSessionStatus.ACTIVE,
     val restEndsAt: Long? = null,
+    val activeDurationSetId: Long? = null,
+    val durationStartsAt: Long? = null,
+    val durationEndsAt: Long? = null,
     val progressionApplied: Boolean = false,
 )
-

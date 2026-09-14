@@ -82,6 +82,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.ceil
 
 @Composable
 fun WorkoutHomeScreen(
@@ -159,6 +160,9 @@ fun WorkoutHomeScreen(
                         exercises = uiState.exercises,
                         lastTimeByTemplateExerciseId = uiState.lastTimeByTemplateExerciseId,
                         onCompleteSet = viewModel::completeSet,
+                        onStartDurationSet = viewModel::startDurationSet,
+                        onCancelDurationSet = viewModel::cancelDurationSet,
+                        onStopDurationSet = viewModel::stopDurationSet,
                         onUncompleteSet = viewModel::uncompleteSet,
                         onSkipSet = viewModel::skipSet,
                         onDiscardWorkout = viewModel::discardActiveWorkout,
@@ -256,6 +260,9 @@ private fun ActiveWorkoutPanel(
     exercises: List<ExerciseEntity>,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
+    onStartDurationSet: (Long, Long) -> Unit,
+    onCancelDurationSet: (Long, Long) -> Unit,
+    onStopDurationSet: (Long, Long) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
@@ -273,6 +280,13 @@ private fun ActiveWorkoutPanel(
     var pendingFinishAllowsPartial by remember { mutableStateOf(false) }
     val progressionReviewItems = activeWorkout.progressionReviewItems()
     val currentSetFocus = activeWorkout.currentSetFocus()
+    var durationNow by remember(activeWorkout.session.id) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(activeWorkout.session.durationStartsAt, activeWorkout.session.durationEndsAt) {
+        while (activeWorkout.session.activeDurationSetId != null) {
+            durationNow = System.currentTimeMillis()
+            delay(200L)
+        }
+    }
     val allPlannedSetsCompleted = activeWorkout.exercises
         .flatMap { it.sets }
         .filter { it.isPlanned }
@@ -314,6 +328,14 @@ private fun ActiveWorkoutPanel(
                             lastTime = block.exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                             shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(block.exercise, set) },
                             onCompleteSet = onCompleteSet,
+                            durationSessionId = activeWorkout.session.id,
+                            durationTimerSetId = activeWorkout.session.activeDurationSetId,
+                            durationStartsAt = activeWorkout.session.durationStartsAt,
+                            durationEndsAt = activeWorkout.session.durationEndsAt,
+                            durationNow = durationNow,
+                            onStartDurationSet = onStartDurationSet,
+                            onCancelDurationSet = onCancelDurationSet,
+                            onStopDurationSet = onStopDurationSet,
                             onUncompleteSet = onUncompleteSet,
                             onSkipSet = onSkipSet,
                             onAddSessionSet = onAddSessionSet,
@@ -330,6 +352,14 @@ private fun ActiveWorkoutPanel(
                             currentSetId = currentSetFocus?.set?.id,
                             lastTimeByTemplateExerciseId = lastTimeByTemplateExerciseId,
                             onCompleteSet = onCompleteSet,
+                            durationSessionId = activeWorkout.session.id,
+                            durationTimerSetId = activeWorkout.session.activeDurationSetId,
+                            durationStartsAt = activeWorkout.session.durationStartsAt,
+                            durationEndsAt = activeWorkout.session.durationEndsAt,
+                            durationNow = durationNow,
+                            onStartDurationSet = onStartDurationSet,
+                            onCancelDurationSet = onCancelDurationSet,
+                            onStopDurationSet = onStopDurationSet,
                             onUncompleteSet = onUncompleteSet,
                             onSkipSet = onSkipSet,
                             onAddSessionSet = onAddSessionSet,
@@ -661,6 +691,14 @@ private fun SupersetExerciseGroup(
     currentSetId: Long?,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
     onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
+    durationSessionId: Long,
+    durationTimerSetId: Long?,
+    durationStartsAt: Long?,
+    durationEndsAt: Long?,
+    durationNow: Long,
+    onStartDurationSet: (Long, Long) -> Unit,
+    onCancelDurationSet: (Long, Long) -> Unit,
+    onStopDurationSet: (Long, Long) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
@@ -703,6 +741,14 @@ private fun SupersetExerciseGroup(
                 lastTime = exercise.lastTimeFrom(lastTimeByTemplateExerciseId),
                 shouldCollapseSet = { set -> activeWorkout.shouldCollapseSet(exercise, set) },
                 onCompleteSet = onCompleteSet,
+                durationSessionId = durationSessionId,
+                durationTimerSetId = durationTimerSetId,
+                durationStartsAt = durationStartsAt,
+                durationEndsAt = durationEndsAt,
+                durationNow = durationNow,
+                onStartDurationSet = onStartDurationSet,
+                onCancelDurationSet = onCancelDurationSet,
+                onStopDurationSet = onStopDurationSet,
                 onUncompleteSet = onUncompleteSet,
                 onSkipSet = onSkipSet,
                 onAddSessionSet = onAddSessionSet,
@@ -723,6 +769,14 @@ private fun SessionExerciseCard(
     lastTime: LastTimeExerciseContext?,
     shouldCollapseSet: (SessionSetEntity) -> Boolean,
     onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
+    durationSessionId: Long,
+    durationTimerSetId: Long?,
+    durationStartsAt: Long?,
+    durationEndsAt: Long?,
+    durationNow: Long,
+    onStartDurationSet: (Long, Long) -> Unit,
+    onCancelDurationSet: (Long, Long) -> Unit,
+    onStopDurationSet: (Long, Long) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
@@ -815,6 +869,14 @@ private fun SessionExerciseCard(
                         collapseCompleted = shouldCollapseSet(set),
                         weightIncrementCentiKg = snapshot.incrementCentiKgSnapshot,
                         onCompleteSet = onCompleteSet,
+                        durationSessionId = durationSessionId,
+                        durationTimerSetId = durationTimerSetId,
+                        durationStartsAt = durationStartsAt,
+                        durationEndsAt = durationEndsAt,
+                        durationNow = durationNow,
+                        onStartDurationSet = onStartDurationSet,
+                        onCancelDurationSet = onCancelDurationSet,
+                        onStopDurationSet = onStopDurationSet,
                         onUncompleteSet = onUncompleteSet,
                         onSkipSet = onSkipSet,
                     )
@@ -1016,6 +1078,14 @@ private fun SessionSetRow(
     collapseCompleted: Boolean,
     weightIncrementCentiKg: Int,
     onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
+    durationSessionId: Long,
+    durationTimerSetId: Long?,
+    durationStartsAt: Long?,
+    durationEndsAt: Long?,
+    durationNow: Long,
+    onStartDurationSet: (Long, Long) -> Unit,
+    onCancelDurationSet: (Long, Long) -> Unit,
+    onStopDurationSet: (Long, Long) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
 ) {
@@ -1092,18 +1162,61 @@ private fun SessionSetRow(
             modifier = Modifier.fillMaxWidth(),
             incrementCentiKg = weightIncrementCentiKg,
         )
-        OutlinedTextField(
-            value = reps,
-            onValueChange = { reps = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(if (trackingMode == TrackingMode.DURATION) "seconds" else "reps") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        )
+        val ownsDurationTimer = trackingMode == TrackingMode.DURATION && durationTimerSetId == set.id
+        if (!ownsDurationTimer) {
+            OutlinedTextField(
+                value = reps,
+                onValueChange = { reps = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(if (trackingMode == TrackingMode.DURATION) "seconds" else "reps") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            )
+        } else {
+            Text(
+                text = durationCountdownText(durationStartsAt, durationEndsAt, durationNow),
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         when (set.status) {
             SessionSetStatus.PENDING -> {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (trackingMode == TrackingMode.DURATION) {
+                    Button(
+                        onClick = {
+                            when {
+                                !ownsDurationTimer -> onStartDurationSet(durationSessionId, set.id)
+                                durationStartsAt != null && durationNow < durationStartsAt -> onCancelDurationSet(durationSessionId, set.id)
+                                else -> onStopDurationSet(durationSessionId, set.id)
+                            }
+                        },
+                        enabled = durationTimerSetId == null || ownsDurationTimer,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            when {
+                                !ownsDurationTimer -> "START SET"
+                                durationStartsAt != null && durationNow < durationStartsAt -> "CANCEL"
+                                else -> "STOP"
+                            },
+                        )
+                    }
+                    if (!ownsDurationTimer) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { onCompleteSet(set.id, weight, reps, trackingMode) },
+                            enabled = durationTimerSetId == null,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Log manually") }
+                        OutlinedButton(
+                            onClick = { onSkipSet(set.id) },
+                            enabled = durationTimerSetId == null,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Skip") }
+                    }
+                } else Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { onCompleteSet(set.id, weight, reps, trackingMode) },
                         modifier = Modifier.weight(1f),
@@ -1152,6 +1265,14 @@ private fun SessionSetRow(
             }
         }
     }
+}
+
+private fun durationCountdownText(startsAt: Long?, endsAt: Long?, now: Long): String {
+    startsAt ?: return ""
+    endsAt ?: return ""
+    if (now < startsAt) return ceil((startsAt - now) / 1_000.0).toInt().coerceIn(1, 3).toString()
+    if (now < startsAt + 1_000L) return "GO"
+    return ceil((endsAt - now).coerceAtLeast(0L) / 1_000.0).toInt().toString()
 }
 
 @Composable

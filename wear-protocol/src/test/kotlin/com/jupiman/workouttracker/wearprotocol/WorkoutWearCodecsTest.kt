@@ -8,7 +8,10 @@ class WorkoutWearCodecsTest {
     fun allTrackingModesRoundTrip() {
         WearTrackingMode.entries.forEach { mode ->
             val state = WorkoutWearState.noActive(100).copy(
-                trackingMode = mode, targetDurationSeconds = if (mode == WearTrackingMode.DURATION) 45 else null,
+                trackingMode = mode,
+                targetDurationSeconds = if (mode == WearTrackingMode.DURATION) 45 else null,
+                durationStartsAt = if (mode == WearTrackingMode.DURATION) 1_000L else null,
+                durationEndsAt = if (mode == WearTrackingMode.DURATION) 46_000L else null,
             )
             assertEquals(state, WorkoutWearCodecs.decodeState(WorkoutWearCodecs.encodeState(state)))
         }
@@ -73,5 +76,27 @@ class WorkoutWearCodecsTest {
 
         assertEquals(command, WorkoutWearCodecs.decodeCompleteSetCommand(WorkoutWearCodecs.encodeCompleteSetCommand(command)))
         assertEquals(ack, WorkoutWearCodecs.decodeCommandAck(WorkoutWearCodecs.encodeCommandAck(ack)))
+    }
+
+    @Test
+    fun durationCommandRoundTripsThroughBytes() {
+        val command = DurationSetCommand(1, 2, "duration-1", 3, 4)
+        assertEquals(command, WorkoutWearCodecs.decodeDurationSetCommand(WorkoutWearCodecs.encodeDurationSetCommand(command)))
+    }
+
+    @Test
+    fun versionTwoStateDefaultsDurationTimerToNull() {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(bytes).use {
+            it.writeInt(2)
+            it.writeBoolean(false)
+            it.writeInt(WearSessionStatus.NO_ACTIVE.ordinal)
+            repeat(4) { _ -> it.writeBoolean(false) }
+            it.writeInt(WearTrackingMode.WEIGHT_REPS.ordinal)
+            repeat(7) { _ -> it.writeBoolean(false) }
+            it.writeLong(100)
+            it.writeLong(100)
+        }
+        assertEquals(WorkoutWearState.noActive(100), WorkoutWearCodecs.decodeState(bytes.toByteArray()))
     }
 }

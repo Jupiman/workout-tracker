@@ -43,6 +43,8 @@ object WorkoutWearStateProjector {
             setNumber = setNumber(currentSet.set),
             totalSets = totalSets(currentSet.set, currentSet.exercise),
             restEndsAt = workout.session.restEndsAt,
+            durationStartsAt = workout.session.durationStartsAt,
+            durationEndsAt = workout.session.durationEndsAt,
             supersetPosition = currentSet.supersetPosition,
             supersetSize = currentSet.supersetSize,
             stateVersion = now,

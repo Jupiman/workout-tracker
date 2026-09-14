@@ -3593,6 +3593,28 @@ STOP after Phase 4.
 - Database migrations 5→6 (tracking) and 6→7 (duration increments) preserve existing installations. Backup format version 3/schema 7 preserves all new fields. Format 1/schema 5 restores with WEIGHT_REPS defaults; format 2/schema 6 retains its tracking data and defaults duration increment to zero.
 - No additional tracking modes, motion detection, automatic rep counting, or timer-based duration detection were added. Phase 5 remains unimplemented.
 
+### 57.4.1 Duration set countdown
+
+A pending actionable `DURATION` set is executable with a persisted countdown on phone and Wear OS. `WEIGHT_REPS` and `REPS` behavior remains unchanged.
+
+Before timing, the primary duration action is `Start set`; manual duration entry remains available as a secondary fallback. Starting persists ownership of the exact active WorkoutSession and SessionSet plus absolute start and end timestamps. Only one duration timer may exist in the active workout. The default preparation period is three seconds and is represented by a future start timestamp; preparation time is excluded from the performed duration.
+
+During preparation, phone and Wear show `3`, `2`, `1`, then `GO`, with `Cancel` as the action. Cancel clears the persisted timer and deadline alarm, leaves the set `PENDING`, writes no actual duration, and starts no rest. At `GO`, Wear emits one short haptic where supported.
+
+During execution, both surfaces derive the live remaining time from the persisted end timestamp. They do not persist a decrementing counter and the phone does not publish per-second Wear updates. Phone and Wear show a large countdown, target, set label, and `Stop set`. The watch may continue rendering and alerting from the last synchronized timestamps while temporarily disconnected, but phone state remains authoritative and communication-dependent actions are disabled.
+
+At the deadline, the phone alerts the user and automatically completes the owned set through the normal set-completion path with `actualDurationSeconds` equal to the prescribed target. This preserves current actionable-set sequencing, progression evaluation, notifications, Wear projection, and normal/superset rest rules. An expired persisted timer is reconciled exactly once on the next relevant repository or application synchronization if Android delays the deadline callback.
+
+Stopping after the timed portion begins calculates whole elapsed seconds from the persisted timestamps, completes the exact owned set, and clears the timer. Early elapsed time is floored conservatively and capped below the target until the deadline is actually reached, so a stop at 59.1 seconds for a 60-second target cannot count as 60. The existing completed-set correction and phone Undo flows remain available. Manual completion, early stop, and automatic completion all use the same `SessionSet.actualDurationSeconds` persistence semantics.
+
+Starting a duration set clears the previous rest deadline and alarm. Completion reuses the existing rest decision, including waiting until the final member of a superset round. Starting another timer or mutating its exercise/order while one is preparing or running is rejected. Finishing a workout requires the timer to be stopped or cancelled first. Discarding a workout clears its timer and alarm without inventing a result.
+
+The duration timer survives recomposition, screen-off, process death, app reopening, Wear disconnection, and phone/watch resynchronization. Important ownership and timestamps are stored in Room rather than ViewModel/UI state. Migration defaults existing sessions to no active duration timer and does not rewrite historical sets. Full backup/restore preserves a valid active timer, reschedules its deadline, and immediately reconciles an already-expired restored timer. Older supported backups remain importable.
+
+Wear state includes the authoritative duration start/end timestamps and increments its state format while retaining v1/v2 decoding. Start, stop, and cancel commands identify the session, exact set, command, and observed state as appropriate. The phone rejects stale ownership and non-current sets. Duplicate start does not reset a running timer; duplicate stop cannot complete the next set. At zero, Wear emits one clear completion haptic and converges to the next phone-projected state.
+
+The implementation adds no pause/resume, time adjustment, configurable preparation setting, sensing, voice control, multiple timers, interval mode, custom sounds, watch database, or Phase 5 progress work.
+
 ## 57.5 Exercise progress and graph
 
 Add a useful progress view for a specific exercise progression track.

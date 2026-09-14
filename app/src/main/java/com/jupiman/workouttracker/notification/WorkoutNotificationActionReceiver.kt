@@ -24,6 +24,7 @@ class WorkoutNotificationActionReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_COMPLETE_SET = "com.jupiman.workouttracker.action.COMPLETE_SET"
+        const val ACTION_START_DURATION_SET = "com.jupiman.workouttracker.action.START_DURATION_SET"
         const val ACTION_ADD_REST = "com.jupiman.workouttracker.action.ADD_REST"
         const val ACTION_SKIP_REST = "com.jupiman.workouttracker.action.SKIP_REST"
 
@@ -68,6 +69,13 @@ class WorkoutNotificationActionHandler(
                         expectedSessionId = sessionId,
                         setId = setId,
                     )
+                }
+            }
+            WorkoutNotificationActionReceiver.ACTION_START_DURATION_SET -> {
+                val sessionId = WorkoutNotificationActionReceiver.sessionId(intent)
+                val setId = WorkoutNotificationActionReceiver.setId(intent)
+                if (sessionId > 0 && setId > 0) {
+                    workoutSessionRepository.startDurationSet(sessionId, setId)
                 }
             }
             WorkoutNotificationActionReceiver.ACTION_ADD_REST -> {

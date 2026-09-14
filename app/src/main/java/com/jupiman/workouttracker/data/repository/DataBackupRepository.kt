@@ -35,10 +35,11 @@ class DataBackupRepository(
         require(backup.optString("app") == BACKUP_APP) { "This is not a Workout Companion backup." }
         val legacy = backup.optInt("formatVersion") == 1 && backup.optInt("schemaVersion") == 5
         val initialTracking = backup.optInt("formatVersion") == 2 && backup.optInt("schemaVersion") == 6
-        require(legacy || initialTracking || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
+        val preDurationTimer = backup.optInt("formatVersion") == 3 && backup.optInt("schemaVersion") == 7
+        require(legacy || initialTracking || preDurationTimer || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
             "Unsupported backup format."
         }
-        require(legacy || initialTracking || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
+        require(legacy || initialTracking || preDurationTimer || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
             "Backup schema does not match this app version."
         }
 
@@ -60,6 +61,11 @@ class DataBackupRepository(
                     if (initialTracking) {
                         if (table.name == "workout_template_exercises") row.put("durationIncrementSeconds", 0)
                         if (table.name == "session_exercises") row.put("durationIncrementSecondsSnapshot", 0)
+                    }
+                    if ((legacy || initialTracking || preDurationTimer) && table.name == "workout_sessions") {
+                        row.put("activeDurationSetId", JSONObject.NULL)
+                            .put("durationStartsAt", JSONObject.NULL)
+                            .put("durationEndsAt", JSONObject.NULL)
                     }
                     db.insert(
                         table.name,
@@ -138,8 +144,8 @@ class DataBackupRepository(
 
     private companion object {
         const val BACKUP_APP = "Workout Companion"
-        const val BACKUP_FORMAT_VERSION = 3
-        const val BACKUP_SCHEMA_VERSION = 7
+        const val BACKUP_FORMAT_VERSION = 4
+        const val BACKUP_SCHEMA_VERSION = 8
 
         val BACKUP_TABLES = listOf(
             BackupTable("exercises"),

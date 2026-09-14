@@ -80,4 +80,25 @@ class TrackingMigrationTest {
             }
         }
     }
+
+    @Test
+    fun versionSevenSessionsGainEmptyDurationTimerState() {
+        val name = "duration-timer-migration-test"
+        helper.createDatabase(name, 7).apply {
+            execSQL("INSERT INTO programs VALUES (1, 'Program', 1, 0, 1000)")
+            execSQL("INSERT INTO workout_templates VALUES (1, 1, 'Day', 0)")
+            execSQL("INSERT INTO workout_sessions VALUES (1, 1, 1, 'Program', 'Day', 1000, NULL, 'ACTIVE', 5000, 0)")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(name, 8, true, WorkoutTrackerDatabase.MIGRATION_7_8).use { db ->
+            db.query("SELECT restEndsAt, activeDurationSetId, durationStartsAt, durationEndsAt FROM workout_sessions").use {
+                assertTrue(it.moveToFirst())
+                assertEquals(5000L, it.getLong(0))
+                assertTrue(it.isNull(1))
+                assertTrue(it.isNull(2))
+                assertTrue(it.isNull(3))
+            }
+        }
+    }
 }

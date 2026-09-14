@@ -21,8 +21,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 data class HomeUiState(
     val activeProgram: ProgramEntity? = null,
@@ -119,7 +121,14 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            workoutSessionRepository.syncRestTimerAlarm()
+            workoutSessionRepository.syncTimers()
+        }
+        viewModelScope.launch {
+            workoutSessionRepository.activeSession.collectLatest { session ->
+                val endsAt = session?.durationEndsAt ?: return@collectLatest
+                delay((endsAt - System.currentTimeMillis()).coerceAtLeast(0L))
+                workoutSessionRepository.reconcileDurationTimer()
+            }
         }
     }
 
@@ -148,6 +157,18 @@ class HomeViewModel(
             actualReps = if (trackingMode == TrackingMode.DURATION) 0 else reps,
             actualDurationSeconds = if (trackingMode == TrackingMode.DURATION) reps else null,
         )
+    }
+
+    fun startDurationSet(sessionId: Long, setId: Long) = launchOperation("") {
+        require(workoutSessionRepository.startDurationSet(sessionId, setId)) { "This duration set is no longer current." }
+    }
+
+    fun cancelDurationSet(sessionId: Long, setId: Long) = launchOperation("") {
+        require(workoutSessionRepository.cancelDurationSet(sessionId, setId)) { "The preparation countdown has already ended." }
+    }
+
+    fun stopDurationSet(sessionId: Long, setId: Long) = launchOperation("") {
+        require(workoutSessionRepository.stopDurationSet(sessionId, setId)) { "This duration set is no longer running." }
     }
 
     fun uncompleteSet(setId: Long) = launchOperation("Set marked pending.") {

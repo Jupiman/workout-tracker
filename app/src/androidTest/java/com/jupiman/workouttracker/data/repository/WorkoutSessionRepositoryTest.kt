@@ -16,6 +16,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.notification.RestTimerScheduler
+import com.jupiman.workouttracker.notification.DurationTimerScheduler
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationState
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
@@ -36,6 +37,7 @@ class WorkoutSessionRepositoryTest {
     private lateinit var database: WorkoutTrackerDatabase
     private lateinit var repository: WorkoutSessionRepository
     private lateinit var restTimerScheduler: FakeRestTimerScheduler
+    private lateinit var durationTimerScheduler: FakeDurationTimerScheduler
     private lateinit var workoutNotificationUpdater: FakeWorkoutNotificationUpdater
 
     @Before
@@ -45,6 +47,7 @@ class WorkoutSessionRepositoryTest {
             .allowMainThreadQueries()
             .build()
         restTimerScheduler = FakeRestTimerScheduler()
+        durationTimerScheduler = FakeDurationTimerScheduler()
         workoutNotificationUpdater = FakeWorkoutNotificationUpdater()
         repository = createRepository()
     }
@@ -62,6 +65,7 @@ class WorkoutSessionRepositoryTest {
             progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
             restTimerScheduler = restTimerScheduler,
+            durationTimerScheduler = durationTimerScheduler,
             workoutNotificationUpdater = workoutNotificationUpdater,
         )
 
@@ -386,6 +390,7 @@ class WorkoutSessionRepositoryTest {
             progressionStateDao = database.progressionStateDao(),
             supersetGroupDao = database.supersetGroupDao(),
             restTimerScheduler = restartedScheduler,
+            durationTimerScheduler = FakeDurationTimerScheduler(),
         )
 
         val activeWorkout = restartedRepository.activeSessionWithDetails.first()!!
@@ -1481,6 +1486,176 @@ class WorkoutSessionRepositoryTest {
         assertEquals(45, firstSessionSets(sessionId).first().prescribedDurationSeconds)
     }
 
+    @Test
+    fun durationStartPersistsExactOwnerAndDeadlinesAndClearsRest() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        database.workoutSessionDao().update(database.workoutSessionDao().getById(sessionId)!!.copy(restEndsAt = 9_999L))
+
+        assertTrue(repository.startDurationSet(sessionId, setId, now = 1_000L))
+
+        val session = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(setId, session.activeDurationSetId)
+        assertEquals(4_000L, session.durationStartsAt)
+        assertEquals(64_000L, session.durationEndsAt)
+        assertNull(session.restEndsAt)
+        assertEquals(64_000L, durationTimerScheduler.scheduledEndsAt)
+        assertTrue(restTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun cancellingDuringPrepLeavesSetPendingAndClearsTimer() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+
+        assertTrue(repository.cancelDurationSet(sessionId, setId, now = 3_999L))
+
+        assertEquals(SessionSetStatus.PENDING, database.sessionSetDao().getById(setId)!!.status)
+        assertNull(database.workoutSessionDao().getById(sessionId)!!.activeDurationSetId)
+        assertTrue(durationTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun earlyStopFloorsElapsedSecondsAndUsesNormalRest() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+
+        assertTrue(repository.stopDurationSet(sessionId, setId, now = 63_100L))
+
+        val set = database.sessionSetDao().getById(setId)!!
+        val session = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(SessionSetStatus.COMPLETED, set.status)
+        assertEquals(59, set.actualDurationSeconds)
+        assertEquals(63_100L, set.completedAt)
+        assertNull(session.activeDurationSetId)
+        assertEquals(243_100L, session.restEndsAt)
+    }
+
+    @Test
+    fun expiredDurationReconcilesExactlyOnceAtTarget() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+
+        assertTrue(repository.reconcileDurationTimer(now = 64_000L))
+        assertEquals(false, repository.reconcileDurationTimer(now = 65_000L))
+
+        val set = database.sessionSetDao().getById(setId)!!
+        assertEquals(SessionSetStatus.COMPLETED, set.status)
+        assertEquals(60, set.actualDurationSeconds)
+        assertEquals(64_000L, set.completedAt)
+    }
+
+    @Test
+    fun durationCommandsRejectWrongSetAndDuplicateStopSafely() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val sets = firstSessionSets(sessionId).sortedBy { it.setOrder }
+        assertEquals(false, repository.startDurationSet(sessionId, sets[1].id, now = 1_000L))
+        assertTrue(repository.startDurationSet(sessionId, sets[0].id, now = 1_000L))
+        assertTrue(repository.startDurationSet(sessionId, sets[0].id, now = 2_000L))
+        assertEquals(false, repository.stopDurationSet(sessionId, sets[1].id, now = 5_000L))
+        assertTrue(repository.stopDurationSet(sessionId, sets[0].id, now = 5_000L))
+        assertEquals(false, repository.stopDurationSet(sessionId, sets[0].id, now = 6_000L))
+    }
+
+    @Test
+    fun runningDurationBlocksFinishAndDiscardClearsAlarm() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+
+        runCatching { repository.finishActiveWorkout(allowPartial = true) }
+            .onSuccess { fail("Finish should require stopping the duration set.") }
+        repository.discardActiveWorkout()
+
+        assertNull(database.workoutSessionDao().getActive())
+        assertTrue(durationTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun durationTimerProjectsToWearAndReschedulesAfterRepositoryRecreation() = runTest {
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+        val wear = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails(), now = 2_000L)
+        assertEquals(4_000L, wear.durationStartsAt)
+        assertEquals(64_000L, wear.durationEndsAt)
+
+        val restartedDurationScheduler = FakeDurationTimerScheduler()
+        val restartedRepository = WorkoutSessionRepository(
+            database, database.workoutSessionDao(), database.sessionExerciseDao(), database.sessionSetDao(),
+            database.programDao(), database.workoutTemplateDao(), database.workoutTemplateExerciseDao(),
+            database.workoutTemplateSetTargetDao(), database.workoutTemplateWarmupSetDao(),
+            database.progressionStateDao(), database.supersetGroupDao(), FakeRestTimerScheduler(),
+            restartedDurationScheduler,
+        )
+        restartedRepository.reconcileDurationTimer(now = 2_000L)
+        assertEquals(64_000L, restartedDurationScheduler.scheduledEndsAt)
+    }
+
+    @Test
+    fun backupRoundTripPreservesRunningDurationTimerForRescheduling() = runTest {
+        val now = System.currentTimeMillis()
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = now)
+        val before = database.workoutSessionDao().getById(sessionId)!!
+        val output = java.io.ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+
+        repository.discardActiveWorkout()
+        DataBackupRepository(database).restoreBackup(java.io.ByteArrayInputStream(output.toByteArray()))
+        repository.reconcileDurationTimer(now = now + 1_000L)
+
+        val restored = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(before.activeDurationSetId, restored.activeDurationSetId)
+        assertEquals(before.durationStartsAt, restored.durationStartsAt)
+        assertEquals(before.durationEndsAt, restored.durationEndsAt)
+        assertEquals(before.durationEndsAt, durationTimerScheduler.scheduledEndsAt)
+    }
+
+    @Test
+    fun durationAutoCompletionUsesSupersetRoundRestRules() = runTest {
+        val seed = seedTwoExerciseWorkout()
+        val groupId = database.supersetGroupDao().insert(
+            SupersetGroupEntity(workoutTemplateId = seed.templateId, restSeconds = 90),
+        )
+        listOf(seed.firstTemplateExerciseId, seed.secondTemplateExerciseId).forEach { id ->
+            val exercise = database.workoutTemplateExerciseDao().getById(id)!!
+            database.workoutTemplateExerciseDao().update(
+                exercise.copy(
+                    supersetGroupId = groupId,
+                    trackingMode = TrackingMode.DURATION,
+                    targetDurationSeconds = 60,
+                ),
+            )
+        }
+        val sessionId = repository.startWorkout(seed.templateId)
+        val exercises = database.sessionExerciseDao().getForSession(sessionId)
+        val firstSet = database.sessionSetDao().getForSessionExercise(exercises[0].id).first()
+        val secondSet = database.sessionSetDao().getForSessionExercise(exercises[1].id).first()
+
+        repository.startDurationSet(sessionId, firstSet.id, now = 1_000L)
+        repository.reconcileDurationTimer(now = 64_000L)
+        assertNull(database.workoutSessionDao().getById(sessionId)!!.restEndsAt)
+        assertEquals(secondSet.id, WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails()).currentSetId)
+
+        repository.startDurationSet(sessionId, secondSet.id, now = 65_000L)
+        repository.reconcileDurationTimer(now = 128_000L)
+        assertEquals(218_000L, database.workoutSessionDao().getById(sessionId)!!.restEndsAt)
+    }
+
+    private suspend fun seedDurationWorkout(targetSeconds: Int): Long {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateExerciseDao().update(
+            template.copy(trackingMode = TrackingMode.DURATION, targetDurationSeconds = targetSeconds),
+        )
+        return templateId
+    }
+
     private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
         val now = 1_000L
         val programId = database.programDao().insert(
@@ -1590,6 +1765,22 @@ class WorkoutSessionRepositoryTest {
 
         override fun schedule(restEndsAt: Long) {
             scheduledRestEndsAt = restEndsAt
+            cancelled = false
+        }
+
+        override fun cancel() {
+            cancelled = true
+        }
+    }
+
+    private class FakeDurationTimerScheduler : DurationTimerScheduler {
+        var scheduledEndsAt: Long? = null
+            private set
+        var cancelled = false
+            private set
+
+        override fun schedule(durationEndsAt: Long) {
+            scheduledEndsAt = durationEndsAt
             cancelled = false
         }
 
