@@ -7,6 +7,8 @@ import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import kotlin.math.abs
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.repository.trackingText
 
 sealed interface WorkoutNotificationState {
     data class SetAction(
@@ -131,6 +133,8 @@ object WorkoutNotificationProjector {
         ActionableSet(
             setId = id,
             exerciseName = exercise.exercise.exerciseNameSnapshot,
+            trackingMode = exercise.exercise.trackingModeSnapshot,
+            durationSeconds = prescribedDurationSeconds ?: exercise.exercise.targetDurationSecondsSnapshot,
             label = setLabel(this, exercise),
             prescribedWeightCentiKg = prescribedWeightCentiKg
                 ?: exercise.exercise.prescribedWeightCentiKgSnapshot,
@@ -161,9 +165,11 @@ data class ActionableSet(
     val label: String,
     val prescribedWeightCentiKg: Int,
     val prescribedReps: Int,
+    val trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
+    val durationSeconds: Int? = null,
 ) {
     val targetText: String
-        get() = "${formatCentiKg(prescribedWeightCentiKg)} kg x $prescribedReps"
+        get() = trackingText(trackingMode, prescribedWeightCentiKg, prescribedReps, durationSeconds).replace("×", "x")
 
     fun toSetAction(sessionId: Long): WorkoutNotificationState.SetAction =
         WorkoutNotificationState.SetAction(

@@ -42,7 +42,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEnti
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -60,6 +60,22 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
     abstract fun sessionSetDao(): SessionSetDao
 
     companion object {
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN trackingMode TEXT NOT NULL DEFAULT 'WEIGHT_REPS'")
+                db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN targetDurationSeconds INTEGER")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN trackingModeSnapshot TEXT NOT NULL DEFAULT 'WEIGHT_REPS'")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN targetDurationSecondsSnapshot INTEGER")
+                db.execSQL("ALTER TABLE session_sets ADD COLUMN prescribedDurationSeconds INTEGER")
+                db.execSQL("ALTER TABLE session_sets ADD COLUMN actualDurationSeconds INTEGER")
+            }
+        }
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN durationIncrementSeconds INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN durationIncrementSecondsSnapshot INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val SEED_DEFAULT_EXERCISES_ON_CREATE = object : RoomDatabase.Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {
                 DefaultExerciseSeeder.seed(db)

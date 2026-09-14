@@ -1,5 +1,6 @@
 package com.jupiman.workouttracker.ui.viewmodel
 
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
@@ -46,6 +47,8 @@ data class LastTimeSetContext(
     val status: SessionSetStatus,
     val weightCentiKg: Int?,
     val reps: Int?,
+    val trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
+    val durationSeconds: Int? = null,
 )
 
 class HomeViewModel(
@@ -133,15 +136,17 @@ class HomeViewModel(
         setId: Long,
         actualWeight: String,
         actualReps: String,
+        trackingMode: TrackingMode,
     ) = launchOperation("") {
         val reps = actualReps.trim().toIntOrNull()
-            ?: throw IllegalArgumentException("Reps must be a whole number.")
-        require(reps >= 0) { "Reps cannot be negative." }
+            ?: throw IllegalArgumentException("Reps or seconds must be a whole number.")
+        require(reps >= 0) { "Reps or seconds cannot be negative." }
 
         _undo.value = workoutSessionRepository.completeSet(
             setId = setId,
-            actualWeightCentiKg = parseCentiKg(actualWeight),
-            actualReps = reps,
+            actualWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(actualWeight) else 0,
+            actualReps = if (trackingMode == TrackingMode.DURATION) 0 else reps,
+            actualDurationSeconds = if (trackingMode == TrackingMode.DURATION) reps else null,
         )
     }
 
@@ -205,13 +210,16 @@ class HomeViewModel(
 
     suspend fun addExerciseForToday(
         sessionId: Long, exerciseId: Long, sets: String, reps: String, weight: String, rest: String,
+        trackingMode: TrackingMode, durationSeconds: String,
     ) {
         workoutSessionRepository.addExerciseForToday(
             sessionId = sessionId,
             exerciseId = exerciseId,
             sets = sets.toIntOrNull() ?: error("Sets must be a whole number."),
-            reps = reps.toIntOrNull() ?: error("Reps must be a whole number."),
-            weightCentiKg = parseCentiKg(weight),
+            reps = if (trackingMode == TrackingMode.DURATION) 1 else reps.toIntOrNull() ?: error("Reps must be a whole number."),
+            weightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(weight) else 0,
+            trackingMode = trackingMode,
+            durationSeconds = if (trackingMode == TrackingMode.DURATION) durationSeconds.toIntOrNull() ?: error("Seconds must be a whole number.") else null,
             restSeconds = rest.toIntOrNull() ?: error("Rest must be a whole number of seconds."),
         )
     }
@@ -268,6 +276,8 @@ internal fun lastTimeContextsForActiveWorkout(
                         status = set.status,
                         weightCentiKg = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg,
                         reps = set.actualReps ?: set.prescribedReps,
+                        trackingMode = exerciseDetails.exercise.trackingModeSnapshot,
+                        durationSeconds = set.actualDurationSeconds ?: set.prescribedDurationSeconds,
                     )
                 }
 

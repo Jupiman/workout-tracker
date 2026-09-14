@@ -18,4 +18,8 @@ data class ExerciseCompletionSummary(
     val after: List<CompletionTarget>?,
 )
 
-data class CompletionTarget(val weightCentiKg: Int, val reps: Int)
+data class CompletionTarget(
+    val weightCentiKg: Int, val reps: Int,
+    val trackingMode: com.jupiman.workouttracker.data.local.entity.TrackingMode = com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS,
+    val durationSeconds: Int? = null,
+)

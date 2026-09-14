@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.data.repository
 
 import androidx.room.withTransaction
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.local.dao.ExerciseDao
 import com.jupiman.workouttracker.data.local.dao.ProgramDao
@@ -185,6 +186,9 @@ class ProgramRepository(
                     repMax = validConfig.repMax,
                     incrementCentiKg = validConfig.incrementCentiKg,
                     restSeconds = validConfig.restSeconds,
+                    trackingMode = validConfig.trackingMode,
+                    targetDurationSeconds = validConfig.targetDurationSeconds,
+                    durationIncrementSeconds = validConfig.durationIncrementSeconds,
                 ),
             )
             progressionStateDao.insert(
@@ -235,6 +239,9 @@ class ProgramRepository(
                     repMax = validConfig.repMax,
                     incrementCentiKg = validConfig.incrementCentiKg,
                     restSeconds = validConfig.restSeconds,
+                    trackingMode = validConfig.trackingMode,
+                    targetDurationSeconds = validConfig.targetDurationSeconds,
+                    durationIncrementSeconds = validConfig.durationIncrementSeconds,
                 ),
             )
             progressionStateDao.insert(
@@ -263,6 +270,10 @@ class ProgramRepository(
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(item.id)
                 ?: error("Workout exercise not found.")
+            if (templateExercise.trackingMode != validConfig.trackingMode) {
+                workoutTemplateSetTargetDao.deleteForTemplateExercise(item.id)
+                workoutTemplateWarmupSetDao.deleteForTemplateExercise(item.id)
+            }
             val targetExerciseId = if (trimmedExerciseName == item.exerciseName) {
                 templateExercise.exerciseId
             } else {
@@ -280,6 +291,9 @@ class ProgramRepository(
                     repMax = validConfig.repMax,
                     incrementCentiKg = validConfig.incrementCentiKg,
                     restSeconds = validConfig.restSeconds,
+                    trackingMode = validConfig.trackingMode,
+                    targetDurationSeconds = validConfig.targetDurationSeconds,
+                    durationIncrementSeconds = validConfig.durationIncrementSeconds,
                     setupNote = trimmedSetupNote,
                 ),
             )
@@ -337,11 +351,14 @@ class ProgramRepository(
             require(setOrder < templateExercise.plannedWorkingSets) {
                 "Set target must match an existing working set."
             }
+            require(templateExercise.trackingMode != TrackingMode.DURATION) {
+                "Edit the duration target on the exercise."
+            }
 
             upsertTemplateSetTarget(
                 workoutTemplateExerciseId = workoutTemplateExerciseId,
                 setOrder = setOrder,
-                prescribedWeightCentiKg = prescribedWeightCentiKg,
+                prescribedWeightCentiKg = if (templateExercise.trackingMode == TrackingMode.REPS) 0 else prescribedWeightCentiKg,
                 prescribedReps = prescribedReps,
                 countsForProgression = countsForProgression,
             )
@@ -358,8 +375,9 @@ class ProgramRepository(
 
     suspend fun enableDefaultWarmupScheme(workoutTemplateExerciseId: Long) {
         database.withTransaction {
-            workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
+            val templateExercise = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
                 ?: error("Workout exercise not found.")
+            require(templateExercise.trackingMode == TrackingMode.WEIGHT_REPS) { "Weighted warm-ups require weight and reps tracking." }
             workoutTemplateWarmupSetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
             workoutTemplateWarmupSetDao.insertAll(
                 DefaultWarmupScheme.mapIndexed { index, warmup ->

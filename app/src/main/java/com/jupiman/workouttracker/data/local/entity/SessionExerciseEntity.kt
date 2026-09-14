@@ -37,4 +37,7 @@ data class SessionExerciseEntity(
     val setupNoteSnapshot: String,
     val supersetGroupSnapshot: Long?,
     val supersetRestSecondsSnapshot: Int?,
+    val trackingModeSnapshot: TrackingMode = TrackingMode.WEIGHT_REPS,
+    val targetDurationSecondsSnapshot: Int? = null,
+    val durationIncrementSecondsSnapshot: Int = 0,
 )

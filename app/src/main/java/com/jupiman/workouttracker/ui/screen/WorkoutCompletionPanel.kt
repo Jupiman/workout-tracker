@@ -70,4 +70,8 @@ private fun TargetList(targets: List<CompletionTarget>) {
     else targets.forEachIndexed { index, target -> Text("Set ${index + 1}: ${target.displayText()}") }
 }
 
-private fun CompletionTarget.displayText() = "${formatCentiKg(weightCentiKg)} kg × $reps"
+private fun CompletionTarget.displayText() = when (trackingMode) {
+    com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS -> "${formatCentiKg(weightCentiKg)} kg × $reps"
+    com.jupiman.workouttracker.data.local.entity.TrackingMode.REPS -> "$reps reps"
+    com.jupiman.workouttracker.data.local.entity.TrackingMode.DURATION -> "${durationSeconds ?: 0} sec"
+}

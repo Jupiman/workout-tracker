@@ -1,12 +1,33 @@
 package com.jupiman.workouttracker.domain.progression
 
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressionEngineTest {
+    @Test
+    fun repsModeAdvancesThenHoldsAtRepMaxWithoutWeightIncrease() {
+        val config = ProgressionConfig(0, 10, 8, 12, 250, TrackingMode.REPS)
+        val sets = List(3) { ProgressionSet(true, null, 10, null, 10, SessionSetStatus.COMPLETED) }
+        val next = ProgressionEngine.evaluate(config, sets)
+        assertEquals(11, next.nextTargetReps)
+        assertEquals(0, next.nextWeightCentiKg)
+        val max = ProgressionEngine.evaluate(config.copy(currentTargetReps = 12), sets.map { it.copy(prescribedReps = 12, actualReps = 12) })
+        assertEquals(false, max.progressed)
+        assertEquals(0, max.nextWeightCentiKg)
+        assertEquals(12, max.nextTargetReps)
+    }
+
+    @Test
+    fun durationModeDoesNotUseRepsProgression() {
+        val config = ProgressionConfig(0, 1, 1, 1, 250, TrackingMode.DURATION)
+        val sets = List(2) { ProgressionSet(true, null, null, null, null, SessionSetStatus.COMPLETED) }
+        val result = ProgressionEngine.evaluate(config, sets)
+        assertEquals(false, result.progressed)
+    }
     @Test
     fun eightRepsSuccessProgressesToNineReps() {
         val result = evaluateSuccess(targetReps = 8, repMax = 12)

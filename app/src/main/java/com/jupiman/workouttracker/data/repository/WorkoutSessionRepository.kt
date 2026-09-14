@@ -16,6 +16,7 @@ import com.jupiman.workouttracker.data.local.entity.SessionExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
@@ -107,13 +108,16 @@ class WorkoutSessionRepository(
                         incrementCentiKgSnapshot = templateExercise.incrementCentiKg,
                         restSecondsSnapshot = templateExercise.restSeconds,
                         setupNoteSnapshot = templateExercise.setupNote,
+                        trackingModeSnapshot = templateExercise.trackingMode,
+                        targetDurationSecondsSnapshot = templateExercise.targetDurationSeconds,
+                        durationIncrementSecondsSnapshot = templateExercise.durationIncrementSeconds,
                         supersetGroupSnapshot = templateExercise.supersetGroupId,
                         supersetRestSecondsSnapshot = supersetRestSeconds,
                     ),
                 )
 
-                val warmupSets = workoutTemplateWarmupSetDao
-                    .getForTemplateExercise(templateExercise.id)
+                val warmupSets = if (templateExercise.trackingMode == TrackingMode.WEIGHT_REPS) workoutTemplateWarmupSetDao
+                    .getForTemplateExercise(templateExercise.id) else emptyList()
                 val generatedWarmupSets = warmupSets.mapIndexed { index, warmupSet ->
                     SessionSetEntity(
                         sessionExerciseId = sessionExerciseId,
@@ -142,11 +146,12 @@ class WorkoutSessionRepository(
                         setOrder = setIndex,
                         setType = SetType.WORKING,
                         isPlanned = true,
-                        countsForProgression = setTarget?.countsForProgression ?: true,
-                        prescribedWeightCentiKg = setTarget?.prescribedWeightCentiKg
-                            ?: templateExercise.currentWeightCentiKg,
-                        prescribedReps = setTarget?.prescribedReps
-                            ?: templateExercise.currentTargetReps,
+                        countsForProgression = templateExercise.trackingMode != TrackingMode.DURATION && (setTarget?.countsForProgression ?: true),
+                        prescribedWeightCentiKg = if (templateExercise.trackingMode == TrackingMode.WEIGHT_REPS) setTarget?.prescribedWeightCentiKg
+                            ?: templateExercise.currentWeightCentiKg else null,
+                        prescribedReps = if (templateExercise.trackingMode != TrackingMode.DURATION) setTarget?.prescribedReps
+                            ?: templateExercise.currentTargetReps else null,
+                        prescribedDurationSeconds = if (templateExercise.trackingMode == TrackingMode.DURATION) templateExercise.targetDurationSeconds else null,
                     )
                 }
                 sessionSetDao.insertAll(plannedSets)
@@ -163,6 +168,7 @@ class WorkoutSessionRepository(
         setId: Long,
         actualWeightCentiKg: Int,
         actualReps: Int,
+        actualDurationSeconds: Int? = null,
     ): SetCompletionUndo? {
         require(actualWeightCentiKg >= 0) { "Weight cannot be negative." }
         require(actualReps >= 0) { "Reps cannot be negative." }
@@ -175,6 +181,7 @@ class WorkoutSessionRepository(
             actualReps = actualReps,
             pendingOnly = false,
             onUndoAvailable = { undo = it },
+            actualDurationSeconds = actualDurationSeconds,
         )
         workoutNotificationUpdater.refresh()
         return undo
@@ -189,6 +196,7 @@ class WorkoutSessionRepository(
             expectedSessionId = expectedSessionId,
             actualWeightCentiKg = null,
             actualReps = null,
+            actualDurationSeconds = null,
             pendingOnly = true,
             requireCurrentActionable = false,
         )
@@ -205,6 +213,7 @@ class WorkoutSessionRepository(
             expectedSessionId = expectedSessionId,
             actualWeightCentiKg = null,
             actualReps = null,
+            actualDurationSeconds = null,
             pendingOnly = true,
             requireCurrentActionable = true,
         )
@@ -220,6 +229,7 @@ class WorkoutSessionRepository(
         pendingOnly: Boolean,
         requireCurrentActionable: Boolean = false,
         onUndoAvailable: (SetCompletionUndo?) -> Unit = {},
+        actualDurationSeconds: Int? = null,
     ): Boolean {
         var restEndsAtToSchedule: Long? = null
         var shouldCancelRest = false
@@ -241,13 +251,18 @@ class WorkoutSessionRepository(
             latestUndo = null
             undoRestDeadline = null
             val now = System.currentTimeMillis()
+            val mode = sessionExercise.trackingModeSnapshot
+            val duration = if (mode == TrackingMode.DURATION) actualDurationSeconds
+                ?: set.prescribedDurationSeconds ?: sessionExercise.targetDurationSecondsSnapshot else null
+            require(mode != TrackingMode.DURATION || (duration != null && duration >= 0)) { "Enter a valid duration in seconds." }
             val completedSet = set.copy(
-                    actualWeightCentiKg = actualWeightCentiKg
+                    actualWeightCentiKg = if (mode == TrackingMode.WEIGHT_REPS) actualWeightCentiKg
                         ?: set.prescribedWeightCentiKg
-                        ?: sessionExercise.prescribedWeightCentiKgSnapshot,
-                    actualReps = actualReps
+                        ?: sessionExercise.prescribedWeightCentiKgSnapshot else null,
+                    actualReps = if (mode != TrackingMode.DURATION) actualReps
                         ?: set.prescribedReps
-                        ?: sessionExercise.targetRepsSnapshot,
+                        ?: sessionExercise.targetRepsSnapshot else null,
+                    actualDurationSeconds = duration,
                     status = SessionSetStatus.COMPLETED,
                     completedAt = now,
                 )
@@ -289,6 +304,7 @@ class WorkoutSessionRepository(
             sessionSetDao.update(undo.previous.copy(
                 actualWeightCentiKg = undo.completed.actualWeightCentiKg,
                 actualReps = undo.completed.actualReps,
+                actualDurationSeconds = undo.completed.actualDurationSeconds,
             ))
             if (undoRestDeadline != null && session.restEndsAt == undoRestDeadline) {
                 workoutSessionDao.update(session.copy(restEndsAt = null))
@@ -314,6 +330,7 @@ class WorkoutSessionRepository(
                         status = SessionSetStatus.SKIPPED,
                         actualWeightCentiKg = null,
                         actualReps = null,
+                        actualDurationSeconds = null,
                         completedAt = System.currentTimeMillis(),
                     ))
                 }
@@ -347,9 +364,12 @@ class WorkoutSessionRepository(
         reps: Int,
         weightCentiKg: Int,
         restSeconds: Int,
+        trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
+        durationSeconds: Int? = null,
     ): Long {
         require(sets >= 1) { "Sets must be at least 1." }
-        require(reps >= 1) { "Reps must be at least 1." }
+        require(trackingMode == TrackingMode.DURATION || reps >= 1) { "Reps must be at least 1." }
+        require(trackingMode != TrackingMode.DURATION || (durationSeconds != null && durationSeconds > 0)) { "Duration must be at least 1 second." }
         require(weightCentiKg >= 0) { "Weight cannot be negative." }
         require(restSeconds >= 0) { "Rest time cannot be negative." }
         val id = database.withTransaction {
@@ -362,12 +382,14 @@ class WorkoutSessionRepository(
                 sessionId = sessionId,
                 sourceWorkoutTemplateExerciseId = null,
                 exerciseNameSnapshot = exercise.name,
+                trackingModeSnapshot = trackingMode,
+                targetDurationSecondsSnapshot = if (trackingMode == TrackingMode.DURATION) durationSeconds else null,
                 sortOrderSnapshot = order,
                 plannedSetCountSnapshot = sets,
                 repMinSnapshot = reps,
                 repMaxSnapshot = reps,
                 targetRepsSnapshot = reps,
-                prescribedWeightCentiKgSnapshot = weightCentiKg,
+                prescribedWeightCentiKgSnapshot = if (trackingMode == TrackingMode.WEIGHT_REPS) weightCentiKg else 0,
                 incrementCentiKgSnapshot = 250,
                 restSecondsSnapshot = restSeconds,
                 setupNoteSnapshot = "",
@@ -381,8 +403,9 @@ class WorkoutSessionRepository(
                     setType = SetType.WORKING,
                     isPlanned = true,
                     countsForProgression = false,
-                    prescribedWeightCentiKg = weightCentiKg,
-                    prescribedReps = reps,
+                    prescribedWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) weightCentiKg else null,
+                    prescribedReps = if (trackingMode == TrackingMode.DURATION) null else reps,
+                    prescribedDurationSeconds = if (trackingMode == TrackingMode.DURATION) durationSeconds else null,
                 )
             })
             exerciseSnapshotId
@@ -414,6 +437,12 @@ class WorkoutSessionRepository(
             require(session.status == WorkoutSessionStatus.ACTIVE) { "Only active workouts can be edited." }
 
             val existingSets = sessionSetDao.getForSessionExercise(sessionExerciseId)
+            require(sessionExercise.trackingModeSnapshot != TrackingMode.DURATION || setType == SetType.EXTRA) {
+                "Duration exercises support extra timed sets."
+            }
+            require(setType != SetType.DROP || sessionExercise.trackingModeSnapshot == TrackingMode.WEIGHT_REPS) {
+                "Drop sets require weight and reps tracking."
+            }
             val previousSet = existingSets.maxByOrNull { it.setOrder }
             val defaultWeight = when (setType) {
                 SetType.EXTRA,
@@ -439,8 +468,9 @@ class WorkoutSessionRepository(
                     setType = setType,
                     isPlanned = false,
                     countsForProgression = false,
-                    prescribedWeightCentiKg = defaultWeight,
-                    prescribedReps = defaultReps,
+                    prescribedWeightCentiKg = if (sessionExercise.trackingModeSnapshot == TrackingMode.WEIGHT_REPS) defaultWeight else null,
+                    prescribedReps = if (sessionExercise.trackingModeSnapshot != TrackingMode.DURATION) defaultReps else null,
+                    prescribedDurationSeconds = sessionExercise.targetDurationSecondsSnapshot,
                 ),
             )
         }
@@ -487,6 +517,7 @@ class WorkoutSessionRepository(
                 set.copy(
                     actualWeightCentiKg = null,
                     actualReps = null,
+                    actualDurationSeconds = null,
                     status = SessionSetStatus.PENDING,
                     completedAt = null,
                 ),
@@ -504,6 +535,7 @@ class WorkoutSessionRepository(
                 set.copy(
                     actualWeightCentiKg = null,
                     actualReps = null,
+                    actualDurationSeconds = null,
                     status = SessionSetStatus.SKIPPED,
                     completedAt = System.currentTimeMillis(),
                 ),
@@ -564,6 +596,7 @@ class WorkoutSessionRepository(
                             status = SessionSetStatus.SKIPPED,
                             actualWeightCentiKg = null,
                             actualReps = null,
+                            actualDurationSeconds = null,
                             completedAt = completedAt,
                         )
                         sessionSetDao.update(skippedSet)
@@ -577,6 +610,23 @@ class WorkoutSessionRepository(
             sessionExercises.forEach { sessionExercise ->
                 val sourceTemplateExerciseId = sessionExercise.sourceWorkoutTemplateExerciseId
                     ?: return@forEach
+                val currentTemplate = workoutTemplateExerciseDao.getById(sourceTemplateExerciseId) ?: return@forEach
+                if (currentTemplate.trackingMode != sessionExercise.trackingModeSnapshot) return@forEach
+                if (sessionExercise.trackingModeSnapshot == TrackingMode.DURATION) {
+                    val planned = finalSetsByExerciseId.getValue(sessionExercise.id)
+                        .filter { it.isPlanned && it.setType == SetType.WORKING }
+                    val target = sessionExercise.targetDurationSecondsSnapshot ?: return@forEach
+                    // Preserve a target edited in the Program while this workout was active.
+                    if (currentTemplate.targetDurationSeconds == target && planned.isNotEmpty() &&
+                        planned.all { it.status == SessionSetStatus.COMPLETED &&
+                            (it.actualDurationSeconds ?: -1) >= (it.prescribedDurationSeconds ?: target) }) {
+                        workoutTemplateExerciseDao.update(currentTemplate.copy(
+                            targetDurationSeconds = (target.toLong() + sessionExercise.durationIncrementSecondsSnapshot)
+                                .coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                        ))
+                    }
+                    return@forEach
+                }
                 val progressionState = progressionStateDao.getForTemplateExercise(sourceTemplateExerciseId)
                     ?: return@forEach
                 val exerciseSets = finalSetsByExerciseId.getValue(sessionExercise.id)
@@ -622,6 +672,7 @@ class WorkoutSessionRepository(
                         repMin = sessionExercise.repMinSnapshot,
                         repMax = sessionExercise.repMaxSnapshot,
                         incrementCentiKg = sessionExercise.incrementCentiKgSnapshot,
+                        trackingMode = sessionExercise.trackingModeSnapshot,
                     ),
                     sets = exerciseSets.map { set ->
                         ProgressionSet(
@@ -695,6 +746,8 @@ class WorkoutSessionRepository(
             CompletionTarget(
                 weightCentiKg = overrides[order]?.prescribedWeightCentiKg ?: progression.currentWeightCentiKg,
                 reps = overrides[order]?.prescribedReps ?: progression.currentTargetReps,
+                trackingMode = template.trackingMode,
+                durationSeconds = template.targetDurationSeconds,
             )
         }
     }

@@ -25,6 +25,8 @@ class AppContainer(context: Context) {
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_2_3)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_3_4)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_4_5)
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_5_6)
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_6_7)
         .build()
 
     val workoutNotificationCoordinator = AndroidWorkoutNotificationCoordinator(

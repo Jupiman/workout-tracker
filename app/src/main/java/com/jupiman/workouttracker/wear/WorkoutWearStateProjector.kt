@@ -3,9 +3,11 @@ package com.jupiman.workouttracker.wear
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
+import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
 import kotlin.math.abs
 
@@ -26,10 +28,17 @@ object WorkoutWearStateProjector {
             sessionStatus = WearSessionStatus.ACTIVE,
             currentSetId = currentSet.set.id,
             exerciseName = currentSet.exercise.exercise.exerciseNameSnapshot,
-            weightCentiKg = currentSet.set.prescribedWeightCentiKg
-                ?: currentSet.exercise.exercise.prescribedWeightCentiKgSnapshot,
-            targetReps = currentSet.set.prescribedReps
-                ?: currentSet.exercise.exercise.targetRepsSnapshot,
+            weightCentiKg = if (currentSet.exercise.exercise.trackingModeSnapshot == TrackingMode.WEIGHT_REPS)
+                currentSet.set.prescribedWeightCentiKg ?: currentSet.exercise.exercise.prescribedWeightCentiKgSnapshot else null,
+            targetReps = if (currentSet.exercise.exercise.trackingModeSnapshot != TrackingMode.DURATION)
+                currentSet.set.prescribedReps ?: currentSet.exercise.exercise.targetRepsSnapshot else null,
+            trackingMode = when (currentSet.exercise.exercise.trackingModeSnapshot) {
+                TrackingMode.WEIGHT_REPS -> WearTrackingMode.WEIGHT_REPS
+                TrackingMode.REPS -> WearTrackingMode.REPS
+                TrackingMode.DURATION -> WearTrackingMode.DURATION
+            },
+            targetDurationSeconds = currentSet.set.prescribedDurationSeconds
+                ?: currentSet.exercise.exercise.targetDurationSecondsSnapshot,
             setLabel = setLabel(currentSet.set, currentSet.exercise),
             setNumber = setNumber(currentSet.set),
             totalSets = totalSets(currentSet.set, currentSet.exercise),

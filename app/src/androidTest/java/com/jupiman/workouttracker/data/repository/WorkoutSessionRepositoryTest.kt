@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
@@ -962,7 +963,7 @@ class WorkoutSessionRepositoryTest {
         val set = database.sessionSetDao().getForSessionExercise(exercises.first().id).first()
         val undo = repository.completeSet(set.id, 7000, 10)!!
         assertNotNull(database.workoutSessionDao().getActive()!!.restEndsAt)
-        assertTrue(repository.undoCompletion(undo))
+        assertTrue(repository.undoCompletion(undo!!))
         assertNull(database.workoutSessionDao().getActive()!!.restEndsAt)
         assertTrue(database.sessionSetDao().getForSessionExercise(exercises.last().id).all { it.status == SessionSetStatus.SKIPPED })
     }
@@ -1349,6 +1350,135 @@ class WorkoutSessionRepositoryTest {
         assertEquals(templatesBefore, database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId))
         assertEquals(progressionBefore, database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id))
         assertEquals(activeBefore!!.session.restEndsAt, restTimerScheduler.scheduledRestEndsAt)
+    }
+
+    @Test
+    fun durationLogsSecondsAndProgressesOnceWithImmutableHistoryAndBackup() = runTest {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateExerciseDao().update(template.copy(
+            trackingMode = TrackingMode.DURATION, targetDurationSeconds = 60, durationIncrementSeconds = 5,
+        ))
+        val sessionId = repository.startWorkout(templateId)
+        val snapshot = database.sessionExerciseDao().getForSession(sessionId).single()
+        assertEquals(TrackingMode.DURATION, snapshot.trackingModeSnapshot)
+        assertEquals(5, snapshot.durationIncrementSecondsSnapshot)
+        val state = WorkoutNotificationProjector.nextActionableSet(database.workoutSessionDao().getActiveWithDetails()!!)!!
+        assertEquals("60 sec", state.targetText)
+        val wear = WorkoutWearStateProjector.stateFor(database.workoutSessionDao().getActiveWithDetails())
+        assertEquals(com.jupiman.workouttracker.wearprotocol.WearTrackingMode.DURATION, wear.trackingMode)
+        assertEquals(60, wear.targetDurationSeconds)
+        val sets = firstSessionSets(sessionId)
+        assertTrue(sets.all { it.prescribedReps == null && it.prescribedWeightCentiKg == null && it.prescribedDurationSeconds == 60 })
+        val undo = repository.completeSet(sets.first().id, 9999, 99, 65)
+        assertTrue(repository.undoCompletion(undo!!))
+        sets.forEach { repository.completeSet(it.id, 9999, 99, 65) }
+        val summary = repository.finishActiveWorkout(false)
+        assertEquals(60, summary.exercises.single().before!!.first().durationSeconds)
+        assertEquals(65, summary.exercises.single().after!!.first().durationSeconds)
+        val logged = database.sessionSetDao().getForSessionExercise(snapshot.id)
+        assertTrue(logged.all { it.actualDurationSeconds == 65 && it.actualReps == null && it.actualWeightCentiKg == null })
+        val output = java.io.ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+        DataBackupRepository(database).restoreBackup(java.io.ByteArrayInputStream(output.toByteArray()))
+        assertEquals(logged, database.sessionSetDao().getForSessionExercise(snapshot.id))
+        assertEquals(65, database.workoutTemplateExerciseDao().getById(template.id)!!.targetDurationSeconds)
+        val next = repository.startWorkout(templateId)
+        assertEquals(65, firstSessionSets(next).first().prescribedDurationSeconds)
+        assertEquals(60, database.sessionExerciseDao().getById(snapshot.id)!!.targetDurationSecondsSnapshot)
+    }
+
+    @Test
+    fun durationMissOrSkippedSetHoldsTargetAndDoesNotOverwriteProgramEdits() = runTest {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        val duration = template.copy(trackingMode = TrackingMode.DURATION, targetDurationSeconds = 60, durationIncrementSeconds = 5)
+        database.workoutTemplateExerciseDao().update(duration)
+        val first = firstSessionSets(repository.startWorkout(templateId))
+        first.forEachIndexed { index, set -> repository.completeSet(set.id, 0, 0, if (index == 0) 59 else 60) }
+        repository.finishActiveWorkout(false)
+        assertEquals(60, database.workoutTemplateExerciseDao().getById(template.id)!!.targetDurationSeconds)
+        val second = firstSessionSets(repository.startWorkout(templateId))
+        repository.skipSet(second.first().id)
+        second.drop(1).forEach { repository.completeSet(it.id, 0, 0, 60) }
+        repository.finishActiveWorkout(true)
+        assertEquals(60, database.workoutTemplateExerciseDao().getById(template.id)!!.targetDurationSeconds)
+        firstSessionSets(repository.startWorkout(templateId)).forEach { repository.completeSet(it.id, 0, 0, 60) }
+        database.workoutTemplateExerciseDao().update(duration.copy(targetDurationSeconds = 90))
+        repository.finishActiveWorkout(false)
+        assertEquals(90, database.workoutTemplateExerciseDao().getById(template.id)!!.targetDurationSeconds)
+    }
+
+    @Test
+    fun repsOnlyProgressesToCapWithoutWeightAndSessionOnlyDurationHasNoProgramSource() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 11)
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateExerciseDao().update(template.copy(trackingMode = TrackingMode.REPS))
+        val progression = database.progressionStateDao().getForTemplateExercise(template.id)!!
+        database.progressionStateDao().update(progression.copy(currentWeightCentiKg = 0))
+        firstSessionSets(repository.startWorkout(templateId)).forEach { repository.completeSet(it.id, 9999, 11) }
+        repository.finishActiveWorkout(false)
+        assertEquals(12, database.progressionStateDao().getForTemplateExercise(template.id)!!.currentTargetReps)
+        val sessionId = repository.startWorkout(templateId)
+        firstSessionSets(sessionId).forEach { repository.completeSet(it.id, 9999, 12) }
+        val added = repository.addExerciseForToday(sessionId, template.exerciseId, 1, 1, 0, 30, TrackingMode.DURATION, 45)
+        val addedSnapshot = database.sessionExerciseDao().getById(added)!!
+        assertNull(addedSnapshot.sourceWorkoutTemplateExerciseId)
+        val addedSet = database.sessionSetDao().getForSessionExercise(added).single()
+        assertEquals(45, addedSet.prescribedDurationSeconds)
+        assertNull(addedSet.prescribedReps)
+        repository.completeSet(addedSet.id, 0, 0, 45)
+        repository.finishActiveWorkout(false)
+        val final = database.progressionStateDao().getForTemplateExercise(template.id)!!
+        assertEquals(12, final.currentTargetReps)
+        assertEquals(0, final.currentWeightCentiKg)
+    }
+
+    @Test
+    fun legacyBackupRestoresExistingWeightedWorkoutWithDefaults() = runTest {
+        val templateId = seedBenchWorkout()
+        val sessionId = repository.startWorkout(templateId)
+        repository.completeSet(firstSessionSets(sessionId).first().id, 7000, 10)
+        val output = java.io.ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+        val backup = org.json.JSONObject(output.toString("UTF-8"))
+            .put("formatVersion", 1).put("schemaVersion", 5)
+        val tables = backup.getJSONObject("tables")
+        mapOf(
+            "workout_template_exercises" to listOf("trackingMode", "targetDurationSeconds", "durationIncrementSeconds"),
+            "session_exercises" to listOf("trackingModeSnapshot", "targetDurationSecondsSnapshot", "durationIncrementSecondsSnapshot"),
+            "session_sets" to listOf("prescribedDurationSeconds", "actualDurationSeconds"),
+        ).forEach { (table, columns) ->
+            val rows = tables.getJSONArray(table)
+            repeat(rows.length()) { index -> columns.forEach { rows.getJSONObject(index).remove(it) } }
+        }
+        DataBackupRepository(database).restoreBackup(java.io.ByteArrayInputStream(backup.toString().toByteArray()))
+        val exercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        assertEquals(TrackingMode.WEIGHT_REPS, exercise.trackingModeSnapshot)
+        assertNull(exercise.targetDurationSecondsSnapshot)
+        assertEquals(0, exercise.durationIncrementSecondsSnapshot)
+        assertEquals(7000, firstSessionSets(sessionId).first().actualWeightCentiKg)
+        assertEquals(10, firstSessionSets(sessionId).first().actualReps)
+    }
+
+    @Test
+    fun initialTrackingBackupPreservesDurationAndDefaultsIncrementToZero() = runTest {
+        val templateId = seedBenchWorkout()
+        val template = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateExerciseDao().update(template.copy(trackingMode = TrackingMode.DURATION, targetDurationSeconds = 45))
+        val sessionId = repository.startWorkout(templateId)
+        val output = java.io.ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+        val backup = org.json.JSONObject(output.toString("UTF-8")).put("formatVersion", 2).put("schemaVersion", 6)
+        val tables = backup.getJSONObject("tables")
+        tables.getJSONArray("workout_template_exercises").getJSONObject(0).remove("durationIncrementSeconds")
+        tables.getJSONArray("session_exercises").getJSONObject(0).remove("durationIncrementSecondsSnapshot")
+        DataBackupRepository(database).restoreBackup(java.io.ByteArrayInputStream(backup.toString().toByteArray()))
+        val restored = database.workoutTemplateExerciseDao().getById(template.id)!!
+        assertEquals(TrackingMode.DURATION, restored.trackingMode)
+        assertEquals(45, restored.targetDurationSeconds)
+        assertEquals(0, restored.durationIncrementSeconds)
+        assertEquals(45, firstSessionSets(sessionId).first().prescribedDurationSeconds)
     }
 
     private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {

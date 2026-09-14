@@ -20,19 +20,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import kotlinx.coroutines.launch
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 
 @Composable
 internal fun AddSessionExerciseDialog(
     sessionId: Long,
     exercises: List<ExerciseEntity>,
     onDismiss: () -> Unit,
-    onAdd: suspend (Long, Long, String, String, String, String) -> Unit,
+    onAdd: suspend (Long, Long, String, String, String, String, TrackingMode, String) -> Unit,
 ) {
     var selectedId by rememberSaveable(sessionId) { mutableStateOf<Long?>(null) }
     var name by rememberSaveable(sessionId) { mutableStateOf("") }
     var sets by rememberSaveable(sessionId) { mutableStateOf("3") }
     var reps by rememberSaveable(sessionId) { mutableStateOf("8") }
     var weight by rememberSaveable(sessionId) { mutableStateOf("0") }
+    var trackingMode by rememberSaveable(sessionId) { mutableStateOf(TrackingMode.WEIGHT_REPS) }
+    var durationSeconds by rememberSaveable(sessionId) { mutableStateOf("60") }
     var rest by rememberSaveable(sessionId) { mutableStateOf("180") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -64,6 +67,8 @@ internal fun AddSessionExerciseDialog(
                     repMax = reps, onRepMaxChange = {},
                     increment = "2.5", onIncrementChange = {},
                     sessionOnly = true,
+                    trackingMode = trackingMode, onTrackingModeChange = { trackingMode = it },
+                    durationSeconds = durationSeconds, onDurationSecondsChange = { durationSeconds = it },
                 )
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
@@ -74,7 +79,7 @@ internal fun AddSessionExerciseDialog(
                 saving = true
                 scope.launch {
                     try {
-                        onAdd(sessionId, id, sets, reps, weight, rest)
+                        onAdd(sessionId, id, sets, reps, weight, rest, trackingMode, durationSeconds)
                         onDismiss()
                     } catch (exception: IllegalArgumentException) {
                         error = exception.message

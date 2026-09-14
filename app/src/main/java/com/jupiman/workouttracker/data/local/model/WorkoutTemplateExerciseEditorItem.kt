@@ -15,4 +15,7 @@ data class WorkoutTemplateExerciseEditorItem(
     val supersetGroupId: Long?,
     val currentWeightCentiKg: Int,
     val currentTargetReps: Int,
+    val trackingMode: com.jupiman.workouttracker.data.local.entity.TrackingMode = com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS,
+    val targetDurationSeconds: Int? = null,
+    val durationIncrementSeconds: Int = 0,
 )

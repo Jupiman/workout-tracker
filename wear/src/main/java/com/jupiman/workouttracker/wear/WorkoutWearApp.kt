@@ -38,6 +38,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
+import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
 
 @Composable
 fun WorkoutWearApp(
@@ -135,7 +136,11 @@ private fun ActiveWorkoutScreen(
     if (state == null) return
     val restText = restText(state.restEndsAt, now)
     val restOverdue = isRestOverdue(state.restEndsAt, now)
-    val targetText = "${formatCentiKg(state.weightCentiKg ?: 0)} kg x ${state.targetReps ?: 0}"
+    val targetText = when (state.trackingMode) {
+        WearTrackingMode.WEIGHT_REPS -> "${formatCentiKg(state.weightCentiKg ?: 0)} kg x ${state.targetReps ?: 0}"
+        WearTrackingMode.REPS -> "${state.targetReps ?: 0} reps"
+        WearTrackingMode.DURATION -> "${state.targetDurationSeconds ?: 0} sec"
+    }
 
     Column(
         modifier = Modifier

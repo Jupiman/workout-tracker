@@ -28,6 +28,9 @@ interface WorkoutTemplateExerciseDao {
             wte.incrementCentiKg,
             wte.restSeconds,
             wte.setupNote,
+            wte.trackingMode,
+            wte.targetDurationSeconds,
+            wte.durationIncrementSeconds,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps
@@ -57,6 +60,9 @@ interface WorkoutTemplateExerciseDao {
             wte.incrementCentiKg,
             wte.restSeconds,
             wte.setupNote,
+            wte.trackingMode,
+            wte.targetDurationSeconds,
+            wte.durationIncrementSeconds,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps

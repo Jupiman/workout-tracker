@@ -44,6 +44,8 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.data.repository.trackingText
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
@@ -466,9 +468,12 @@ private fun HistoryExerciseCard(
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "${exercise.exercise.plannedSetCountSnapshot} x " +
-                    "${exercise.exercise.targetRepsSnapshot} @ " +
-                    "${formatCentiKg(exercise.exercise.prescribedWeightCentiKgSnapshot)} kg",
+                text = "${exercise.exercise.plannedSetCountSnapshot} x " + trackingText(
+                    exercise.exercise.trackingModeSnapshot,
+                    exercise.exercise.prescribedWeightCentiKgSnapshot,
+                    exercise.exercise.targetRepsSnapshot,
+                    exercise.exercise.targetDurationSecondsSnapshot,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -489,7 +494,7 @@ private fun HistoryExerciseCard(
             exercise.sets
                 .sortedBy { it.setOrder }
                 .forEach { set ->
-                    HistorySetLine(set = set)
+                    HistorySetLine(set = set, trackingMode = exercise.exercise.trackingModeSnapshot)
                 }
         }
     }
@@ -498,6 +503,7 @@ private fun HistoryExerciseCard(
 @Composable
 private fun HistorySetLine(
     set: SessionSetEntity,
+    trackingMode: TrackingMode,
 ) {
     val state = when (set.status) {
         SessionSetStatus.COMPLETED -> WorkoutVisualState.Completed
@@ -519,7 +525,8 @@ private fun HistorySetLine(
             color = palette.content,
         )
         Text(
-            text = set.historyLoad(),
+            text = set.trackingText(trackingMode, actual = set.status == SessionSetStatus.COMPLETED) +
+                when (set.status) { SessionSetStatus.COMPLETED -> ""; SessionSetStatus.SKIPPED -> " skipped"; SessionSetStatus.PENDING -> " pending" },
             style = MaterialTheme.typography.bodyMedium,
             color = palette.content,
             fontWeight = FontWeight.SemiBold,
@@ -549,21 +556,6 @@ private fun SessionSetEntity.historyLabel(): String =
         SetType.AMRAP -> "AMRAP ${setOrder + 1}"
         SetType.DROP -> "Drop ${setOrder + 1}"
     }
-
-private fun SessionSetEntity.historyLoad(): String =
-    when (status) {
-        SessionSetStatus.COMPLETED -> {
-            val weight = actualWeightCentiKg ?: prescribedWeightCentiKg
-            val reps = actualReps ?: prescribedReps
-            "${weight.kgText()} x ${reps?.toString() ?: "-"}"
-        }
-        SessionSetStatus.SKIPPED -> "${prescribedWeightCentiKg.kgText()} x " +
-            "${prescribedReps?.toString() ?: "-"} skipped"
-        SessionSetStatus.PENDING -> "${prescribedWeightCentiKg.kgText()} x " +
-            "${prescribedReps?.toString() ?: "-"} pending"
-    }
-
-private fun Int?.kgText(): String = this?.let { "${formatCentiKg(it)} kg" } ?: "- kg"
 
 private fun WorkoutSessionWithDetails.historyDate(): LocalDate =
     Instant.ofEpochMilli(session.completedAt ?: session.startedAt)

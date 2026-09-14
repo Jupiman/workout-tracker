@@ -5,6 +5,30 @@ import org.junit.Test
 
 class WorkoutWearCodecsTest {
     @Test
+    fun allTrackingModesRoundTrip() {
+        WearTrackingMode.entries.forEach { mode ->
+            val state = WorkoutWearState.noActive(100).copy(
+                trackingMode = mode, targetDurationSeconds = if (mode == WearTrackingMode.DURATION) 45 else null,
+            )
+            assertEquals(state, WorkoutWearCodecs.decodeState(WorkoutWearCodecs.encodeState(state)))
+        }
+    }
+
+    @Test
+    fun legacyStateDefaultsToWeightReps() {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(bytes).use {
+            it.writeInt(1)
+            it.writeBoolean(false) // sessionId
+            it.writeInt(WearSessionStatus.NO_ACTIVE.ordinal)
+            repeat(10) { _ -> it.writeBoolean(false) } // optional v1 fields
+            it.writeLong(100)
+            it.writeLong(100)
+        }
+        assertEquals(WorkoutWearState.noActive(100), WorkoutWearCodecs.decodeState(bytes.toByteArray()))
+    }
+
+    @Test
     fun finishCommandRoundTripsThroughBytes() {
         val command = FinishWorkoutCommand(42, "finish-42")
         assertEquals(command, WorkoutWearCodecs.decodeFinishWorkoutCommand(WorkoutWearCodecs.encodeFinishWorkoutCommand(command)))

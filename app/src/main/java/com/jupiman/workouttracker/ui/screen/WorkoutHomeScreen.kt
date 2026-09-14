@@ -50,9 +50,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.SessionSetEntity
@@ -60,6 +60,8 @@ import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
+import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.repository.trackingText
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.data.repository.formatCentiKg
@@ -253,12 +255,12 @@ private fun ActiveWorkoutPanel(
     activeWorkout: WorkoutSessionWithDetails,
     exercises: List<ExerciseEntity>,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
-    onCompleteSet: (Long, String, String) -> Unit,
+    onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onDiscardWorkout: () -> Unit,
     onFinishWorkout: (Boolean, Map<Long, ProgressionFinishChoice>) -> Unit,
-    onAddExercise: suspend (Long, Long, String, String, String, String) -> Unit,
+    onAddExercise: suspend (Long, Long, String, String, String, String, TrackingMode, String) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
     onReplaceExerciseForToday: (Long, Long) -> Unit,
     onSkipExercise: (Long) -> Unit,
@@ -483,9 +485,7 @@ private fun CurrentSetFocusCard(
                     color = palette.content,
                 )
                 Text(
-                    text = "${focus.set.headerText()} · " +
-                        "${formatCentiKg(focus.set.prescribedWeightCentiKg ?: 0)} kg x " +
-                        "${focus.set.prescribedReps ?: "-"}",
+                    text = "${focus.set.headerText()} · " + focus.set.trackingText(focus.trackingMode, actual = false),
                     style = MaterialTheme.typography.bodyLarge,
                     color = palette.content,
                 )
@@ -580,7 +580,7 @@ private fun FinishProgressionReviewDialog(
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
-                            text = "Logged: ${formatCentiKg(item.loggedWeightCentiKg)} kg x ${item.loggedReps}",
+                            text = "Logged: " + trackingText(item.trackingMode, item.loggedWeightCentiKg, item.loggedReps, null),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         ProgressionChoiceButtons(
@@ -660,7 +660,7 @@ private fun SupersetExerciseGroup(
     exercises: List<ExerciseEntity>,
     currentSetId: Long?,
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
-    onCompleteSet: (Long, String, String) -> Unit,
+    onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
@@ -722,7 +722,7 @@ private fun SessionExerciseCard(
     currentSetId: Long?,
     lastTime: LastTimeExerciseContext?,
     shouldCollapseSet: (SessionSetEntity) -> Boolean,
-    onCompleteSet: (Long, String, String) -> Unit,
+    onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
     onAddSessionSet: (Long, SetType) -> Unit,
@@ -781,13 +781,17 @@ private fun SessionExerciseCard(
                 }
             }
             Text(
-                text = "${snapshot.plannedSetCountSnapshot} x ${snapshot.targetRepsSnapshot} @ " +
-                    "${formatCentiKg(snapshot.prescribedWeightCentiKgSnapshot)} kg",
+                text = "${snapshot.plannedSetCountSnapshot} x " + trackingText(
+                    snapshot.trackingModeSnapshot,
+                    snapshot.prescribedWeightCentiKgSnapshot,
+                    snapshot.targetRepsSnapshot,
+                    snapshot.targetDurationSecondsSnapshot,
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} · Rest ${snapshot.restSecondsSnapshot}s",
+                text = (if (snapshot.trackingModeSnapshot == TrackingMode.DURATION) "" else "Reps ${snapshot.repMinSnapshot}-${snapshot.repMaxSnapshot} · ") + "Rest ${snapshot.restSecondsSnapshot}s",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -806,6 +810,7 @@ private fun SessionExerciseCard(
                 .forEach { set ->
                     SessionSetRow(
                         set = set,
+                        trackingMode = snapshot.trackingModeSnapshot,
                         isCurrent = set.id == currentSetId,
                         collapseCompleted = shouldCollapseSet(set),
                         weightIncrementCentiKg = snapshot.incrementCentiKgSnapshot,
@@ -823,13 +828,13 @@ private fun SessionExerciseCard(
                 ) {
                     Text("Extra")
                 }
-                OutlinedButton(
+                if (snapshot.trackingModeSnapshot != TrackingMode.DURATION) OutlinedButton(
                     onClick = { onAddSessionSet(snapshot.id, SetType.AMRAP) },
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("AMRAP")
                 }
-                OutlinedButton(
+                if (snapshot.trackingModeSnapshot == TrackingMode.WEIGHT_REPS) OutlinedButton(
                     onClick = { onAddSessionSet(snapshot.id, SetType.DROP) },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -1006,19 +1011,20 @@ private fun LastTimePanel(
 @Composable
 private fun SessionSetRow(
     set: SessionSetEntity,
+    trackingMode: TrackingMode,
     isCurrent: Boolean,
     collapseCompleted: Boolean,
     weightIncrementCentiKg: Int,
-    onCompleteSet: (Long, String, String) -> Unit,
+    onCompleteSet: (Long, String, String, TrackingMode) -> Unit,
     onUncompleteSet: (Long) -> Unit,
     onSkipSet: (Long) -> Unit,
 ) {
     val defaultWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
-    val defaultReps = set.actualReps ?: set.prescribedReps
+    val defaultReps = if (trackingMode == TrackingMode.DURATION) set.actualDurationSeconds ?: set.prescribedDurationSeconds else set.actualReps ?: set.prescribedReps
     var weight by remember(set.id, set.actualWeightCentiKg, set.prescribedWeightCentiKg) {
         mutableStateOf(formatCentiKg(defaultWeight))
     }
-    var reps by remember(set.id, set.actualReps, set.prescribedReps) {
+    var reps by remember(set.id, set.actualReps, set.prescribedReps, set.actualDurationSeconds, set.prescribedDurationSeconds) {
         mutableStateOf(defaultReps?.toString().orEmpty())
     }
     val visualState = set.visualState(isCurrent)
@@ -1049,6 +1055,7 @@ private fun SessionSetRow(
     if (!expanded) {
         CollapsedSessionSetRow(
             set = set,
+            trackingMode = trackingMode,
             rowColor = rowColor,
             rowContentColor = rowContentColor,
             startPadding = startPadding,
@@ -1078,7 +1085,7 @@ private fun SessionSetRow(
                 state = visualState,
             )
         }
-        WeightAdjuster(
+        if (trackingMode == TrackingMode.WEIGHT_REPS) WeightAdjuster(
             label = "kg",
             value = weight,
             onValueChange = { weight = it },
@@ -1089,7 +1096,7 @@ private fun SessionSetRow(
             value = reps,
             onValueChange = { reps = it },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("reps") },
+            label = { Text(if (trackingMode == TrackingMode.DURATION) "seconds" else "reps") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         )
@@ -1098,7 +1105,7 @@ private fun SessionSetRow(
             SessionSetStatus.PENDING -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { onCompleteSet(set.id, weight, reps) },
+                        onClick = { onCompleteSet(set.id, weight, reps, trackingMode) },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Complete")
@@ -1114,7 +1121,7 @@ private fun SessionSetRow(
             SessionSetStatus.COMPLETED -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { onCompleteSet(set.id, weight, reps) },
+                        onClick = { onCompleteSet(set.id, weight, reps, trackingMode) },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Save")
@@ -1130,7 +1137,7 @@ private fun SessionSetRow(
             SessionSetStatus.SKIPPED -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { onCompleteSet(set.id, weight, reps) },
+                        onClick = { onCompleteSet(set.id, weight, reps, trackingMode) },
                         modifier = Modifier.weight(1f),
                     ) {
                         Text("Complete")
@@ -1150,6 +1157,7 @@ private fun SessionSetRow(
 @Composable
 private fun CollapsedSessionSetRow(
     set: SessionSetEntity,
+    trackingMode: TrackingMode,
     rowColor: Color,
     rowContentColor: Color,
     startPadding: Dp,
@@ -1157,8 +1165,6 @@ private fun CollapsedSessionSetRow(
     showCurrentBorder: Boolean,
     onExpand: () -> Unit,
 ) {
-    val loggedWeight = set.actualWeightCentiKg ?: set.prescribedWeightCentiKg ?: 0
-    val loggedReps = set.actualReps ?: set.prescribedReps
     val rowShape = RoundedCornerShape(WorkoutRadii.row)
 
     Row(
@@ -1185,7 +1191,7 @@ private fun CollapsedSessionSetRow(
             color = rowContentColor,
         )
         Text(
-            text = "${formatCentiKg(loggedWeight)} kg x ${loggedReps ?: "-"}",
+            text = set.trackingText(trackingMode),
             style = MaterialTheme.typography.labelLarge,
             color = rowContentColor,
         )
@@ -1221,12 +1227,10 @@ private fun LastTimeSetContext.lastTimeLabel(): String =
 
 private fun LastTimeSetContext.lastTimeLoad(): String =
     when (status) {
-        SessionSetStatus.COMPLETED -> "${weightCentiKg.kgText()} x ${reps ?: "-"}"
-        SessionSetStatus.SKIPPED -> "${weightCentiKg.kgText()} x ${reps ?: "-"}"
-        SessionSetStatus.PENDING -> "${weightCentiKg.kgText()} x ${reps ?: "-"} pending"
+        SessionSetStatus.COMPLETED -> trackingText(trackingMode, weightCentiKg, reps, durationSeconds)
+        SessionSetStatus.SKIPPED -> trackingText(trackingMode, weightCentiKg, reps, durationSeconds)
+        SessionSetStatus.PENDING -> trackingText(trackingMode, weightCentiKg, reps, durationSeconds) + " pending"
     }
-
-private fun Int?.kgText(): String = this?.let { "${formatCentiKg(it)} kg" } ?: "- kg"
 
 private fun SessionExerciseWithSets.lastTimeFrom(
     lastTimeByTemplateExerciseId: Map<Long, LastTimeExerciseContext>,
@@ -1331,10 +1335,10 @@ private fun WorkoutSessionWithDetails.progressionReviewItems(): List<FinishProgr
                     FinishProgressionReviewItem(
                         sessionSetId = set.id,
                         exerciseName = exercise.exercise.exerciseNameSnapshot,
+                        trackingMode = exercise.exercise.trackingModeSnapshot,
                         changedSetText = "Set ${set.setOrder + 1}: " +
-                            "${formatCentiKg(set.prescribedWeightCentiKg ?: 0)} kg x " +
-                            "${set.prescribedReps ?: "-"} -> " +
-                            "${formatCentiKg(set.actualWeightCentiKg ?: 0)} kg x ${set.actualReps ?: "-"}",
+                            set.trackingText(exercise.exercise.trackingModeSnapshot, actual = false) + " -> " +
+                            set.trackingText(exercise.exercise.trackingModeSnapshot),
                         loggedWeightCentiKg = set.actualWeightCentiKg
                             ?: exercise.exercise.prescribedWeightCentiKgSnapshot,
                         loggedReps = set.actualReps ?: exercise.exercise.targetRepsSnapshot,
@@ -1348,15 +1352,17 @@ private data class FinishProgressionReviewItem(
     val changedSetText: String,
     val loggedWeightCentiKg: Int,
     val loggedReps: Int,
+    val trackingMode: TrackingMode,
 )
 
 private data class CurrentSetFocus(
     val exerciseName: String,
     val set: SessionSetEntity,
+    val trackingMode: TrackingMode,
 )
 
 private fun WorkoutSessionWithDetails.currentSetFocus(): CurrentSetFocus? {
     val actionable = WorkoutNotificationProjector.nextActionableSet(this) ?: return null
     val set = exercises.flatMap { it.sets }.first { it.id == actionable.setId }
-    return CurrentSetFocus(actionable.exerciseName, set)
+    return CurrentSetFocus(actionable.exerciseName, set, actionable.trackingMode)
 }

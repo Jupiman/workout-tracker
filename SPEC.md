@@ -3584,6 +3584,15 @@ Acceptance:
 
 STOP after Phase 4.
 
+### Phase 4 implementation decisions
+
+- Added `TrackingMode` to each WorkoutTemplateExercise and snapshotted it into SessionExercise. Existing rows migrate to `WEIGHT_REPS`; the Room schema is version 6.
+- `WEIGHT_REPS` keeps the existing double-progression algorithm. `REPS` stores no logged weight, advances reps through the configured range, then holds at repMax. `DURATION` stores explicit target and actual seconds without using reps as a substitute. At the user's request, duration has a configurable nonnegative increment in seconds: all planned working sets must complete at or above their prescribed seconds to advance the next target once at finish. Zero (the default) keeps the target fixed. Skips/misses hold the target; session-only exercises do not update a Program. A target edited in the Program during the session is preserved.
+- Program Add and Edit, and Add exercise for today, expose a Tracking picker. Duration hides rep min/max and weight, uses Target seconds and Increment seconds (Program only); reps-only hides weight and weight increment. Warm-ups and drop sets require weight + reps; reps supports per-set rep targets; duration supports extra timed sets. Switching a template's mode clears incompatible warm-ups and per-set overrides while preserving active and historical snapshots.
+- Active set logging, collapsed sets, Last Time, History, completion summaries, notifications, and Wear render the snapshot's units. Phone logging accepts actual seconds; notification/Wear completion uses prescribed seconds. Wear state format 2 includes tracking mode and seconds; its reader also accepts legacy state format 1. Command formats are unchanged.
+- Database migrations 5→6 (tracking) and 6→7 (duration increments) preserve existing installations. Backup format version 3/schema 7 preserves all new fields. Format 1/schema 5 restores with WEIGHT_REPS defaults; format 2/schema 6 retains its tracking data and defaults duration increment to zero.
+- No additional tracking modes, motion detection, automatic rep counting, or timer-based duration detection were added. Phase 5 remains unimplemented.
+
 ## 57.5 Exercise progress and graph
 
 Add a useful progress view for a specific exercise progression track.

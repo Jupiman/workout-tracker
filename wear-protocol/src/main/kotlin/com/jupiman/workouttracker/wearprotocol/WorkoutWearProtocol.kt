@@ -19,6 +19,7 @@ enum class WearSessionStatus {
     WORKOUT_COMPLETE,
     UNAVAILABLE,
 }
+enum class WearTrackingMode { WEIGHT_REPS, REPS, DURATION }
 
 data class WorkoutWearState(
     val sessionId: Long?,
@@ -27,6 +28,8 @@ data class WorkoutWearState(
     val exerciseName: String?,
     val weightCentiKg: Int?,
     val targetReps: Int?,
+    val trackingMode: WearTrackingMode = WearTrackingMode.WEIGHT_REPS,
+    val targetDurationSeconds: Int? = null,
     val setLabel: String?,
     val setNumber: Int?,
     val totalSets: Int?,
@@ -48,6 +51,8 @@ data class WorkoutWearState(
                 exerciseName = null,
                 weightCentiKg = null,
                 targetReps = null,
+                trackingMode = WearTrackingMode.WEIGHT_REPS,
+                targetDurationSeconds = null,
                 setLabel = null,
                 setNumber = null,
                 totalSets = null,
@@ -66,6 +71,8 @@ data class WorkoutWearState(
                 exerciseName = null,
                 weightCentiKg = null,
                 targetReps = null,
+                trackingMode = WearTrackingMode.WEIGHT_REPS,
+                targetDurationSeconds = null,
                 setLabel = null,
                 setNumber = null,
                 totalSets = null,
@@ -112,13 +119,15 @@ object WorkoutWearCodecs {
 
     fun encodeState(state: WorkoutWearState): ByteArray =
         writeBytes {
-            writeInt(VERSION)
+            writeInt(2)
             writeNullableLong(state.sessionId)
             writeInt(state.sessionStatus.ordinal)
             writeNullableLong(state.currentSetId)
             writeNullableString(state.exerciseName)
             writeNullableInt(state.weightCentiKg)
             writeNullableInt(state.targetReps)
+            writeInt(state.trackingMode.ordinal)
+            writeNullableInt(state.targetDurationSeconds)
             writeNullableString(state.setLabel)
             writeNullableInt(state.setNumber)
             writeNullableInt(state.totalSets)
@@ -131,7 +140,8 @@ object WorkoutWearCodecs {
 
     fun decodeState(bytes: ByteArray): WorkoutWearState =
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
-            input.requireVersion()
+            val version = input.readInt()
+            require(version in 1..2) { "Unsupported Wear state version $version." }
             WorkoutWearState(
                 sessionId = input.readNullableLong(),
                 sessionStatus = WearSessionStatus.entries[input.readInt()],
@@ -139,6 +149,8 @@ object WorkoutWearCodecs {
                 exerciseName = input.readNullableString(),
                 weightCentiKg = input.readNullableInt(),
                 targetReps = input.readNullableInt(),
+                trackingMode = if (version >= 2) WearTrackingMode.entries[input.readInt()] else WearTrackingMode.WEIGHT_REPS,
+                targetDurationSeconds = if (version >= 2) input.readNullableInt() else null,
                 setLabel = input.readNullableString(),
                 setNumber = input.readNullableInt(),
                 totalSets = input.readNullableInt(),

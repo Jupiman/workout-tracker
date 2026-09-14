@@ -46,4 +46,7 @@ data class WorkoutTemplateExerciseEntity(
     val restSeconds: Int,
     val setupNote: String = "",
     val supersetGroupId: Long? = null,
+    val trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
+    val targetDurationSeconds: Int? = null,
+    val durationIncrementSeconds: Int = 0,
 )

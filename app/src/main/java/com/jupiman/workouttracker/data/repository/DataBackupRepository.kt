@@ -33,10 +33,12 @@ class DataBackupRepository(
         val text = inputStream.bufferedReader().use { it.readText() }
         val backup = JSONObject(text)
         require(backup.optString("app") == BACKUP_APP) { "This is not a Workout Companion backup." }
-        require(backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
+        val legacy = backup.optInt("formatVersion") == 1 && backup.optInt("schemaVersion") == 5
+        val initialTracking = backup.optInt("formatVersion") == 2 && backup.optInt("schemaVersion") == 6
+        require(legacy || initialTracking || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
             "Unsupported backup format."
         }
-        require(backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
+        require(legacy || initialTracking || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
             "Backup schema does not match this app version."
         }
 
@@ -50,10 +52,19 @@ class DataBackupRepository(
             BACKUP_TABLES.forEach { table ->
                 val rows = tables.optJSONArray(table.name) ?: JSONArray()
                 for (index in 0 until rows.length()) {
+                    val row = rows.getJSONObject(index)
+                    if (legacy) {
+                        if (table.name == "workout_template_exercises") row.put("trackingMode", "WEIGHT_REPS").put("durationIncrementSeconds", 0)
+                        if (table.name == "session_exercises") row.put("trackingModeSnapshot", "WEIGHT_REPS").put("durationIncrementSecondsSnapshot", 0)
+                    }
+                    if (initialTracking) {
+                        if (table.name == "workout_template_exercises") row.put("durationIncrementSeconds", 0)
+                        if (table.name == "session_exercises") row.put("durationIncrementSecondsSnapshot", 0)
+                    }
                     db.insert(
                         table.name,
                         SQLiteDatabase.CONFLICT_ABORT,
-                        rows.getJSONObject(index).toContentValues(),
+                        row.toContentValues(),
                     )
                 }
             }
@@ -127,8 +138,8 @@ class DataBackupRepository(
 
     private companion object {
         const val BACKUP_APP = "Workout Companion"
-        const val BACKUP_FORMAT_VERSION = 1
-        const val BACKUP_SCHEMA_VERSION = 5
+        const val BACKUP_FORMAT_VERSION = 3
+        const val BACKUP_SCHEMA_VERSION = 7
 
         val BACKUP_TABLES = listOf(
             BackupTable("exercises"),

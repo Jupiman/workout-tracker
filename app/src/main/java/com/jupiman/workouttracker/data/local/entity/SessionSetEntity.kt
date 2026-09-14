@@ -47,4 +47,6 @@ data class SessionSetEntity(
     val actualReps: Int? = null,
     val status: SessionSetStatus = SessionSetStatus.PENDING,
     val completedAt: Long? = null,
+    val prescribedDurationSeconds: Int? = null,
+    val actualDurationSeconds: Int? = null,
 )

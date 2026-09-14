@@ -7,6 +7,11 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 
 class WorkoutTypeConverters {
     @TypeConverter
+    fun toTrackingMode(value: String) = com.jupiman.workouttracker.data.local.entity.TrackingMode.valueOf(value)
+
+    @TypeConverter
+    fun fromTrackingMode(value: com.jupiman.workouttracker.data.local.entity.TrackingMode) = value.name
+    @TypeConverter
     fun toWorkoutSessionStatus(value: String): WorkoutSessionStatus = WorkoutSessionStatus.valueOf(value)
 
     @TypeConverter
@@ -24,4 +29,3 @@ class WorkoutTypeConverters {
     @TypeConverter
     fun fromSetType(value: SetType): String = value.name
 }
-
