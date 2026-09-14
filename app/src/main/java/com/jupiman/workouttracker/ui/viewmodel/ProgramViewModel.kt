@@ -10,6 +10,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 import com.jupiman.workouttracker.data.repository.ExerciseRepository
+import com.jupiman.workouttracker.data.repository.ExerciseProgressRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.TemplateExerciseConfig
 import com.jupiman.workouttracker.data.repository.parseCentiKg
@@ -23,6 +24,7 @@ import kotlinx.coroutines.launch
 class ProgramViewModel(
     private val programRepository: ProgramRepository,
     private val exerciseRepository: ExerciseRepository,
+    private val exerciseProgressRepository: ExerciseProgressRepository,
 ) : ViewModel() {
     val programs: StateFlow<List<ProgramEntity>> = programRepository.programs.stateIn(
         scope = viewModelScope,
@@ -56,6 +58,11 @@ class ProgramViewModel(
 
     fun templateWarmupSets(workoutTemplateExerciseId: Long): Flow<List<WorkoutTemplateWarmupSetEntity>> =
         programRepository.templateWarmupSets(workoutTemplateExerciseId)
+
+    fun progressTracks(exerciseId: Long) = exerciseProgressRepository.tracksForExercise(exerciseId)
+
+    fun progressSessions(workoutTemplateExerciseId: Long) =
+        exerciseProgressRepository.sessionsForTrack(workoutTemplateExerciseId)
 
     fun clearMessage() {
         _message.value = null

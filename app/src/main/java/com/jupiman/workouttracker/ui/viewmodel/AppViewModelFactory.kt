@@ -21,6 +21,7 @@ class AppViewModelFactory(
                 ProgramViewModel(
                     programRepository = container.programRepository,
                     exerciseRepository = container.exerciseRepository,
+                    exerciseProgressRepository = container.exerciseProgressRepository,
                 ) as T
             }
             modelClass.isAssignableFrom(HistoryViewModel::class.java) -> {

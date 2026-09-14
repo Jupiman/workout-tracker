@@ -3727,6 +3727,14 @@ Acceptance:
 
 STOP after Phase 5.
 
+### Phase 5 implementation decisions
+
+Progress is opened from the global Exercise Library and remains scoped to one exact `WorkoutTemplateExercise` identity. When a library exercise belongs to multiple training days, the progress screen presents each Program and Training Day as a separate selectable track. The current target comes from that track's live progression state.
+
+The chart is implemented with Compose drawing primitives and adds no chart dependency. It shows at most the 12 most recent qualifying points for the track's current tracking mode: top completed progression-eligible planned working-set weight for WEIGHT_REPS, best completed progression-eligible planned working-set reps for REPS, and best completed planned working-set duration for DURATION. Warm-up, extra, AMRAP, drop, skipped, pending, and other non-qualifying sets do not affect the graph.
+
+Progress history is derived from completed and partial session snapshots by exact `sourceWorkoutTemplateExerciseId`. Each recent-session card retains its snapshot tracking mode and shows the same historical sets stored for History, so changing the current Program configuration does not alter or hide older session detail. Historical points from a previous tracking mode remain in the detail list but are not mixed into a graph with a different unit. No database schema or backup-format change is required.
+
 ## 57.6 Visual polish
 
 Perform a screen-by-screen visual quality pass.

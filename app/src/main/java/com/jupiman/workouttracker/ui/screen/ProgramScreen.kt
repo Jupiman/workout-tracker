@@ -120,6 +120,7 @@ fun ProgramScreen(
     var selectedDayId by rememberSaveable { mutableStateOf<Long?>(null) }
     var selectNewestProgramWhenAvailable by rememberSaveable { mutableStateOf(false) }
     var selectNewestDayWhenAvailable by rememberSaveable { mutableStateOf(false) }
+    var progressExerciseId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val selectedProgram = programs.firstOrNull { it.id == selectedProgramId }
     val templatesFlow = remember(selectedProgramId) {
@@ -127,6 +128,7 @@ fun ProgramScreen(
     }
     val templates by templatesFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val selectedDay = templates.firstOrNull { it.id == selectedDayId }
+    val progressExercise = exercises.firstOrNull { it.id == progressExerciseId }
 
     LaunchedEffect(message) {
         val currentMessage = message ?: return@LaunchedEffect
@@ -164,6 +166,17 @@ fun ProgramScreen(
                 selectedDayId = templates.firstOrNull()?.id
             }
         }
+    }
+
+    if (progressExercise != null) {
+        BackHandler { progressExerciseId = null }
+        ExerciseProgressScreen(
+            exercise = progressExercise,
+            viewModel = viewModel,
+            onBack = { progressExerciseId = null },
+            modifier = modifier,
+        )
+        return
     }
 
     Scaffold(
@@ -207,6 +220,7 @@ fun ProgramScreen(
                 ProgramDestinationTab.Exercises -> ExerciseLibraryScreen(
                     exercises = exercises,
                     viewModel = viewModel,
+                    onOpenProgress = { progressExerciseId = it },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -1062,6 +1076,7 @@ private fun SelectedDayExerciseList(
 private fun ExerciseLibraryScreen(
     exercises: List<ExerciseEntity>,
     viewModel: ProgramViewModel,
+    onOpenProgress: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
@@ -1127,6 +1142,7 @@ private fun ExerciseLibraryScreen(
                     ExerciseLibraryRow(
                         exercise = exercise,
                         onRename = { exerciseToRename = exercise.id },
+                        onProgress = { onOpenProgress(exercise.id) },
                         onArchive = { viewModel.archiveExercise(exercise.id) },
                     )
                 }
@@ -1170,6 +1186,7 @@ private fun ExerciseLibraryScreen(
 private fun ExerciseLibraryRow(
     exercise: ExerciseEntity,
     onRename: () -> Unit,
+    onProgress: () -> Unit,
     onArchive: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -1183,6 +1200,9 @@ private fun ExerciseLibraryRow(
                 fontWeight = FontWeight.SemiBold,
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onProgress) {
+                    Text("Progress")
+                }
                 TextButton(onClick = onRename) {
                     Text("Rename")
                 }

@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.first
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -509,6 +510,31 @@ class ProgramRepositoryTest {
         assertEquals("Bench Press", editorItems.first { it.id == source.id }.exerciseName)
         assertEquals("Incline Bench Press", editorItems.first { it.id == copy.id }.exerciseName)
         assertEquals(false, source.exerciseId == copy.exerciseId)
+    }
+
+    @Test
+    fun progressTracksKeepSameLibraryExerciseSeparateByTrainingDay() = runTest {
+        val firstProgramId = repository.createProgram("Push")
+        val firstDayId = repository.createWorkoutTemplate(firstProgramId, "Day A")
+        val firstTrackId = repository.createExerciseAndAddToWorkout(
+            workoutTemplateId = firstDayId,
+            exerciseName = "Bench Press",
+            config = config(restSeconds = 180),
+        )
+        val exerciseId = database.workoutTemplateExerciseDao().getById(firstTrackId)!!.exerciseId
+        val secondProgramId = repository.createProgram("Strength")
+        val secondDayId = repository.createWorkoutTemplate(secondProgramId, "Day C")
+        val secondTrackId = repository.addExistingExerciseToWorkout(
+            workoutTemplateId = secondDayId,
+            exerciseId = exerciseId,
+            config = config(restSeconds = 120).copy(currentWeightCentiKg = 9_000),
+        )
+
+        val tracks = database.workoutTemplateExerciseDao().observeProgressTracksForExercise(exerciseId).first()
+
+        assertEquals(setOf(firstTrackId, secondTrackId), tracks.map { it.workoutTemplateExerciseId }.toSet())
+        assertEquals(setOf("Push · Day A", "Strength · Day C"), tracks.map { "${it.programName} · ${it.workoutName}" }.toSet())
+        assertEquals(9_000, tracks.first { it.workoutTemplateExerciseId == secondTrackId }.currentWeightCentiKg)
     }
 
     private suspend fun seedTwoExerciseTemplate(secondPlannedWorkingSets: Int = 3): TwoExerciseTemplateSeed {
