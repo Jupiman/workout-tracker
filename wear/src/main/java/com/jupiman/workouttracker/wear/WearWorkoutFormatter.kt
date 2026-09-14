@@ -1,5 +1,7 @@
 package com.jupiman.workouttracker.wear
 
+import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
+import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
 import kotlin.math.max
 
 fun formatCentiKg(centiKg: Int): String {
@@ -11,6 +13,12 @@ fun formatCentiKg(centiKg: Int): String {
         val tenths = fraction / 10
         if (fraction % 10 == 0) "$whole.$tenths" else "$whole.${fraction.toString().padStart(2, '0')}"
     }
+}
+
+fun targetText(state: WorkoutWearState): String = when (state.trackingMode) {
+    WearTrackingMode.WEIGHT_REPS -> "${formatCentiKg(state.weightCentiKg ?: 0)} kg x ${state.targetReps ?: 0}"
+    WearTrackingMode.REPS -> "${state.targetReps ?: 0} reps"
+    WearTrackingMode.DURATION -> "${state.targetDurationSeconds ?: 0} sec"
 }
 
 fun restText(

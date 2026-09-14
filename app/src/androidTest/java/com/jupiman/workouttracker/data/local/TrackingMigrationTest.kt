@@ -45,4 +45,39 @@ class TrackingMigrationTest {
             }
         }
     }
+
+    @Test
+    fun versionSixTrackingDataSurvivesDurationIncrementMigration() {
+        val name = "duration-increment-migration-test"
+        helper.createDatabase(name, 6).apply {
+            execSQL("INSERT INTO programs VALUES (1, 'Program', 1, 0, 1000)")
+            execSQL("INSERT INTO exercises VALUES (1, 'Plank', 0, 1000)")
+            execSQL("INSERT INTO workout_templates VALUES (1, 1, 'Day', 0)")
+            execSQL("INSERT INTO workout_template_exercises (id, workoutTemplateId, exerciseId, sortOrder, plannedWorkingSets, repMin, repMax, incrementCentiKg, restSeconds, setupNote, trackingMode, targetDurationSeconds) VALUES (1, 1, 1, 0, 3, 1, 1, 250, 60, 'Elbows down', 'DURATION', 45)")
+            execSQL("INSERT INTO workout_sessions VALUES (1, 1, 1, 'Program', 'Day', 1000, NULL, 'ACTIVE', NULL, 0)")
+            execSQL("INSERT INTO session_exercises (id, sessionId, sourceWorkoutTemplateExerciseId, exerciseNameSnapshot, sortOrderSnapshot, plannedSetCountSnapshot, repMinSnapshot, repMaxSnapshot, targetRepsSnapshot, prescribedWeightCentiKgSnapshot, incrementCentiKgSnapshot, restSecondsSnapshot, setupNoteSnapshot, supersetGroupSnapshot, supersetRestSecondsSnapshot, trackingModeSnapshot, targetDurationSecondsSnapshot) VALUES (1, 1, 1, 'Plank', 0, 3, 1, 1, 1, 0, 250, 60, 'Elbows down', NULL, NULL, 'DURATION', 45)")
+            execSQL("INSERT INTO session_sets (id, sessionExerciseId, setOrder, setType, isPlanned, countsForProgression, prescribedWeightCentiKg, prescribedReps, actualWeightCentiKg, actualReps, status, completedAt, prescribedDurationSeconds, actualDurationSeconds) VALUES (1, 1, 0, 'WORKING', 1, 0, NULL, NULL, NULL, NULL, 'COMPLETED', 2000, 45, 50)")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(name, 7, true, WorkoutTrackerDatabase.MIGRATION_6_7).use { db ->
+            db.query("SELECT trackingMode, targetDurationSeconds, durationIncrementSeconds FROM workout_template_exercises").use {
+                assertTrue(it.moveToFirst())
+                assertEquals("DURATION", it.getString(0))
+                assertEquals(45, it.getInt(1))
+                assertEquals(0, it.getInt(2))
+            }
+            db.query("SELECT trackingModeSnapshot, targetDurationSecondsSnapshot, durationIncrementSecondsSnapshot FROM session_exercises").use {
+                assertTrue(it.moveToFirst())
+                assertEquals("DURATION", it.getString(0))
+                assertEquals(45, it.getInt(1))
+                assertEquals(0, it.getInt(2))
+            }
+            db.query("SELECT prescribedDurationSeconds, actualDurationSeconds FROM session_sets").use {
+                assertTrue(it.moveToFirst())
+                assertEquals(45, it.getInt(0))
+                assertEquals(50, it.getInt(1))
+            }
+        }
+    }
 }
