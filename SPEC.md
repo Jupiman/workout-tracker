@@ -2889,6 +2889,92 @@ Superset action rules:
 
 ---
 
+## 54.18 Seeded Exercise Library
+
+Fresh installs should start with a small useful Exercise Library without turning the app into a large exercise database.
+
+Seed rules:
+
+- seed only when Room creates a genuinely new application database
+- use Room's database creation callback rather than checking whether the Exercise table is empty at startup
+- do not seed during normal app startup, restore, migration, or after the user intentionally empties the library
+- do not add Exercise metadata such as category, muscle group, equipment, source, or default flags
+- seeded exercises are ordinary `Exercise` rows and can be used, renamed, archived, and selected exactly like user-created exercises
+- no Room schema change or migration is required
+
+The default Exercise Library contains these canonical names:
+
+- Bench Press
+- Incline Bench Press
+- Dumbbell Bench Press
+- Incline Dumbbell Press
+- Machine Chest Press
+- Pec Deck
+- Cable Fly
+- Push-Up
+- Lat Pulldown
+- Pull-Up
+- Chin-Up
+- Seated Cable Row
+- Machine Row
+- Barbell Row
+- Dumbbell Row
+- Straight-Arm Pulldown
+- Face Pull
+- Overhead Press
+- Dumbbell Shoulder Press
+- Machine Shoulder Press
+- Dumbbell Lateral Raise
+- Cable Lateral Raise
+- Rear Delt Fly
+- Barbell Curl
+- Dumbbell Curl
+- Hammer Curl
+- Cable Curl
+- Preacher Curl
+- Triceps Pushdown
+- Overhead Triceps Extension
+- Skull Crusher
+- Dip
+- Close-Grip Bench Press
+- Squat
+- Front Squat
+- Hack Squat
+- Leg Press
+- Leg Extension
+- Leg Curl
+- Romanian Deadlift
+- Deadlift
+- Hip Thrust
+- Bulgarian Split Squat
+- Walking Lunge
+- Standing Calf Raise
+- Seated Calf Raise
+- Cable Crunch
+- Hanging Leg Raise
+- Crunch
+- Plank
+
+Exercise search rules:
+
+- the Exercise Library screen exposes simple local search
+- the Add Exercise flow uses one `Exercise name` field for both custom names and existing-exercise search
+- typing in the Add Exercise field filters existing exercises immediately
+- matching existing exercises appear as an overlay/autocomplete list and must not push the remaining configuration fields down
+- selecting an existing exercise fills the same field
+- editing the filled field after selection treats the typed value as a custom exercise name
+- search uses case-insensitive substring matching
+- search works the same for seeded and custom exercises
+- no fuzzy search, tags, aliases, categories, ranking, FTS, or external database is added
+
+Backup/restore rules:
+
+- restore replaces the Exercise Library with the backup contents
+- default exercises must not be appended after restore
+- restart after restore must not trigger default seeding
+
+---
+
 # 55. Development rules for the coding agent
 
 Before implementing a major feature:

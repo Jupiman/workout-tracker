@@ -69,8 +69,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
@@ -82,6 +85,7 @@ import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditor
 import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
+import com.jupiman.workouttracker.ui.filterByExerciseSearchQuery
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
@@ -1059,6 +1063,8 @@ private fun ExerciseLibraryScreen(
 ) {
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
     var exerciseToRename by rememberSaveable { mutableStateOf<Long?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val filteredExercises = exercises.filterByExerciseSearchQuery(searchQuery)
     val renameExercise = exercises.firstOrNull { it.id == exerciseToRename }
 
     LazyColumn(
@@ -1076,6 +1082,24 @@ private fun ExerciseLibraryScreen(
                 Text("Create exercise")
             }
         }
+        if (exercises.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Search exercises") },
+                        singleLine = true,
+                    )
+                    if (searchQuery.isNotBlank()) {
+                        TextButton(onClick = { searchQuery = "" }) {
+                            Text("Clear search")
+                        }
+                    }
+                }
+            }
+        }
         if (exercises.isEmpty()) {
             item {
                 EmptyStateCard(
@@ -1085,8 +1109,17 @@ private fun ExerciseLibraryScreen(
                     onAction = { showCreateDialog = true },
                 )
             }
+        } else if (filteredExercises.isEmpty()) {
+            item {
+                EmptyStateCard(
+                    title = "No matching exercises",
+                    body = "Clear the search or create a custom exercise.",
+                    actionLabel = "Create exercise",
+                    onAction = { showCreateDialog = true },
+                )
+            }
         } else {
-            exercises.forEach { exercise ->
+            filteredExercises.forEach { exercise ->
                 item(key = exercise.id) {
                     ExerciseLibraryRow(
                         exercise = exercise,
@@ -2637,7 +2670,7 @@ private fun AddExerciseDialog(
     onDismiss: () -> Unit,
 ) {
     var selectedExerciseId by rememberSaveable(workoutTemplateId) { mutableStateOf<Long?>(null) }
-    var newExerciseName by rememberSaveable(workoutTemplateId) { mutableStateOf("") }
+    var exerciseName by rememberSaveable(workoutTemplateId) { mutableStateOf("") }
     var sets by rememberSaveable(workoutTemplateId) { mutableStateOf("3") }
     var repMin by rememberSaveable(workoutTemplateId) { mutableStateOf("8") }
     var repMax by rememberSaveable(workoutTemplateId) { mutableStateOf("12") }
@@ -2655,12 +2688,13 @@ private fun AddExerciseDialog(
                 selectedExerciseId = selectedExerciseId,
                 onSelectedExerciseChange = {
                     selectedExerciseId = it
-                    newExerciseName = ""
+                    exerciseName = exercises.firstOrNull { exercise -> exercise.id == it }?.name.orEmpty()
                 },
-                newExerciseName = newExerciseName,
-                onNewExerciseNameChange = {
-                    newExerciseName = it
-                    if (it.isNotBlank()) selectedExerciseId = null
+                exerciseName = exerciseName,
+                onExerciseNameChange = { name ->
+                    exerciseName = name
+                    val selectedExercise = exercises.firstOrNull { exercise -> exercise.id == selectedExerciseId }
+                    if (selectedExercise?.name != name) selectedExerciseId = null
                 },
                 sets = sets,
                 onSetsChange = { sets = it },
@@ -2681,7 +2715,8 @@ private fun AddExerciseDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (newExerciseName.isBlank()) {
+                    val selectedExercise = exercises.firstOrNull { exercise -> exercise.id == selectedExerciseId }
+                    if (selectedExercise != null && exerciseName.trim() == selectedExercise.name) {
                         viewModel.addExistingExerciseToWorkout(
                             workoutTemplateId = workoutTemplateId,
                             exerciseId = selectedExerciseId,
@@ -2696,7 +2731,7 @@ private fun AddExerciseDialog(
                     } else {
                         viewModel.createExerciseAndAddToWorkout(
                             workoutTemplateId = workoutTemplateId,
-                            exerciseName = newExerciseName,
+                            exerciseName = exerciseName,
                             sets = sets,
                             repMin = repMin,
                             repMax = repMax,
@@ -2725,8 +2760,8 @@ private fun AddExerciseDialogContent(
     exercises: List<ExerciseEntity>,
     selectedExerciseId: Long?,
     onSelectedExerciseChange: (Long?) -> Unit,
-    newExerciseName: String,
-    onNewExerciseNameChange: (String) -> Unit,
+    exerciseName: String,
+    onExerciseNameChange: (String) -> Unit,
     sets: String,
     onSetsChange: (String) -> Unit,
     repMin: String,
@@ -2742,35 +2777,53 @@ private fun AddExerciseDialogContent(
     restSeconds: String,
     onRestSecondsChange: (String) -> Unit,
 ) {
-    var exerciseMenuExpanded by remember { mutableStateOf(false) }
+    var dismissedSuggestionQuery by remember { mutableStateOf<String?>(null) }
+    var exerciseNameField by remember {
+        mutableStateOf(TextFieldValue(text = exerciseName, selection = TextRange(exerciseName.length)))
+    }
+    LaunchedEffect(exerciseName) {
+        if (exerciseName != exerciseNameField.text) {
+            exerciseNameField = TextFieldValue(
+                text = exerciseName,
+                selection = TextRange(exerciseName.length),
+            )
+        }
+    }
     val selectedExercise = exercises.firstOrNull { it.id == selectedExerciseId }
+    val selectedExerciseUnmodified = selectedExercise != null && exerciseName == selectedExercise.name
+    val matchingExercises = exercises
+        .filterByExerciseSearchQuery(exerciseName)
+        .take(6)
+    val suggestionsExpanded = exerciseName.isNotBlank() &&
+        !selectedExerciseUnmodified &&
+        matchingExercises.isNotEmpty() &&
+        dismissedSuggestionQuery != exerciseName
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = newExerciseName,
-            onValueChange = onNewExerciseNameChange,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Exercise name") },
-            singleLine = true,
-        )
         Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { exerciseMenuExpanded = true },
+            OutlinedTextField(
+                value = exerciseNameField,
+                onValueChange = { value ->
+                    dismissedSuggestionQuery = null
+                    exerciseNameField = value
+                    onExerciseNameChange(value.text)
+                },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = exercises.isNotEmpty(),
-            ) {
-                Text(selectedExercise?.name ?: "Choose existing")
-            }
+                label = { Text("Exercise name") },
+                singleLine = true,
+            )
             DropdownMenu(
-                expanded = exerciseMenuExpanded,
-                onDismissRequest = { exerciseMenuExpanded = false },
+                expanded = suggestionsExpanded,
+                onDismissRequest = { dismissedSuggestionQuery = exerciseName },
+                modifier = Modifier.fillMaxWidth(),
+                properties = PopupProperties(focusable = false),
             ) {
-                exercises.forEach { exercise ->
+                matchingExercises.forEach { exercise ->
                     DropdownMenuItem(
                         text = { Text(exercise.name) },
                         onClick = {
+                            dismissedSuggestionQuery = null
                             onSelectedExerciseChange(exercise.id)
-                            exerciseMenuExpanded = false
                         },
                     )
                 }

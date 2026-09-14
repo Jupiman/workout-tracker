@@ -20,6 +20,7 @@ class AppContainer(context: Context) {
         WorkoutTrackerDatabase::class.java,
         "workout_tracker.db",
     )
+        .addCallback(WorkoutTrackerDatabase.SEED_DEFAULT_EXERCISES_ON_CREATE)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_1_2)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_2_3)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_3_4)

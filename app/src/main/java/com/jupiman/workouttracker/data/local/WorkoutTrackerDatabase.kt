@@ -60,6 +60,12 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
     abstract fun sessionSetDao(): SessionSetDao
 
     companion object {
+        val SEED_DEFAULT_EXERCISES_ON_CREATE = object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                DefaultExerciseSeeder.seed(db)
+            }
+        }
+
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP INDEX IF EXISTS index_workout_templates_programId_sortOrder")

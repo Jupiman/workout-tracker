@@ -4,7 +4,7 @@ Workout Companion is a local-first Android workout tracker with a Wear OS compan
 
 ## Features
 
-- Create and manage a reusable exercise library.
+- Start from a curated exercise library of common gym movements, then rename, archive, or add custom exercises as needed.
 - Build training programs with multiple training days.
 - Configure each exercise with sets, target reps, rep range, working weight, increment, rest time, setup notes, per-set targets, and warm-up schemes.
 - Duplicate training days and exercise configurations without sharing mutable progression state.
@@ -80,4 +80,3 @@ Workout Companion stores workout data locally in the app database. Backup and re
 ## Current Status
 
 This repository represents the MVP version described in `SPEC.md`. The current focus is reliability: fast logging, correct progression, stable rest timing, Wear OS companion behavior, readable history, and immutable workout snapshots.
-
