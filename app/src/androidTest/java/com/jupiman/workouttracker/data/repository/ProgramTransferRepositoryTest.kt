@@ -149,6 +149,37 @@ class ProgramTransferRepositoryTest {
     }
 
     @Test
+    fun roundTripPreservesFixedRepRange() = runTest {
+        val sourceProgramId = createCompleteSourceProgram()
+        val sourceExerciseId = firstSourceTemplateExerciseId(sourceProgramId)
+        val sourceExercise = sourceDatabase.workoutTemplateExerciseDao().getById(sourceExerciseId)!!
+        val editorItem = sourceDatabase.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(sourceExercise.workoutTemplateId)
+            .first { it.id == sourceExerciseId }
+        sourcePrograms.updateTemplateExercise(
+            item = editorItem,
+            config = weightedConfig().copy(
+                repMin = 8,
+                repMax = 8,
+                currentTargetReps = 8,
+            ),
+            setupNote = editorItem.setupNote,
+        )
+
+        val imported = ProgramTransferRepository(targetDatabase).importProgram(
+            ByteArrayInputStream(exportSourceProgram(sourceProgramId)),
+        )
+        val importedExerciseId = firstTemplateExerciseId(imported.id)
+        val importedExercise = targetDatabase.workoutTemplateExerciseDao().getById(importedExerciseId)!!
+        val importedProgression = targetDatabase.progressionStateDao()
+            .getForTemplateExercise(importedExerciseId)!!
+
+        assertEquals(8, importedExercise.repMin)
+        assertEquals(8, importedExercise.repMax)
+        assertEquals(8, importedProgression.currentTargetReps)
+    }
+
+    @Test
     fun legacyVersionOnePercentageWarmupsStillImport() = runTest {
         val programId = createCompleteSourceProgram()
         val sourceExerciseId = firstSourceTemplateExerciseId(programId)

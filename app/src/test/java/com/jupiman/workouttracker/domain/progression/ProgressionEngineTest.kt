@@ -9,6 +9,65 @@ import org.junit.Test
 
 class ProgressionEngineTest {
     @Test
+    fun fixedRepWeightedSuccessIncrementsWeightAndKeepsRepsFixed() {
+        val first = ProgressionEngine.evaluate(
+            config = config(weight = 7000, targetReps = 8, repMin = 8, repMax = 8),
+            sets = plannedSuccessSets(weight = 7000, targetReps = 8),
+        )
+        val second = ProgressionEngine.evaluate(
+            config = config(
+                weight = first.nextWeightCentiKg,
+                targetReps = first.nextTargetReps,
+                repMin = 8,
+                repMax = 8,
+            ),
+            sets = plannedSuccessSets(weight = 7250, targetReps = 8),
+        )
+
+        assertTrue(first.progressed)
+        assertEquals(7250, first.nextWeightCentiKg)
+        assertEquals(8, first.nextTargetReps)
+        assertTrue(second.progressed)
+        assertEquals(7500, second.nextWeightCentiKg)
+        assertEquals(8, second.nextTargetReps)
+    }
+
+    @Test
+    fun fixedRepWeightedFailureOrSkipPreservesTarget() {
+        val fixedConfig = config(weight = 7000, targetReps = 8, repMin = 8, repMax = 8)
+        val failed = ProgressionEngine.evaluate(
+            config = fixedConfig,
+            sets = plannedSuccessSets(weight = 7000, targetReps = 8).mapIndexed { index, set ->
+                if (index == 2) set.copy(actualReps = 7) else set
+            },
+        )
+        val skipped = ProgressionEngine.evaluate(
+            config = fixedConfig,
+            sets = plannedSuccessSets(weight = 7000, targetReps = 8).mapIndexed { index, set ->
+                if (index == 2) set.copy(status = SessionSetStatus.SKIPPED) else set
+            },
+        )
+
+        listOf(failed, skipped).forEach { result ->
+            assertFalse(result.progressed)
+            assertEquals(7000, result.nextWeightCentiKg)
+            assertEquals(8, result.nextTargetReps)
+        }
+    }
+
+    @Test
+    fun fixedRepRepsModeRemainsFixedAfterSuccess() {
+        val result = ProgressionEngine.evaluate(
+            config = ProgressionConfig(0, 10, 10, 10, 250, TrackingMode.REPS),
+            sets = List(3) { ProgressionSet(true, null, 10, null, 10, SessionSetStatus.COMPLETED) },
+        )
+
+        assertFalse(result.progressed)
+        assertEquals(0, result.nextWeightCentiKg)
+        assertEquals(10, result.nextTargetReps)
+    }
+
+    @Test
     fun repsModeAdvancesThenHoldsAtRepMaxWithoutWeightIncrease() {
         val config = ProgressionConfig(0, 10, 8, 12, 250, TrackingMode.REPS)
         val sets = List(3) { ProgressionSet(true, null, 10, null, 10, SessionSetStatus.COMPLETED) }

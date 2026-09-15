@@ -57,6 +57,54 @@ class ProgramRepositoryTest {
     }
 
     @Test
+    fun creatingExerciseAcceptsFixedRepRange() = runTest {
+        val programId = repository.createProgram("Fixed reps")
+        val templateId = repository.createWorkoutTemplate(programId, "Day A")
+
+        val templateExerciseId = repository.createExerciseAndAddToWorkout(
+            workoutTemplateId = templateId,
+            exerciseName = "Bench Press",
+            config = config(restSeconds = 180).copy(
+                repMin = 8,
+                repMax = 8,
+                currentTargetReps = 8,
+            ),
+        )
+
+        val item = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(templateId)
+            .single { it.id == templateExerciseId }
+        assertEquals(8, item.repMin)
+        assertEquals(8, item.repMax)
+        assertEquals(8, item.currentTargetReps)
+    }
+
+    @Test
+    fun editingExerciseAcceptsFixedRepRange() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        val item = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+
+        repository.updateTemplateExercise(
+            item = item,
+            config = config(restSeconds = 180).copy(
+                repMin = 8,
+                repMax = 8,
+                currentTargetReps = 8,
+            ),
+            setupNote = item.setupNote,
+        )
+
+        val updated = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+        assertEquals(8, updated.repMin)
+        assertEquals(8, updated.repMax)
+        assertEquals(8, updated.currentTargetReps)
+    }
+
+    @Test
     fun supersetWithPreviousGroupsAdjacentMatchingExercises() = runTest {
         val seed = seedTwoExerciseTemplate()
 
@@ -440,6 +488,18 @@ class ProgramRepositoryTest {
     @Test
     fun fullBackupRoundTripPreservesAdvancedWarmups() = runTest {
         val seed = seedTwoExerciseTemplate()
+        val item = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+        repository.updateTemplateExercise(
+            item = item,
+            config = config(restSeconds = 180).copy(
+                repMin = 8,
+                repMax = 8,
+                currentTargetReps = 8,
+            ),
+            setupNote = item.setupNote,
+        )
         repository.saveWarmupScheme(
             seed.firstTemplateExerciseId,
             125,
@@ -456,6 +516,11 @@ class ProgramRepositoryTest {
         val restoredExercise = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
         val restoredWarmups = database.workoutTemplateWarmupSetDao()
             .getForTemplateExercise(seed.firstTemplateExerciseId)
+        val restoredProgression = database.progressionStateDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)!!
+        assertEquals(8, restoredExercise.repMin)
+        assertEquals(8, restoredExercise.repMax)
+        assertEquals(8, restoredProgression.currentTargetReps)
         assertEquals(125, restoredExercise.warmupRoundingCentiKg)
         assertEquals(listOf(WarmupLoadType.FIXED, WarmupLoadType.PERCENTAGE), restoredWarmups.map { it.loadType })
         assertEquals(listOf(2_000, null), restoredWarmups.map { it.fixedWeightCentiKg })

@@ -6,6 +6,38 @@ import org.junit.Test
 
 class TemplateExerciseConfigTest {
     @Test
+    fun createAcceptsFixedRepRange() {
+        val config = TemplateExerciseConfig(
+            plannedWorkingSets = 3,
+            repMin = 8,
+            repMax = 8,
+            incrementCentiKg = 250,
+            restSeconds = 180,
+            currentWeightCentiKg = 7000,
+            currentTargetReps = 8,
+        ).validatedForCreate()
+
+        assertEquals(8, config.repMin)
+        assertEquals(8, config.repMax)
+        assertEquals(8, config.currentTargetReps)
+    }
+
+    @Test
+    fun updateAcceptsFixedRepRangeAndKeepsTargetInsideIt() {
+        val config = TemplateExerciseConfig(
+            plannedWorkingSets = 3,
+            repMin = 8,
+            repMax = 8,
+            incrementCentiKg = 250,
+            restSeconds = 180,
+            currentWeightCentiKg = 7000,
+            currentTargetReps = 8,
+        ).validatedForUpdate()
+
+        assertEquals(8, config.currentTargetReps)
+    }
+
+    @Test
     fun createConfigRequiresTargetRepsInsideRange() {
         assertThrows(IllegalArgumentException::class.java) {
             TemplateExerciseConfig(

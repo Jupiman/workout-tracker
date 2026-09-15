@@ -4226,6 +4226,15 @@ Warm-up guidance is configuration assistance and makes no medical or injury-prev
 claim. Wear continues to receive the resolved session rows through the existing
 session protocol and requires no feature-specific UI or protocol change.
 
+Fixed rep ranges are valid for both weighted and reps-only exercises. Validation
+requires `repMin >= 1`, `repMax >= repMin`, and a current target within the range.
+For `WEIGHT_REPS`, success with `repMin == repMax` increases weight by the configured
+increment and keeps the fixed rep target; ordinary ranges retain double progression.
+For `REPS`, a successful fixed range keeps the same rep target because that mode has
+no weight progression. Failed or skipped progression-relevant sets preserve the
+current target, and non-progression sets remain ignored. Program transfer and full
+backup preserve equal minimum and maximum values without a schema change.
+
 STOP after Advanced Warm-up Schemes.
 
 ARCHITECTURE RULES

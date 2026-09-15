@@ -855,6 +855,41 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
+    fun fixedRepWeightedSessionsIncreaseWeightEachSuccessAndKeepSnapshots() = runTest {
+        val templateId = seedBenchWorkout(targetReps = 8, repMin = 8, repMax = 8)
+        val templateExerciseId = database.workoutTemplateExerciseDao()
+            .getForWorkoutTemplate(templateId).single().id
+
+        val firstSessionId = repository.startWorkout(templateId)
+        val firstSets = firstSessionSets(firstSessionId)
+        assertEquals(listOf(7000, 7000, 7000), firstSets.map { it.prescribedWeightCentiKg })
+        assertEquals(listOf(8, 8, 8), firstSets.map { it.prescribedReps })
+        completeAllSets(firstSessionId, actualWeight = 7000, actualReps = 8)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        var progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)!!
+        assertEquals(7250, progression.currentWeightCentiKg)
+        assertEquals(8, progression.currentTargetReps)
+
+        val secondSessionId = repository.startWorkout(templateId)
+        val secondSets = firstSessionSets(secondSessionId)
+        assertEquals(listOf(7250, 7250, 7250), secondSets.map { it.prescribedWeightCentiKg })
+        assertEquals(listOf(8, 8, 8), secondSets.map { it.prescribedReps })
+        completeAllSets(secondSessionId, actualWeight = 7250, actualReps = 8)
+        repository.finishActiveWorkout(allowPartial = false)
+
+        progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)!!
+        assertEquals(7500, progression.currentWeightCentiKg)
+        assertEquals(8, progression.currentTargetReps)
+        val historicalExercise = database.sessionExerciseDao().getForSession(firstSessionId).single()
+        assertEquals(8, historicalExercise.repMinSnapshot)
+        assertEquals(8, historicalExercise.repMaxSnapshot)
+        assertEquals(8, historicalExercise.targetRepsSnapshot)
+        assertEquals(7000, historicalExercise.prescribedWeightCentiKgSnapshot)
+        assertEquals(listOf(7000, 7000, 7000), firstSessionSets(firstSessionId).map { it.prescribedWeightCentiKg })
+    }
+
+    @Test
     fun finishCompletedWorkoutWithFailedSetDoesNotProgress() = runTest {
         val templateId = seedBenchWorkout(targetReps = 10)
         val templateExerciseId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().id
@@ -1838,7 +1873,11 @@ class WorkoutSessionRepositoryTest {
         return templateId
     }
 
-    private suspend fun seedBenchWorkout(targetReps: Int = 10): Long {
+    private suspend fun seedBenchWorkout(
+        targetReps: Int = 10,
+        repMin: Int = 8,
+        repMax: Int = 12,
+    ): Long {
         val now = 1_000L
         val programId = database.programDao().insert(
             ProgramEntity(name = "Current Program", active = true, createdAt = now),
@@ -1855,8 +1894,8 @@ class WorkoutSessionRepositoryTest {
                 exerciseId = exerciseId,
                 sortOrder = 0,
                 plannedWorkingSets = 3,
-                repMin = 8,
-                repMax = 12,
+                repMin = repMin,
+                repMax = repMax,
                 incrementCentiKg = 250,
                 restSeconds = 180,
             ),
