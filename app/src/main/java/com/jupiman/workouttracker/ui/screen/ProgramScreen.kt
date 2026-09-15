@@ -119,6 +119,10 @@ fun ProgramScreen(
     createProgramRequested: Boolean = false,
     onCreateProgramRequestHandled: () -> Unit = {},
     onOpenWorkout: () -> Unit = {},
+    onExportProgram: (ProgramEntity) -> Unit = {},
+    onImportProgram: () -> Unit = {},
+    importedProgramId: Long? = null,
+    onImportedProgramHandled: () -> Unit = {},
 ) {
     val programs by viewModel.programs.collectAsStateWithLifecycle()
     val activeProgram by viewModel.activeProgram.collectAsStateWithLifecycle()
@@ -146,8 +150,14 @@ fun ProgramScreen(
         viewModel.clearMessage()
     }
 
-    LaunchedEffect(programs, selectedProgramId) {
+    LaunchedEffect(programs, selectedProgramId, importedProgramId) {
         when {
+            importedProgramId != null && programs.any { it.id == importedProgramId } -> {
+                selectedTab = ProgramDestinationTab.Programs
+                selectedProgramId = importedProgramId
+                selectedDayId = null
+                onImportedProgramHandled()
+            }
             selectNewestProgramWhenAvailable && programs.isNotEmpty() -> {
                 selectedProgramId = programs.maxBy { it.createdAt }.id
                 selectedDayId = null
@@ -229,6 +239,8 @@ fun ProgramScreen(
                     createProgramRequested = createProgramRequested,
                     onCreateProgramRequestHandled = onCreateProgramRequestHandled,
                     onOpenWorkout = onOpenWorkout,
+                    onExportProgram = onExportProgram,
+                    onImportProgram = onImportProgram,
                     modifier = Modifier.fillMaxSize(),
                 )
                 ProgramDestinationTab.Exercises -> ExerciseLibraryScreen(
@@ -278,6 +290,8 @@ private fun ProgramBuilderScreen(
     createProgramRequested: Boolean,
     onCreateProgramRequestHandled: () -> Unit,
     onOpenWorkout: () -> Unit,
+    onExportProgram: (ProgramEntity) -> Unit,
+    onImportProgram: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreateProgramDialog by rememberSaveable { mutableStateOf(false) }
@@ -405,6 +419,11 @@ private fun ProgramBuilderScreen(
                     onAction = { showCreateProgramDialog = true },
                 )
             }
+            item {
+                OutlinedButton(onClick = onImportProgram, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import program")
+                }
+            }
         } else {
             item {
                 ProgramSelectorPanel(
@@ -420,6 +439,10 @@ private fun ProgramBuilderScreen(
                     onArchiveProgram = {
                         selectedProgram?.let { viewModel.archiveProgram(it.id) }
                     },
+                    onExportProgram = {
+                        selectedProgram?.let(onExportProgram)
+                    },
+                    onImportProgram = onImportProgram,
                 )
             }
 
@@ -658,6 +681,8 @@ private fun ProgramSelectorPanel(
     onRenameProgram: () -> Unit,
     onActivateProgram: () -> Unit,
     onArchiveProgram: () -> Unit,
+    onExportProgram: () -> Unit,
+    onImportProgram: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -735,6 +760,12 @@ private fun ProgramSelectorPanel(
                 }
                 TextButton(onClick = onArchiveProgram, enabled = selectedProgram != null) {
                     Text("Archive")
+                }
+                TextButton(onClick = onExportProgram, enabled = selectedProgram != null) {
+                    Text("Export")
+                }
+                TextButton(onClick = onImportProgram) {
+                    Text("Import")
                 }
             }
         }

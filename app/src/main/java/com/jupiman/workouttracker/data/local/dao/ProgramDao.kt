@@ -20,6 +20,9 @@ interface ProgramDao {
     @Query("SELECT * FROM programs WHERE id = :id")
     suspend fun getById(id: Long): ProgramEntity?
 
+    @Query("SELECT * FROM programs ORDER BY createdAt DESC")
+    suspend fun getAll(): List<ProgramEntity>
+
     @Query("SELECT COUNT(*) FROM programs WHERE archived = 0")
     suspend fun activeProgramCount(): Int
 

@@ -4061,6 +4061,10 @@ Acceptance:
 
 STOP after Phase 8.
 
+### Phase 8 implementation decisions
+
+Program transfer uses a versioned, nested JSON document with the format marker `workout-companion-program` and format version 1. The document carries one Program's ordered Training Days, exercise names and ordering, tracking configuration, progression targets, per-set targets, warm-up sets, setup notes, and supersets represented by document-local keys. Database IDs and all session/history data are excluded. Import validates the complete document before a single Room transaction creates fresh Program, Training Day, progression, set-target, warm-up, and superset records. Existing Exercise Library entries are reused by case-insensitive exact name; missing entries are created. Name conflicts use `imported` and a numeric suffix, existing Programs remain unchanged, and imported Programs are always inactive until explicitly activated. Android's document picker handles both operations without storage permission.
+
 ## 57.9 Deferred / non-goals
 
 Document these in SPEC as deferred or explicitly out of scope.

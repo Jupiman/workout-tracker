@@ -7,6 +7,7 @@ import com.jupiman.workouttracker.data.repository.DataBackupRepository
 import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ExerciseProgressRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
+import com.jupiman.workouttracker.data.repository.ProgramTransferRepository
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
 import com.jupiman.workouttracker.notification.AndroidRestTimerScheduler
 import com.jupiman.workouttracker.notification.AndroidDurationTimerScheduler
@@ -44,6 +45,7 @@ class AppContainer(context: Context) {
         workoutSessionDao = database.workoutSessionDao(),
     )
     val dataBackupRepository = DataBackupRepository(database)
+    val programTransferRepository = ProgramTransferRepository(database)
     val programRepository = ProgramRepository(
         database = database,
         programDao = database.programDao(),

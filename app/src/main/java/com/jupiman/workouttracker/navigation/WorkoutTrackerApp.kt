@@ -68,6 +68,8 @@ fun WorkoutTrackerApp(
     val currentDestination = destinations[pagerState.currentPage]
     var appMenuExpanded by remember { mutableStateOf(false) }
     var createProgramRequested by rememberSaveable { mutableStateOf(false) }
+    var pendingProgramExportId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var importedProgramId by rememberSaveable { mutableStateOf<Long?>(null) }
     val versionName = remember(context) {
         @Suppress("DEPRECATION")
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
@@ -110,6 +112,45 @@ fun WorkoutTrackerApp(
                 showToast("Backup restored.")
             }.onFailure { throwable ->
                 showToast(throwable.message ?: "Backup restore failed.")
+            }
+        }
+    }
+    val exportProgramLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        val programId = pendingProgramExportId
+        pendingProgramExportId = null
+        if (uri == null || programId == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val outputStream = context.contentResolver.openOutputStream(uri)
+                    ?: error("Could not open program file.")
+                outputStream.use { stream ->
+                    container.programTransferRepository.exportProgram(programId, stream)
+                }
+            }.onSuccess {
+                showToast("Program exported.")
+            }.onFailure { throwable ->
+                showToast(throwable.message ?: "Program export failed.")
+            }
+        }
+    }
+    val importProgramLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: error("Could not open program file.")
+                inputStream.use { stream ->
+                    container.programTransferRepository.importProgram(stream)
+                }
+            }.onSuccess { importedProgram ->
+                importedProgramId = importedProgram.id
+                showToast("${importedProgram.name} imported.")
+            }.onFailure { throwable ->
+                showToast(throwable.message ?: "Program import failed.")
             }
         }
     }
@@ -229,6 +270,17 @@ fun WorkoutTrackerApp(
                                         )
                                     }
                                 },
+                                onExportProgram = { program ->
+                                    pendingProgramExportId = program.id
+                                    exportProgramLauncher.launch(programExportFileName(program.name))
+                                },
+                                onImportProgram = {
+                                    importProgramLauncher.launch(
+                                        arrayOf("application/json", "text/json", "application/octet-stream", "*/*"),
+                                    )
+                                },
+                                importedProgramId = importedProgramId,
+                                onImportedProgramHandled = { importedProgramId = null },
                             )
                         }
                         WorkoutTrackerDestination.History -> {
@@ -258,4 +310,12 @@ fun WorkoutTrackerApp(
             }
         }
     }
+}
+
+private fun programExportFileName(programName: String): String {
+    val safeName = programName
+        .replace(Regex("[\\\\/:*?\"<>|]"), "-")
+        .trim()
+        .ifEmpty { "program" }
+    return "workout-companion-$safeName-${LocalDate.now()}.json"
 }
