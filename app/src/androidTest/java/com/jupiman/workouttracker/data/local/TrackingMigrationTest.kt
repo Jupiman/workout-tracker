@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.data.local
 import androidx.room.testing.MigrationTestHelper
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -98,6 +99,48 @@ class TrackingMigrationTest {
                 assertTrue(it.isNull(1))
                 assertTrue(it.isNull(2))
                 assertTrue(it.isNull(3))
+            }
+        }
+    }
+
+    @Test
+    fun versionEightWarmupsMigrateAsPercentageRowsWithLegacyRounding() {
+        val name = "advanced-warmup-migration-test"
+        helper.createDatabase(name, 8).apply {
+            execSQL("INSERT INTO programs VALUES (1, 'Program', 1, 0, 1000)")
+            execSQL("INSERT INTO exercises VALUES (1, 'Bench', 0, 1000)")
+            execSQL("INSERT INTO workout_templates VALUES (1, 1, 'Day', 0)")
+            execSQL(
+                "INSERT INTO workout_template_exercises " +
+                    "(id, workoutTemplateId, exerciseId, sortOrder, plannedWorkingSets, repMin, repMax, " +
+                    "incrementCentiKg, restSeconds, setupNote, supersetGroupId, trackingMode, " +
+                    "targetDurationSeconds, durationIncrementSeconds) " +
+                    "VALUES (1, 1, 1, 0, 3, 8, 12, 250, 180, '', NULL, 'WEIGHT_REPS', NULL, 0)",
+            )
+            execSQL(
+                "INSERT INTO workout_template_warmup_sets " +
+                    "(id, workoutTemplateExerciseId, sortOrder, reps, percentOfWorkingWeight) VALUES " +
+                    "(1, 1, 0, 10, 30), (2, 1, 1, 3, 70), (3, 1, 2, 3, 75)",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(name, 9, true, WorkoutTrackerDatabase.MIGRATION_8_9).use { db ->
+            db.query("SELECT warmupRoundingCentiKg FROM workout_template_exercises WHERE id = 1").use {
+                assertTrue(it.moveToFirst())
+                assertEquals(500, it.getInt(0))
+            }
+            db.query(
+                "SELECT reps, loadType, percentOfWorkingWeight, fixedWeightCentiKg " +
+                    "FROM workout_template_warmup_sets ORDER BY sortOrder",
+            ).use {
+                val rows = mutableListOf<Pair<Int, Int>>()
+                while (it.moveToNext()) {
+                    rows += it.getInt(2) to it.getInt(0)
+                    assertEquals("PERCENTAGE", it.getString(1))
+                    assertNull(if (it.isNull(3)) null else it.getInt(3))
+                }
+                assertEquals(listOf(30 to 10, 70 to 3, 75 to 3), rows)
             }
         }
     }

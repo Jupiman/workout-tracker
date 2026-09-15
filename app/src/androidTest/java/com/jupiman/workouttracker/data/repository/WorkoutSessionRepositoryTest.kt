@@ -15,6 +15,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 import com.jupiman.workouttracker.notification.RestTimerScheduler
 import com.jupiman.workouttracker.notification.DurationTimerScheduler
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
@@ -164,6 +165,63 @@ class WorkoutSessionRepositoryTest {
         assertEquals(listOf(2000, 5000, 5500), sets.take(3).map { it.prescribedWeightCentiKg })
         assertEquals(listOf(10, 3, 3), sets.take(3).map { it.prescribedReps })
         assertEquals(listOf(false, false, false), sets.take(3).map { it.countsForProgression })
+    }
+
+    @Test
+    fun advancedWarmupsUseHighestWorkingTargetAndSnapshotMixedLoads() = runTest {
+        val templateId = seedBenchWorkout()
+        val templateExercise = database.workoutTemplateExerciseDao()
+            .getForWorkoutTemplate(templateId).single()
+        database.workoutTemplateExerciseDao().update(
+            templateExercise.copy(warmupRoundingCentiKg = 500),
+        )
+        listOf(10_000, 9_000, 9_000).forEachIndexed { order, weight ->
+            database.workoutTemplateSetTargetDao().insert(
+                com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity(
+                    workoutTemplateExerciseId = templateExercise.id,
+                    setOrder = order,
+                    prescribedWeightCentiKg = weight,
+                    prescribedReps = 8,
+                    countsForProgression = true,
+                ),
+            )
+        }
+        database.workoutTemplateWarmupSetDao().insertAll(
+            listOf(
+                WorkoutTemplateWarmupSetEntity(
+                    workoutTemplateExerciseId = templateExercise.id,
+                    sortOrder = 0,
+                    reps = 8,
+                    loadType = WarmupLoadType.FIXED,
+                    fixedWeightCentiKg = 2_125,
+                ),
+                WorkoutTemplateWarmupSetEntity(
+                    workoutTemplateExerciseId = templateExercise.id,
+                    sortOrder = 1,
+                    reps = 5,
+                    loadType = WarmupLoadType.PERCENTAGE,
+                    percentOfWorkingWeight = 50,
+                ),
+                WorkoutTemplateWarmupSetEntity(
+                    workoutTemplateExerciseId = templateExercise.id,
+                    sortOrder = 2,
+                    reps = 1,
+                    loadType = WarmupLoadType.PERCENTAGE,
+                    percentOfWorkingWeight = 85,
+                ),
+            ),
+        )
+
+        val sessionId = repository.startWorkout(templateId)
+        val warmups = firstSessionSets(sessionId).filter { it.setType == SetType.WARMUP }
+
+        assertEquals(listOf(2_125, 5_000, 8_500), warmups.map { it.prescribedWeightCentiKg })
+        assertEquals(listOf(false, false, false), warmups.map { it.countsForProgression })
+
+        database.workoutTemplateWarmupSetDao().deleteForTemplateExercise(templateExercise.id)
+        database.workoutTemplateExerciseDao().update(templateExercise.copy(warmupRoundingCentiKg = 0))
+        val snapshottedWarmups = firstSessionSets(sessionId).filter { it.setType == SetType.WARMUP }
+        assertEquals(listOf(2_125, 5_000, 8_500), snapshottedWarmups.map { it.prescribedWeightCentiKg })
     }
 
     @Test

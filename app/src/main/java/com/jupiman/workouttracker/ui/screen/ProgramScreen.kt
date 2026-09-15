@@ -84,9 +84,16 @@ import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
 import com.jupiman.workouttracker.data.repository.formatWeight
 import com.jupiman.workouttracker.data.repository.formatWeightValue
+import com.jupiman.workouttracker.data.repository.identifyWarmupPreset
+import com.jupiman.workouttracker.data.repository.parseWeight
+import com.jupiman.workouttracker.data.repository.WarmupPreset
+import com.jupiman.workouttracker.data.repository.WarmupSetConfiguration
+import com.jupiman.workouttracker.data.repository.warmupPrescribedWeightCentiKg
+import com.jupiman.workouttracker.data.repository.warmupReferenceWeightCentiKg
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.component.TrackingModePicker
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
@@ -102,6 +109,7 @@ import com.jupiman.workouttracker.ui.theme.WorkoutEmptyState
 import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
 import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.viewmodel.ProgramViewModel
+import com.jupiman.workouttracker.ui.viewmodel.WarmupSetInput
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
@@ -1985,7 +1993,7 @@ private fun CompactTemplateExerciseCard(
                     }
                     if (warmupSets.isNotEmpty()) {
                         StatusPill(
-                            text = "Warm-up",
+                            text = "Warm-up · ${identifyWarmupPreset(warmupSets).displayName}",
                             state = WorkoutVisualState.Rest,
                         )
                     }
@@ -2347,8 +2355,20 @@ private fun TemplateExerciseEditor(
             )
             if (trackingMode == TrackingMode.WEIGHT_REPS && trackingMode == item.trackingMode) WarmupSchemeEditor(
                 warmupSets = warmupSets,
-                onEnableDefault = { viewModel.enableDefaultWarmupScheme(item.id) },
-                onClear = { viewModel.clearWarmupScheme(item.id) },
+                roundingCentiKg = item.warmupRoundingCentiKg,
+                referenceWeightCentiKg = warmupReferenceWeightCentiKg(
+                    defaultWorkingWeightCentiKg = item.currentWeightCentiKg,
+                    plannedWorkingSets = item.plannedWorkingSets,
+                    setTargets = setTargets,
+                ),
+                onSave = { roundingCentiKg, rows ->
+                    viewModel.saveWarmupScheme(
+                        workoutTemplateExerciseId = item.id,
+                        roundingCentiKg = roundingCentiKg,
+                        sets = rows,
+                        weightUnit = weightUnit,
+                    )
+                },
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (showSaveButton) {
@@ -2584,9 +2604,13 @@ private fun ReorderDragHandle(
 @Composable
 private fun WarmupSchemeEditor(
     warmupSets: List<WorkoutTemplateWarmupSetEntity>,
-    onEnableDefault: () -> Unit,
-    onClear: () -> Unit,
+    roundingCentiKg: Int,
+    referenceWeightCentiKg: Int,
+    onSave: (Int, List<WarmupSetInput>) -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
+    var showEditor by remember { mutableStateOf(false) }
+    val preset = identifyWarmupPreset(warmupSets)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HorizontalDivider()
         Text(
@@ -2594,38 +2618,276 @@ private fun WarmupSchemeEditor(
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
         )
-        if (warmupSets.isEmpty()) {
+        Text(preset.displayName, style = MaterialTheme.typography.bodyMedium)
+        warmupSets.sortedBy { it.sortOrder }.forEach { warmup ->
+            val configuration = warmup.toConfiguration()
+            val load = warmupLoadLabel(configuration, weightUnit)
+            val previewWeight = warmupPrescribedWeightCentiKg(
+                warmup = configuration,
+                referenceWeightCentiKg = referenceWeightCentiKg,
+                roundingCentiKg = roundingCentiKg,
+            )
             Text(
-                text = "No warm-up sets",
+                text = "$load × ${warmup.reps}  →  ${formatWeight(previewWeight, weightUnit)}",
                 style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedButton(onClick = onEnableDefault, modifier = Modifier.fillMaxWidth()) {
-                Text("Use default warm-up")
-            }
-        } else {
-            Text(
-                text = warmupSets.joinToString { warmup ->
-                    "${warmup.reps} @ ${warmup.percentOfWorkingWeight}%"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onEnableDefault,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Reset default")
-                }
-                OutlinedButton(
-                    onClick = onClear,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Clear")
-                }
-            }
+        }
+        if (warmupSets.isEmpty()) {
+            Text("No warm-up sets", style = MaterialTheme.typography.bodySmall)
+        }
+        TextButton(onClick = { showEditor = true }) {
+            Text("Edit")
         }
     }
+
+    if (showEditor) {
+        WarmupSchemeDialog(
+            warmupSets = warmupSets,
+            initialRoundingCentiKg = roundingCentiKg,
+            referenceWeightCentiKg = referenceWeightCentiKg,
+            onDismiss = { showEditor = false },
+            onSave = { savedRounding, rows ->
+                onSave(savedRounding, rows)
+                showEditor = false
+            },
+        )
+    }
 }
+
+private data class WarmupSetEditorDraft(
+    val loadType: WarmupLoadType,
+    val loadValue: String,
+    val reps: String,
+)
+
+private data class RoundingChoice(val label: String, val displayValue: String?)
+
+@Composable
+private fun WarmupSchemeDialog(
+    warmupSets: List<WorkoutTemplateWarmupSetEntity>,
+    initialRoundingCentiKg: Int,
+    referenceWeightCentiKg: Int,
+    onDismiss: () -> Unit,
+    onSave: (Int, List<WarmupSetInput>) -> Unit,
+) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
+    val initialRows = remember(warmupSets, weightUnit) {
+        warmupSets.sortedBy { it.sortOrder }.map { it.toEditorDraft(weightUnit) }
+    }
+    var selectedPreset by remember(warmupSets) { mutableStateOf(identifyWarmupPreset(warmupSets)) }
+    var rows by remember(initialRows) { mutableStateOf(initialRows) }
+    var roundingCentiKg by remember(initialRoundingCentiKg) { mutableStateOf(initialRoundingCentiKg) }
+    val roundingChoices = remember(weightUnit) {
+        listOf(
+            RoundingChoice("None", null),
+            RoundingChoice("0.5", "0.5"),
+            RoundingChoice("1", "1"),
+            RoundingChoice("1.25", "1.25"),
+            RoundingChoice("2.5", "2.5"),
+            RoundingChoice("5", "5"),
+        ).map { choice -> choice to (choice.displayValue?.let { parseWeight(it, weightUnit) } ?: 0) }
+    }
+    val displayedRows = if (selectedPreset == WarmupPreset.CUSTOM) rows else {
+        selectedPreset.sets.map { it.toEditorDraft(weightUnit) }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Warm-up scheme") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 560.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Preset", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WarmupPreset.entries.forEach { preset ->
+                        FilterChip(
+                            selected = selectedPreset == preset,
+                            onClick = {
+                                if (
+                                    preset == WarmupPreset.CUSTOM &&
+                                    selectedPreset != WarmupPreset.CUSTOM &&
+                                    selectedPreset != WarmupPreset.NONE
+                                ) {
+                                    rows = displayedRows
+                                }
+                                selectedPreset = preset
+                            },
+                            label = { Text(preset.displayName) },
+                        )
+                    }
+                }
+
+                if (selectedPreset == WarmupPreset.CUSTOM) {
+                    rows.forEachIndexed { index, row ->
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                            Column(
+                                modifier = Modifier.padding(WorkoutSpacing.item),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text("SET ${index + 1}", fontWeight = FontWeight.SemiBold)
+                                    Row {
+                                        TextButton(
+                                            enabled = index > 0,
+                                            onClick = { rows = rows.toMutableList().apply { add(index - 1, removeAt(index)) } },
+                                        ) { Text("Up") }
+                                        TextButton(
+                                            enabled = index < rows.lastIndex,
+                                            onClick = { rows = rows.toMutableList().apply { add(index + 1, removeAt(index)) } },
+                                        ) { Text("Down") }
+                                        TextButton(
+                                            onClick = { rows = rows.toMutableList().apply { removeAt(index) } },
+                                        ) { Text("Remove") }
+                                    }
+                                }
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    WarmupLoadType.entries.forEach { loadType ->
+                                        FilterChip(
+                                            selected = row.loadType == loadType,
+                                            onClick = {
+                                                rows = rows.updated(index) {
+                                                    copy(
+                                                        loadType = loadType,
+                                                        loadValue = if (loadType == WarmupLoadType.PERCENTAGE) "50" else "0",
+                                                    )
+                                                }
+                                            },
+                                            label = { Text(if (loadType == WarmupLoadType.PERCENTAGE) "Percentage" else "Fixed") },
+                                        )
+                                    }
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SmallNumberField(
+                                        label = if (row.loadType == WarmupLoadType.PERCENTAGE) "Percentage" else "Weight ${weightUnit.symbol}",
+                                        value = row.loadValue,
+                                        onValueChange = { value -> rows = rows.updated(index) { copy(loadValue = value) } },
+                                        modifier = Modifier.weight(1f),
+                                        decimal = row.loadType == WarmupLoadType.FIXED,
+                                    )
+                                    SmallNumberField(
+                                        label = "Reps",
+                                        value = row.reps,
+                                        onValueChange = { value -> rows = rows.updated(index) { copy(reps = value) } },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            rows = rows + WarmupSetEditorDraft(
+                                loadType = WarmupLoadType.PERCENTAGE,
+                                loadValue = "50",
+                                reps = "5",
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Add set") }
+                }
+
+                if (displayedRows.isNotEmpty()) {
+                    Text("Preview", style = MaterialTheme.typography.labelLarge)
+                    displayedRows.forEach { row ->
+                        row.toConfiguration(weightUnit)?.let { configuration ->
+                            val preview = warmupPrescribedWeightCentiKg(
+                                warmup = configuration,
+                                referenceWeightCentiKg = referenceWeightCentiKg,
+                                roundingCentiKg = roundingCentiKg,
+                            )
+                            Text(
+                                "${warmupLoadLabel(configuration, weightUnit)} × ${configuration.reps}  →  ${formatWeight(preview, weightUnit)}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+
+                Text("Rounding", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    if (roundingCentiKg == 0) "Current: None" else "Current: ${formatWeight(roundingCentiKg, weightUnit)}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    roundingChoices.forEach { (choice, canonicalValue) ->
+                        FilterChip(
+                            selected = roundingCentiKg == canonicalValue,
+                            onClick = { roundingCentiKg = canonicalValue },
+                            label = {
+                                Text(if (choice.displayValue == null) choice.label else "${choice.label} ${weightUnit.symbol}")
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val savedRows = if (selectedPreset == WarmupPreset.CUSTOM) rows else displayedRows
+                    onSave(
+                        roundingCentiKg,
+                        savedRows.map { WarmupSetInput(it.loadType, it.loadValue, it.reps) },
+                    )
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun WorkoutTemplateWarmupSetEntity.toConfiguration() = WarmupSetConfiguration(
+    reps = reps,
+    loadType = loadType,
+    percentOfWorkingWeight = percentOfWorkingWeight,
+    fixedWeightCentiKg = fixedWeightCentiKg,
+)
+
+private fun WorkoutTemplateWarmupSetEntity.toEditorDraft(
+    weightUnit: com.jupiman.workouttracker.preferences.WeightUnit,
+) = toConfiguration().toEditorDraft(weightUnit)
+
+private fun WarmupSetConfiguration.toEditorDraft(
+    weightUnit: com.jupiman.workouttracker.preferences.WeightUnit,
+) = WarmupSetEditorDraft(
+    loadType = loadType,
+    loadValue = when (loadType) {
+        WarmupLoadType.PERCENTAGE -> percentOfWorkingWeight?.toString().orEmpty()
+        WarmupLoadType.FIXED -> fixedWeightCentiKg?.let { formatWeightValue(it, weightUnit) }.orEmpty()
+    },
+    reps = reps.toString(),
+)
+
+private fun WarmupSetEditorDraft.toConfiguration(
+    weightUnit: com.jupiman.workouttracker.preferences.WeightUnit,
+): WarmupSetConfiguration? = runCatching {
+    WarmupSetConfiguration(
+        reps = reps.trim().toInt(),
+        loadType = loadType,
+        percentOfWorkingWeight = if (loadType == WarmupLoadType.PERCENTAGE) loadValue.trim().toInt() else null,
+        fixedWeightCentiKg = if (loadType == WarmupLoadType.FIXED) parseWeight(loadValue, weightUnit) else null,
+    ).validated()
+}.getOrNull()
+
+private fun warmupLoadLabel(
+    warmup: WarmupSetConfiguration,
+    weightUnit: com.jupiman.workouttracker.preferences.WeightUnit,
+): String = when (warmup.loadType) {
+    WarmupLoadType.PERCENTAGE -> "${warmup.percentOfWorkingWeight}%"
+    WarmupLoadType.FIXED -> formatWeight(warmup.fixedWeightCentiKg ?: 0, weightUnit)
+}
+
+private inline fun <T> List<T>.updated(index: Int, transform: T.() -> T): List<T> =
+    toMutableList().apply { this[index] = this[index].transform() }
 
 @Composable
 private fun TemplateSetTargetsEditor(

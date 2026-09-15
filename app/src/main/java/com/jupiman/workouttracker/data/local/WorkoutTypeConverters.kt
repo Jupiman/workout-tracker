@@ -4,8 +4,15 @@ import androidx.room.TypeConverter
 import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 
 class WorkoutTypeConverters {
+    @TypeConverter
+    fun toWarmupLoadType(value: String): WarmupLoadType = WarmupLoadType.valueOf(value)
+
+    @TypeConverter
+    fun fromWarmupLoadType(value: WarmupLoadType): String = value.name
+
     @TypeConverter
     fun toTrackingMode(value: String) = com.jupiman.workouttracker.data.local.entity.TrackingMode.valueOf(value)
 

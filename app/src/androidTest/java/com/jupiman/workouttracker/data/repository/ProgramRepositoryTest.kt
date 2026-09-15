@@ -4,8 +4,12 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.flow.first
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -350,15 +354,54 @@ class ProgramRepositoryTest {
     }
 
     @Test
-    fun defaultWarmupSchemeCanBeEnabledAndCleared() = runTest {
+    fun presetAndCustomWarmupSchemesCanBeSavedReorderedAndCleared() = runTest {
         val seed = seedTwoExerciseTemplate()
 
-        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+        repository.saveWarmupScheme(
+            seed.firstTemplateExerciseId,
+            roundingCentiKg = 125,
+            sets = WarmupPreset.MINIMAL.sets,
+        )
 
-        val warmupSets = database.workoutTemplateWarmupSetDao()
+        var warmupSets = database.workoutTemplateWarmupSetDao()
             .getForTemplateExercise(seed.firstTemplateExerciseId)
-        assertEquals(listOf(10, 3, 3), warmupSets.map { it.reps })
-        assertEquals(listOf(30, 70, 75), warmupSets.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(4, 2), warmupSets.map { it.reps })
+        assertEquals(listOf(60, 80), warmupSets.map { it.percentOfWorkingWeight })
+        assertEquals(
+            125,
+            database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)?.warmupRoundingCentiKg,
+        )
+
+        repository.saveWarmupScheme(
+            seed.firstTemplateExerciseId,
+            roundingCentiKg = 250,
+            sets = listOf(
+                WarmupSetConfiguration(8, WarmupLoadType.FIXED, fixedWeightCentiKg = 2_000),
+                WarmupSetConfiguration(5, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 50),
+                WarmupSetConfiguration(3, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 70),
+            ),
+        )
+        warmupSets = database.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(listOf(WarmupLoadType.FIXED, WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE), warmupSets.map { it.loadType })
+        assertEquals(listOf(2_000, null, null), warmupSets.map { it.fixedWeightCentiKg })
+        assertEquals(listOf(null, 50, 70), warmupSets.map { it.percentOfWorkingWeight })
+
+        repository.saveWarmupScheme(
+            seed.firstTemplateExerciseId,
+            roundingCentiKg = 250,
+            sets = listOf(
+                WarmupSetConfiguration(3, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 70),
+                WarmupSetConfiguration(8, WarmupLoadType.FIXED, fixedWeightCentiKg = 2_000),
+                WarmupSetConfiguration(5, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 50),
+            ),
+        )
+        warmupSets = database.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(listOf(0, 1, 2), warmupSets.map { it.sortOrder })
+        assertEquals(listOf(3, 8, 5), warmupSets.map { it.reps })
+        assertEquals(listOf(70, null, 50), warmupSets.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(null, 2_000, null), warmupSets.map { it.fixedWeightCentiKg })
 
         repository.clearWarmupScheme(seed.firstTemplateExerciseId)
 
@@ -368,6 +411,87 @@ class ProgramRepositoryTest {
                 .getForTemplateExercise(seed.firstTemplateExerciseId)
                 .map { it.id },
         )
+    }
+
+    @Test
+    fun changingAwayFromWeightRepsRemovesWarmups() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.saveWarmupScheme(seed.firstTemplateExerciseId, 500, WarmupPreset.STANDARD.sets)
+        val item = database.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(seed.templateId)
+            .first { it.id == seed.firstTemplateExerciseId }
+
+        repository.updateTemplateExercise(
+            item = item,
+            config = config(restSeconds = 180).copy(
+                trackingMode = com.jupiman.workouttracker.data.local.entity.TrackingMode.REPS,
+                currentWeightCentiKg = 0,
+            ),
+            setupNote = item.setupNote,
+        )
+
+        assertEquals(
+            emptyList<Long>(),
+            database.workoutTemplateWarmupSetDao()
+                .getForTemplateExercise(seed.firstTemplateExerciseId).map { it.id },
+        )
+    }
+
+    @Test
+    fun fullBackupRoundTripPreservesAdvancedWarmups() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.saveWarmupScheme(
+            seed.firstTemplateExerciseId,
+            125,
+            listOf(
+                WarmupSetConfiguration(8, WarmupLoadType.FIXED, fixedWeightCentiKg = 2_000),
+                WarmupSetConfiguration(3, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 70),
+            ),
+        )
+        val output = ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+
+        DataBackupRepository(database).restoreBackup(ByteArrayInputStream(output.toByteArray()))
+
+        val restoredExercise = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+        val restoredWarmups = database.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(125, restoredExercise.warmupRoundingCentiKg)
+        assertEquals(listOf(WarmupLoadType.FIXED, WarmupLoadType.PERCENTAGE), restoredWarmups.map { it.loadType })
+        assertEquals(listOf(2_000, null), restoredWarmups.map { it.fixedWeightCentiKg })
+        assertEquals(listOf(null, 70), restoredWarmups.map { it.percentOfWorkingWeight })
+    }
+
+    @Test
+    fun versionFourBackupRestoresLegacyPercentageWarmups() = runTest {
+        val seed = seedTwoExerciseTemplate()
+        repository.saveWarmupScheme(seed.firstTemplateExerciseId, 500, WarmupPreset.STANDARD.sets)
+        val output = ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+        val backup = JSONObject(output.toString(Charsets.UTF_8.name()))
+            .put("formatVersion", 4)
+            .put("schemaVersion", 8)
+        val tables = backup.getJSONObject("tables")
+        val exercises = tables.getJSONArray("workout_template_exercises")
+        for (index in 0 until exercises.length()) {
+            exercises.getJSONObject(index).remove("warmupRoundingCentiKg")
+        }
+        val warmups = tables.getJSONArray("workout_template_warmup_sets")
+        for (index in 0 until warmups.length()) {
+            warmups.getJSONObject(index).apply {
+                remove("loadType")
+                remove("fixedWeightCentiKg")
+            }
+        }
+
+        DataBackupRepository(database).restoreBackup(ByteArrayInputStream(backup.toString().toByteArray()))
+
+        val restoredExercise = database.workoutTemplateExerciseDao().getById(seed.firstTemplateExerciseId)!!
+        val restoredWarmups = database.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(seed.firstTemplateExerciseId)
+        assertEquals(500, restoredExercise.warmupRoundingCentiKg)
+        assertEquals(listOf(50, 70, 85), restoredWarmups.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE), restoredWarmups.map { it.loadType })
     }
 
     @Test
@@ -389,7 +513,7 @@ class ProgramRepositoryTest {
             prescribedReps = 9,
             countsForProgression = false,
         )
-        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+        repository.saveWarmupScheme(seed.firstTemplateExerciseId, 500, WarmupPreset.STANDARD.sets)
 
         val copyId = repository.duplicateWorkoutTemplate(seed.templateId)
 
@@ -420,8 +544,9 @@ class ProgramRepositoryTest {
         assertEquals(7250, copiedTargets.single().prescribedWeightCentiKg)
         assertEquals(9, copiedTargets.single().prescribedReps)
         assertEquals(false, copiedTargets.single().countsForProgression)
-        assertEquals(listOf(10, 3, 3), copiedWarmups.map { it.reps })
-        assertEquals(listOf(30, 70, 75), copiedWarmups.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(5, 3, 1), copiedWarmups.map { it.reps })
+        assertEquals(listOf(50, 70, 85), copiedWarmups.map { it.percentOfWorkingWeight })
+        assertEquals(500, copiedFirst.warmupRoundingCentiKg)
 
         repository.updateTemplateExercise(
             item = database.workoutTemplateExerciseDao()
@@ -455,7 +580,7 @@ class ProgramRepositoryTest {
             prescribedWeightCentiKg = 7500,
             prescribedReps = 8,
         )
-        repository.enableDefaultWarmupScheme(seed.firstTemplateExerciseId)
+        repository.saveWarmupScheme(seed.firstTemplateExerciseId, 125, WarmupPreset.HEAVY.sets)
 
         val copyExerciseId = repository.duplicateTemplateExercise(seed.firstTemplateExerciseId)
 
@@ -481,7 +606,8 @@ class ProgramRepositoryTest {
         assertEquals(listOf(0), copiedTargets.map { it.setOrder })
         assertEquals(7500, copiedTargets.single().prescribedWeightCentiKg)
         assertEquals(8, copiedTargets.single().prescribedReps)
-        assertEquals(listOf(10, 3, 3), copiedWarmups.map { it.reps })
+        assertEquals(listOf(5, 3, 2, 1), copiedWarmups.map { it.reps })
+        assertEquals(125, copy.warmupRoundingCentiKg)
 
         repository.updateTemplateExercise(
             item = database.workoutTemplateExerciseDao()

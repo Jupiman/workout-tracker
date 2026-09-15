@@ -88,6 +88,7 @@ interface WorkoutTemplateExerciseDao {
             wte.trackingMode,
             wte.targetDurationSeconds,
             wte.durationIncrementSeconds,
+            wte.warmupRoundingCentiKg,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps
@@ -120,6 +121,7 @@ interface WorkoutTemplateExerciseDao {
             wte.trackingMode,
             wte.targetDurationSeconds,
             wte.durationIncrementSeconds,
+            wte.warmupRoundingCentiKg,
             wte.supersetGroupId,
             ps.currentWeightCentiKg,
             ps.currentTargetReps

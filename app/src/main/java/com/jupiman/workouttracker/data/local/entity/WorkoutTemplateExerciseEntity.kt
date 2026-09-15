@@ -49,4 +49,5 @@ data class WorkoutTemplateExerciseEntity(
     val trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
     val targetDurationSeconds: Int? = null,
     val durationIncrementSeconds: Int = 0,
+    val warmupRoundingCentiKg: Int = 500,
 )

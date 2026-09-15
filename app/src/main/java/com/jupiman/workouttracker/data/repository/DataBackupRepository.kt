@@ -36,10 +36,11 @@ class DataBackupRepository(
         val legacy = backup.optInt("formatVersion") == 1 && backup.optInt("schemaVersion") == 5
         val initialTracking = backup.optInt("formatVersion") == 2 && backup.optInt("schemaVersion") == 6
         val preDurationTimer = backup.optInt("formatVersion") == 3 && backup.optInt("schemaVersion") == 7
-        require(legacy || initialTracking || preDurationTimer || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
+        val preAdvancedWarmups = backup.optInt("formatVersion") == 4 && backup.optInt("schemaVersion") == 8
+        require(legacy || initialTracking || preDurationTimer || preAdvancedWarmups || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
             "Unsupported backup format."
         }
-        require(legacy || initialTracking || preDurationTimer || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
+        require(legacy || initialTracking || preDurationTimer || preAdvancedWarmups || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
             "Backup schema does not match this app version."
         }
 
@@ -66,6 +67,17 @@ class DataBackupRepository(
                         row.put("activeDurationSetId", JSONObject.NULL)
                             .put("durationStartsAt", JSONObject.NULL)
                             .put("durationEndsAt", JSONObject.NULL)
+                    }
+                    if ((legacy || initialTracking || preDurationTimer || preAdvancedWarmups) &&
+                        table.name == "workout_template_exercises"
+                    ) {
+                        row.put("warmupRoundingCentiKg", 500)
+                    }
+                    if ((legacy || initialTracking || preDurationTimer || preAdvancedWarmups) &&
+                        table.name == "workout_template_warmup_sets"
+                    ) {
+                        row.put("loadType", "PERCENTAGE")
+                            .put("fixedWeightCentiKg", JSONObject.NULL)
                     }
                     db.insert(
                         table.name,
@@ -144,8 +156,8 @@ class DataBackupRepository(
 
     private companion object {
         const val BACKUP_APP = "Workout Companion"
-        const val BACKUP_FORMAT_VERSION = 4
-        const val BACKUP_SCHEMA_VERSION = 8
+        const val BACKUP_FORMAT_VERSION = 5
+        const val BACKUP_SCHEMA_VERSION = 9
 
         val BACKUP_TABLES = listOf(
             BackupTable("exercises"),

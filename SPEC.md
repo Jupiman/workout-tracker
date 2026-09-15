@@ -2471,7 +2471,9 @@ Phase 54C implementation:
 
 ## 54.7 Warm-up schemes
 
-Add optional warm-up schemes per exercise instance.
+This section describes the original warm-up implementation and is superseded by
+Advanced Warm-up Schemes below. Existing `30% x 10`, `70% x 3`, `75% x 3`
+configurations remain valid and are detected as Custom schemes.
 
 Warm-up schemes are based on percentages of the working weight.
 
@@ -4173,6 +4175,58 @@ Do not implement Google Fit, Apple Health, Health Connect reads, set-level expor
 - Before Play release, Workout Companion must accurately declare its Health/Fitness use and `WRITE_EXERCISE` access in the Play Console Health apps/data declarations and provide a public privacy policy containing the same disclosure as the in-app rationale.
 
 STOP after Phase 10.
+
+---
+
+## Advanced Warm-up Schemes
+
+Advanced warm-up schemes apply only to `WEIGHT_REPS` exercise instances. Each
+template exercise stores concrete, ordered warm-up rows and a rounding increment.
+Rows store reps plus either a percentage load or a fixed canonical centi-kg load;
+the two load forms can be mixed in a Custom scheme.
+
+The built-in presets are exact concrete row lists:
+
+- None: no rows
+- Minimal: `60% x 4`, `80% x 2`
+- Standard: `50% x 5`, `70% x 3`, `85% x 1`
+- Heavy: `40% x 5`, `60% x 3`, `80% x 2`, `90% x 1`
+- Custom: any other valid ordered list, including the legacy `30% x 10`, `70% x 3`, `75% x 3` list
+
+Preset detection compares the stored concrete rows exactly. Custom rows can be
+added, removed, reordered, and edited. Every row requires at least one rep. A
+percentage row requires a value from 1 through 100 and no fixed load. A fixed row
+requires a non-negative canonical load and no percentage.
+
+The selectable rounding increments are None, 0.5, 1, 1.25, 2.5, and 5 in the
+current display unit. Percentage loads round to the nearest selected increment in
+that display unit, convert back to canonical centi-kg storage, and never exceed the
+reference weight. Fixed loads bypass rounding. Unit changes affect display and
+entry only; stored weights remain canonical centi-kg.
+
+The warm-up reference is the highest currently prescribed weight among planned
+working sets that count for progression, including per-set target overrides. A
+working set without an override uses the exercise progression weight. Non-progressive
+sets do not raise the reference.
+
+Starting a session resolves the configured rows to concrete warm-up `SessionSet`
+snapshots before the working sets. Warm-up snapshots never count for progression,
+are retained in History, and do not change when the Program configuration changes.
+Program duplication copies the scheme and rounding value with fresh row IDs.
+
+Room schema 9 adds load type, nullable percentage and fixed load fields, plus the
+template exercise rounding increment. Migration preserves earlier percentage rows
+and gives existing exercises the legacy 5 kg rounding behavior. Program transfer
+version 2 includes mixed load rows and rounding; version 1 imports as percentage
+rows with legacy rounding. Full backup version 5/schema 9 includes the same data
+and continues to restore older supported backups.
+
+The editor previews computed loads and saves only after explicit confirmation.
+Warm-up guidance is configuration assistance and makes no medical or injury-prevention
+claim. Wear continues to receive the resolved session rows through the existing
+session protocol and requires no feature-specific UI or protocol change.
+
+STOP after Advanced Warm-up Schemes.
 
 ARCHITECTURE RULES
 

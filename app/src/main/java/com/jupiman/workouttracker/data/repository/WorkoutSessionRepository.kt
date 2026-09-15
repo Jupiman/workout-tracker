@@ -35,7 +35,6 @@ import com.jupiman.workouttracker.preferences.DurationPreparationProvider
 import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSync
 import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
 import kotlin.math.max
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -125,6 +124,14 @@ class WorkoutSessionRepository(
                     ),
                 )
 
+                val setTargetsByOrder = workoutTemplateSetTargetDao
+                    .getForTemplateExercise(templateExercise.id)
+                    .associateBy { it.setOrder }
+                val warmupReferenceWeight = warmupReferenceWeightCentiKg(
+                    defaultWorkingWeightCentiKg = templateExercise.currentWeightCentiKg,
+                    plannedWorkingSets = templateExercise.plannedWorkingSets,
+                    setTargets = setTargetsByOrder.values.toList(),
+                )
                 val warmupSets = if (templateExercise.trackingMode == TrackingMode.WEIGHT_REPS) workoutTemplateWarmupSetDao
                     .getForTemplateExercise(templateExercise.id) else emptyList()
                 val generatedWarmupSets = warmupSets.mapIndexed { index, warmupSet ->
@@ -134,9 +141,15 @@ class WorkoutSessionRepository(
                         setType = SetType.WARMUP,
                         isPlanned = true,
                         countsForProgression = false,
-                        prescribedWeightCentiKg = warmupWeightCentiKg(
-                            workingWeightCentiKg = templateExercise.currentWeightCentiKg,
-                            percent = warmupSet.percentOfWorkingWeight,
+                        prescribedWeightCentiKg = warmupPrescribedWeightCentiKg(
+                            warmup = WarmupSetConfiguration(
+                                reps = warmupSet.reps,
+                                loadType = warmupSet.loadType,
+                                percentOfWorkingWeight = warmupSet.percentOfWorkingWeight,
+                                fixedWeightCentiKg = warmupSet.fixedWeightCentiKg,
+                            ),
+                            referenceWeightCentiKg = warmupReferenceWeight,
+                            roundingCentiKg = templateExercise.warmupRoundingCentiKg,
                         ),
                         prescribedReps = warmupSet.reps,
                     )
@@ -145,9 +158,6 @@ class WorkoutSessionRepository(
                     sessionSetDao.insertAll(generatedWarmupSets)
                 }
 
-                val setTargetsByOrder = workoutTemplateSetTargetDao
-                    .getForTemplateExercise(templateExercise.id)
-                    .associateBy { it.setOrder }
                 val plannedSets = (0 until templateExercise.plannedWorkingSets).map { setIndex ->
                     val setTarget = setTargetsByOrder[setIndex]
                     SessionSetEntity(
@@ -1003,17 +1013,6 @@ class WorkoutSessionRepository(
         } else {
             0
         }
-    }
-
-    private fun warmupWeightCentiKg(
-        workingWeightCentiKg: Int,
-        percent: Int,
-    ): Int {
-        if (workingWeightCentiKg <= 0 || percent <= 0) return 0
-        val rawWarmupCentiKg = workingWeightCentiKg * percent / 100.0
-        val fiveKgCentiKg = 500
-        val rounded = (rawWarmupCentiKg / fiveKgCentiKg).roundToInt() * fiveKgCentiKg
-        return rounded.coerceIn(0, workingWeightCentiKg)
     }
 
     private fun List<SessionSetEntity>.changedProgressionSets(): List<SessionSetEntity> =

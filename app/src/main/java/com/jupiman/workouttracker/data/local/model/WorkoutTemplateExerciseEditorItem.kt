@@ -18,4 +18,5 @@ data class WorkoutTemplateExerciseEditorItem(
     val trackingMode: com.jupiman.workouttracker.data.local.entity.TrackingMode = com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS,
     val targetDurationSeconds: Int? = null,
     val durationIncrementSeconds: Int = 0,
+    val warmupRoundingCentiKg: Int = 500,
 )

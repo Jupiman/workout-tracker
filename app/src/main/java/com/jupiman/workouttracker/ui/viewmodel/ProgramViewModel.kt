@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.ui.viewmodel
 
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
@@ -13,6 +14,7 @@ import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ExerciseProgressRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.TemplateExerciseConfig
+import com.jupiman.workouttracker.data.repository.WarmupSetConfiguration
 import com.jupiman.workouttracker.data.repository.parseWeight
 import com.jupiman.workouttracker.preferences.WeightUnit
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+data class WarmupSetInput(
+    val loadType: WarmupLoadType,
+    val loadValue: String,
+    val reps: String,
+)
 
 class ProgramViewModel(
     private val programRepository: ProgramRepository,
@@ -255,10 +263,32 @@ class ProgramViewModel(
             programRepository.resetTemplateSetTargets(workoutTemplateExerciseId)
         }
 
-    fun enableDefaultWarmupScheme(workoutTemplateExerciseId: Long) =
-        launchOperation("Warm-up scheme enabled.") {
-            programRepository.enableDefaultWarmupScheme(workoutTemplateExerciseId)
-        }
+    fun saveWarmupScheme(
+        workoutTemplateExerciseId: Long,
+        roundingCentiKg: Int,
+        sets: List<WarmupSetInput>,
+        weightUnit: WeightUnit,
+    ) = launchOperation("Warm-up scheme saved.") {
+        programRepository.saveWarmupScheme(
+            workoutTemplateExerciseId = workoutTemplateExerciseId,
+            roundingCentiKg = roundingCentiKg,
+            sets = sets.map { input ->
+                val reps = input.reps.toPositiveInt("Warm-up reps")
+                when (input.loadType) {
+                    WarmupLoadType.PERCENTAGE -> WarmupSetConfiguration(
+                        reps = reps,
+                        loadType = input.loadType,
+                        percentOfWorkingWeight = input.loadValue.toPositiveInt("Warm-up percentage"),
+                    )
+                    WarmupLoadType.FIXED -> WarmupSetConfiguration(
+                        reps = reps,
+                        loadType = input.loadType,
+                        fixedWeightCentiKg = parseWeight(input.loadValue, weightUnit),
+                    )
+                }
+            },
+        )
+    }
 
     fun clearWarmupScheme(workoutTemplateExerciseId: Long) =
         launchOperation("Warm-up scheme cleared.") {

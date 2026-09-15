@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.flow.first
@@ -58,7 +59,7 @@ class ProgramTransferRepositoryTest {
             .importProgram(ByteArrayInputStream(bytes))
 
         assertEquals("workout-companion-program", root.getString("format"))
-        assertEquals(1, root.getInt("formatVersion"))
+        assertEquals(2, root.getInt("formatVersion"))
         assertFalse(root.getJSONObject("program").has("id"))
         assertEquals("Transfer Plan", imported.name)
         assertNull(targetDatabase.programDao().observeActive().first())
@@ -91,8 +92,11 @@ class ProgramTransferRepositoryTest {
         assertFalse(setTarget.countsForProgression)
         val warmups = targetDatabase.workoutTemplateWarmupSetDao()
             .getForTemplateExercise(strength[0].id)
-        assertEquals(listOf(10, 3, 3), warmups.map { it.reps })
-        assertEquals(listOf(30, 70, 75), warmups.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(8, 5, 3), warmups.map { it.reps })
+        assertEquals(listOf(WarmupLoadType.FIXED, WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE), warmups.map { it.loadType })
+        assertEquals(listOf(2_000, null, null), warmups.map { it.fixedWeightCentiKg })
+        assertEquals(listOf(null, 50, 70), warmups.map { it.percentOfWorkingWeight })
+        assertEquals(125, strength[0].warmupRoundingCentiKg)
 
         val duration = targetDatabase.workoutTemplateExerciseDao()
             .getEditorItemsForWorkoutTemplate(days[1].id)
@@ -144,6 +148,37 @@ class ProgramTransferRepositoryTest {
         assertEquals(emptyList<Any>(), targetDatabase.workoutTemplateDao().getForProgram(1L))
     }
 
+    @Test
+    fun legacyVersionOnePercentageWarmupsStillImport() = runTest {
+        val programId = createCompleteSourceProgram()
+        val sourceExerciseId = firstSourceTemplateExerciseId(programId)
+        sourcePrograms.saveWarmupScheme(sourceExerciseId, 500, WarmupPreset.STANDARD.sets)
+        val root = JSONObject(exportSourceProgram(programId).toString(Charsets.UTF_8))
+        root.put("formatVersion", 1)
+        val exercise = root.getJSONObject("program")
+            .getJSONArray("trainingDays").getJSONObject(0)
+            .getJSONArray("exercises").getJSONObject(0)
+        exercise.remove("warmupRoundingCentiKg")
+        val warmups = exercise.getJSONArray("warmupSets")
+        for (index in 0 until warmups.length()) {
+            val warmup = warmups.getJSONObject(index)
+            warmup.remove("loadType")
+            warmup.remove("fixedWeightCentiKg")
+        }
+
+        val imported = ProgramTransferRepository(targetDatabase).importProgram(
+            ByteArrayInputStream(root.toString().toByteArray()),
+        )
+        val importedExerciseId = firstTemplateExerciseId(imported.id)
+        val importedExercise = targetDatabase.workoutTemplateExerciseDao().getById(importedExerciseId)!!
+        val importedWarmups = targetDatabase.workoutTemplateWarmupSetDao()
+            .getForTemplateExercise(importedExerciseId)
+
+        assertEquals(500, importedExercise.warmupRoundingCentiKg)
+        assertEquals(listOf(50, 70, 85), importedWarmups.map { it.percentOfWorkingWeight })
+        assertEquals(listOf(WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE, WarmupLoadType.PERCENTAGE), importedWarmups.map { it.loadType })
+    }
+
     private suspend fun createCompleteSourceProgram(): Long {
         val programId = sourcePrograms.createProgram("Transfer Plan")
         val strengthId = sourcePrograms.createWorkoutTemplate(programId, "Strength")
@@ -173,7 +208,15 @@ class ProgramTransferRepositoryTest {
             prescribedReps = 9,
             countsForProgression = false,
         )
-        sourcePrograms.enableDefaultWarmupScheme(benchId)
+        sourcePrograms.saveWarmupScheme(
+            benchId,
+            roundingCentiKg = 125,
+            sets = listOf(
+                WarmupSetConfiguration(8, WarmupLoadType.FIXED, fixedWeightCentiKg = 2_000),
+                WarmupSetConfiguration(5, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 50),
+                WarmupSetConfiguration(3, WarmupLoadType.PERCENTAGE, percentOfWorkingWeight = 70),
+            ),
+        )
 
         val conditioningId = sourcePrograms.createWorkoutTemplate(programId, "Conditioning")
         val durationId = sourcePrograms.createExerciseAndAddToWorkout(
@@ -233,6 +276,11 @@ class ProgramTransferRepositoryTest {
     private suspend fun firstTemplateExerciseId(programId: Long): Long {
         val template = targetDatabase.workoutTemplateDao().getForProgram(programId).first()
         return targetDatabase.workoutTemplateExerciseDao().getForWorkoutTemplate(template.id).first().id
+    }
+
+    private suspend fun firstSourceTemplateExerciseId(programId: Long): Long {
+        val template = sourceDatabase.workoutTemplateDao().getForProgram(programId).first()
+        return sourceDatabase.workoutTemplateExerciseDao().getForWorkoutTemplate(template.id).first().id
     }
 
     private fun programRepository(database: WorkoutTrackerDatabase) = ProgramRepository(

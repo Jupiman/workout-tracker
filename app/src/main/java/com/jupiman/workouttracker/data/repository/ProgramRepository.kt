@@ -373,22 +373,35 @@ class ProgramRepository(
         workoutTemplateSetTargetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
     }
 
-    suspend fun enableDefaultWarmupScheme(workoutTemplateExerciseId: Long) {
+    suspend fun saveWarmupScheme(
+        workoutTemplateExerciseId: Long,
+        roundingCentiKg: Int,
+        sets: List<WarmupSetConfiguration>,
+    ) {
+        require(roundingCentiKg >= 0) { "Warm-up rounding cannot be negative." }
+        val validSets = sets.map { it.validated() }
         database.withTransaction {
             val templateExercise = workoutTemplateExerciseDao.getById(workoutTemplateExerciseId)
                 ?: error("Workout exercise not found.")
             require(templateExercise.trackingMode == TrackingMode.WEIGHT_REPS) { "Weighted warm-ups require weight and reps tracking." }
+            workoutTemplateExerciseDao.update(
+                templateExercise.copy(warmupRoundingCentiKg = roundingCentiKg),
+            )
             workoutTemplateWarmupSetDao.deleteForTemplateExercise(workoutTemplateExerciseId)
-            workoutTemplateWarmupSetDao.insertAll(
-                DefaultWarmupScheme.mapIndexed { index, warmup ->
+            if (validSets.isNotEmpty()) {
+                workoutTemplateWarmupSetDao.insertAll(
+                    validSets.mapIndexed { index, warmup ->
                     WorkoutTemplateWarmupSetEntity(
                         workoutTemplateExerciseId = workoutTemplateExerciseId,
                         sortOrder = index,
                         reps = warmup.reps,
+                        loadType = warmup.loadType,
                         percentOfWorkingWeight = warmup.percentOfWorkingWeight,
+                        fixedWeightCentiKg = warmup.fixedWeightCentiKg,
                     )
-                },
-            )
+                    },
+                )
+            }
         }
     }
 
@@ -663,16 +676,4 @@ class ProgramRepository(
         return targetExerciseId
     }
 
-    private data class DefaultWarmupSet(
-        val reps: Int,
-        val percentOfWorkingWeight: Int,
-    )
-
-    private companion object {
-        val DefaultWarmupScheme = listOf(
-            DefaultWarmupSet(reps = 10, percentOfWorkingWeight = 30),
-            DefaultWarmupSet(reps = 3, percentOfWorkingWeight = 70),
-            DefaultWarmupSet(reps = 3, percentOfWorkingWeight = 75),
-        )
-    }
 }

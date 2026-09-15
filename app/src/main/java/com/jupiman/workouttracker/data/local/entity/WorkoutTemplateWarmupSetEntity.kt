@@ -25,5 +25,12 @@ data class WorkoutTemplateWarmupSetEntity(
     val workoutTemplateExerciseId: Long,
     val sortOrder: Int,
     val reps: Int,
-    val percentOfWorkingWeight: Int,
+    val loadType: WarmupLoadType = WarmupLoadType.PERCENTAGE,
+    val percentOfWorkingWeight: Int? = null,
+    val fixedWeightCentiKg: Int? = null,
 )
+
+enum class WarmupLoadType {
+    PERCENTAGE,
+    FIXED,
+}

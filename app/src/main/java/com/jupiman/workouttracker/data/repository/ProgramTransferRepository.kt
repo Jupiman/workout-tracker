@@ -7,6 +7,7 @@ import com.jupiman.workouttracker.data.local.entity.ProgramEntity
 import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SupersetGroupEntity
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
@@ -86,7 +87,9 @@ class ProgramTransferRepository(
                                 JSONObject()
                                     .put("sortOrder", warmup.sortOrder)
                                     .put("reps", warmup.reps)
-                                    .put("percentOfWorkingWeight", warmup.percentOfWorkingWeight),
+                                    .put("loadType", warmup.loadType.name)
+                                    .put("percentOfWorkingWeight", warmup.percentOfWorkingWeight ?: JSONObject.NULL)
+                                    .put("fixedWeightCentiKg", warmup.fixedWeightCentiKg ?: JSONObject.NULL),
                             )
                         }
                     exerciseArray.put(
@@ -100,6 +103,7 @@ class ProgramTransferRepository(
                             .put("targetDurationSeconds", exercise.targetDurationSeconds ?: JSONObject.NULL)
                             .put("incrementCentiKg", exercise.incrementCentiKg)
                             .put("durationIncrementSeconds", exercise.durationIncrementSeconds)
+                            .put("warmupRoundingCentiKg", exercise.warmupRoundingCentiKg)
                             .put("restSeconds", exercise.restSeconds)
                             .put("setupNote", exercise.setupNote)
                             .put("supersetKey", exercise.supersetGroupId?.let(groupKeys::get) ?: JSONObject.NULL)
@@ -136,7 +140,8 @@ class ProgramTransferRepository(
 
     private fun parseDocument(root: JSONObject): ProgramDocument {
         require(root.getString("format") == FORMAT) { "This is not a Workout Companion program file." }
-        require(root.getInt("formatVersion") == FORMAT_VERSION) { "This program file version is not supported." }
+        val formatVersion = root.getInt("formatVersion")
+        require(formatVersion in 1..FORMAT_VERSION) { "This program file version is not supported." }
         val program = root.getJSONObject("program")
         val name = program.requiredName("name", "Program name")
         val days = program.getJSONArray("trainingDays").objects().map { dayJson ->
@@ -188,13 +193,38 @@ class ProgramTransferRepository(
                 require(setTargets.all { it.setOrder < plannedWorkingSets }) { "Set target is outside the planned working sets." }
                 require(trackingMode != TrackingMode.DURATION || setTargets.isEmpty()) { "Duration exercises cannot contain rep set targets." }
                 val warmupSets = exerciseJson.getJSONArray("warmupSets").objects().map { warmupJson ->
-                    val percentage = warmupJson.positiveInt("percentOfWorkingWeight", "Warm-up percentage")
-                    require(percentage <= 100) { "Warm-up percentage cannot exceed 100." }
-                    WarmupSetDocument(
+                    val loadType = if (formatVersion == 1) {
+                        WarmupLoadType.PERCENTAGE
+                    } else {
+                        try {
+                            WarmupLoadType.valueOf(warmupJson.getString("loadType"))
+                        } catch (exception: IllegalArgumentException) {
+                            throw IllegalArgumentException("Unknown warm-up load type.", exception)
+                        }
+                    }
+                    val warmup = WarmupSetDocument(
                         sortOrder = warmupJson.nonNegativeInt("sortOrder", "Warm-up order"),
                         reps = warmupJson.positiveInt("reps", "Warm-up reps"),
-                        percentOfWorkingWeight = percentage,
+                        loadType = loadType,
+                        percentOfWorkingWeight = if (loadType == WarmupLoadType.PERCENTAGE) {
+                            warmupJson.positiveInt("percentOfWorkingWeight", "Warm-up percentage")
+                        } else null,
+                        fixedWeightCentiKg = if (loadType == WarmupLoadType.FIXED) {
+                            warmupJson.nonNegativeInt("fixedWeightCentiKg", "Fixed warm-up weight")
+                        } else null,
                     )
+                    if (formatVersion >= 2) {
+                        require(
+                            loadType != WarmupLoadType.PERCENTAGE || warmupJson.isNull("fixedWeightCentiKg"),
+                        ) { "Percentage warm-ups cannot contain a fixed weight." }
+                        require(
+                            loadType != WarmupLoadType.FIXED || warmupJson.isNull("percentOfWorkingWeight"),
+                        ) { "Fixed warm-ups cannot contain a percentage." }
+                    }
+                    require(warmup.percentOfWorkingWeight == null || warmup.percentOfWorkingWeight <= 100) {
+                        "Warm-up percentage cannot exceed 100."
+                    }
+                    warmup
                 }
                 require(warmupSets.map { it.sortOrder }.distinct().size == warmupSets.size) { "Warm-up orders must be unique." }
                 require(trackingMode == TrackingMode.WEIGHT_REPS || warmupSets.isEmpty()) {
@@ -210,6 +240,8 @@ class ProgramTransferRepository(
                     targetDurationSeconds = targetDurationSeconds,
                     incrementCentiKg = incrementCentiKg,
                     durationIncrementSeconds = durationIncrementSeconds,
+                    warmupRoundingCentiKg = if (formatVersion == 1) 500 else
+                        exerciseJson.nonNegativeInt("warmupRoundingCentiKg", "Warm-up rounding"),
                     restSeconds = exerciseJson.nonNegativeInt("restSeconds", "Rest time"),
                     setupNote = exerciseJson.getString("setupNote").trim(),
                     supersetKey = supersetKey,
@@ -273,6 +305,7 @@ class ProgramTransferRepository(
                         trackingMode = exercise.trackingMode,
                         targetDurationSeconds = exercise.targetDurationSeconds,
                         durationIncrementSeconds = exercise.durationIncrementSeconds,
+                        warmupRoundingCentiKg = exercise.warmupRoundingCentiKg,
                     ),
                 )
                 database.progressionStateDao().insert(
@@ -301,7 +334,9 @@ class ProgramTransferRepository(
                                 workoutTemplateExerciseId = templateExerciseId,
                                 sortOrder = warmupIndex,
                                 reps = warmup.reps,
+                                loadType = warmup.loadType,
                                 percentOfWorkingWeight = warmup.percentOfWorkingWeight,
+                                fixedWeightCentiKg = warmup.fixedWeightCentiKg,
                             )
                         },
                     )
@@ -357,6 +392,7 @@ class ProgramTransferRepository(
         val targetDurationSeconds: Int?,
         val incrementCentiKg: Int,
         val durationIncrementSeconds: Int,
+        val warmupRoundingCentiKg: Int,
         val restSeconds: Int,
         val setupNote: String,
         val supersetKey: String?,
@@ -374,12 +410,14 @@ class ProgramTransferRepository(
     private data class WarmupSetDocument(
         val sortOrder: Int,
         val reps: Int,
-        val percentOfWorkingWeight: Int,
+        val loadType: WarmupLoadType,
+        val percentOfWorkingWeight: Int?,
+        val fixedWeightCentiKg: Int?,
     )
 
     private companion object {
         const val FORMAT = "workout-companion-program"
-        const val FORMAT_VERSION = 1
+        const val FORMAT_VERSION = 2
         const val MAX_DOCUMENT_CHARACTERS = 5_000_000
     }
 }

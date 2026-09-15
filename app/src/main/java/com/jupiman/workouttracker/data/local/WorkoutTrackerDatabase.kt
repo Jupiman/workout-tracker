@@ -42,7 +42,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEnti
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -60,6 +60,54 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
     abstract fun sessionSetDao(): SessionSetDao
 
     companion object {
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE workout_template_exercises " +
+                        "ADD COLUMN warmupRoundingCentiKg INTEGER NOT NULL DEFAULT 500",
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS workout_template_warmup_sets_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        workoutTemplateExerciseId INTEGER NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        reps INTEGER NOT NULL,
+                        loadType TEXT NOT NULL,
+                        percentOfWorkingWeight INTEGER,
+                        fixedWeightCentiKg INTEGER,
+                        FOREIGN KEY(workoutTemplateExerciseId)
+                            REFERENCES workout_template_exercises(id)
+                            ON UPDATE NO ACTION
+                            ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO workout_template_warmup_sets_new (
+                        id, workoutTemplateExerciseId, sortOrder, reps, loadType,
+                        percentOfWorkingWeight, fixedWeightCentiKg
+                    )
+                    SELECT id, workoutTemplateExerciseId, sortOrder, reps, 'PERCENTAGE',
+                        percentOfWorkingWeight, NULL
+                    FROM workout_template_warmup_sets
+                    """.trimIndent(),
+                )
+                db.execSQL("DROP TABLE workout_template_warmup_sets")
+                db.execSQL("ALTER TABLE workout_template_warmup_sets_new RENAME TO workout_template_warmup_sets")
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_workout_template_warmup_sets_workoutTemplateExerciseId " +
+                        "ON workout_template_warmup_sets (workoutTemplateExerciseId)",
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                        "index_workout_template_warmup_sets_workoutTemplateExerciseId_sortOrder " +
+                        "ON workout_template_warmup_sets (workoutTemplateExerciseId, sortOrder)",
+                )
+            }
+        }
+
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN trackingMode TEXT NOT NULL DEFAULT 'WEIGHT_REPS'")
