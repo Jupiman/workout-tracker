@@ -32,7 +32,7 @@ class WearWorkoutFormatterTest {
     @Test
     fun targetsUseTheSelectedTrackingMode() {
         val weighted = state().copy(weightCentiKg = 7250, targetReps = 10)
-        assertEquals("72.5 kg x 10", targetText(weighted))
+        assertEquals("72.5kg × 10", targetText(weighted))
         assertEquals("10 reps", targetText(weighted.copy(trackingMode = WearTrackingMode.REPS, weightCentiKg = null)))
         assertEquals("60 sec", targetText(weighted.copy(
             trackingMode = WearTrackingMode.DURATION,
@@ -40,6 +40,17 @@ class WearWorkoutFormatterTest {
             targetReps = null,
             targetDurationSeconds = 60,
         )))
+    }
+
+    @Test
+    fun longWeightedTargetsUseAFontSizeThatFitsTheWatch() {
+        val threeDigitWeight = targetText(state().copy(weightCentiKg = 10_000, targetReps = 99))
+        val decimalWeight = targetText(state().copy(weightCentiKg = 10_025, targetReps = 99))
+
+        assertEquals("100kg × 99", threeDigitWeight)
+        assertEquals(20, targetFontSizeSp(threeDigitWeight))
+        assertEquals("100.25kg × 99", decimalWeight)
+        assertEquals(18, targetFontSizeSp(decimalWeight))
     }
 
     private fun state() = WorkoutWearState(

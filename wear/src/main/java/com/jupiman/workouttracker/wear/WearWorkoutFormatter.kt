@@ -16,9 +16,15 @@ fun formatCentiKg(centiKg: Int): String {
 }
 
 fun targetText(state: WorkoutWearState): String = when (state.trackingMode) {
-    WearTrackingMode.WEIGHT_REPS -> "${formatCentiKg(state.weightCentiKg ?: 0)} kg x ${state.targetReps ?: 0}"
+    WearTrackingMode.WEIGHT_REPS -> "${formatCentiKg(state.weightCentiKg ?: 0)}kg × ${state.targetReps ?: 0}"
     WearTrackingMode.REPS -> "${state.targetReps ?: 0} reps"
     WearTrackingMode.DURATION -> "${state.targetDurationSeconds ?: 0} sec"
+}
+
+fun targetFontSizeSp(text: String): Int = when {
+    text.length >= 13 -> 18
+    text.length >= 10 -> 20
+    else -> 25
 }
 
 fun restText(

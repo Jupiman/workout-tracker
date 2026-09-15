@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
+import com.jupiman.workouttracker.data.repository.ExerciseProgressRepository
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -17,6 +18,7 @@ data class HistoryUiState(
 
 class HistoryViewModel(
     workoutSessionRepository: WorkoutSessionRepository,
+    private val exerciseProgressRepository: ExerciseProgressRepository,
 ) : ViewModel() {
     private val selectedSessionId = MutableStateFlow<Long?>(null)
 
@@ -41,4 +43,10 @@ class HistoryViewModel(
     fun closeDetails() {
         selectedSessionId.value = null
     }
+
+    fun progressTrack(workoutTemplateExerciseId: Long) =
+        exerciseProgressRepository.trackById(workoutTemplateExerciseId)
+
+    fun progressSessions(workoutTemplateExerciseId: Long) =
+        exerciseProgressRepository.sessionsForTrack(workoutTemplateExerciseId)
 }

@@ -289,7 +289,7 @@ private fun TargetPanel(
         Text(
             text = targetText,
             textAlign = TextAlign.Center,
-            fontSize = 25.sp,
+            fontSize = targetFontSizeSp(targetText).sp,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colors.primary,
             maxLines = 1,

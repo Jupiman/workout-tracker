@@ -3882,6 +3882,8 @@ Phone content uses edge-to-edge system bars with nested screen scaffolds consumi
 
 Wear keeps its phone-authoritative state and dark/lavender identity, but duration target panels now retain the target context while showing preparation and live countdown states. Phone and Wear launchers use transparent safe-zone vector foregrounds over the dark background, include round presentation, and provide Android 13 monochrome resources. The old full-square foreground bitmaps are no longer referenced. No database, backup, package, or progression behavior changed.
 
+The Phase 6 acceptance follow-up adds horizontal paging between Workout, Program, and History while keeping the bottom navigation selection synchronized. Historical exercise cards open the exact progression track using the snapshotted source WorkoutTemplateExercise identity, so the same exercise in different Training Days remains independent. Wear weight-and-rep targets use compact spacing and reduce type size for longer values so three-digit weights and two-digit rep targets remain visible together.
+
 ## 57.7 First-run onboarding
 
 Improve first-run experience without creating a tutorial slideshow.

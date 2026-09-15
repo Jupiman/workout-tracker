@@ -25,7 +25,10 @@ class AppViewModelFactory(
                 ) as T
             }
             modelClass.isAssignableFrom(HistoryViewModel::class.java) -> {
-                HistoryViewModel(workoutSessionRepository = container.workoutSessionRepository) as T
+                HistoryViewModel(
+                    workoutSessionRepository = container.workoutSessionRepository,
+                    exerciseProgressRepository = container.exerciseProgressRepository,
+                ) as T
             }
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }

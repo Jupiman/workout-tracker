@@ -48,8 +48,6 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -821,7 +819,6 @@ private fun SessionExerciseCard(
                 if (hasPending) Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.semantics { contentDescription = "Exercise actions" },
                     ) { WorkoutGlyph(WorkoutIcon.Menu, contentDescription = "Exercise actions") }
                     DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                         if (exercises.isNotEmpty()) DropdownMenuItem(

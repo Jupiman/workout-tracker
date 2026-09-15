@@ -56,6 +56,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 
 @Composable
@@ -66,8 +67,27 @@ fun ExerciseProgressScreen(
     modifier: Modifier = Modifier,
 ) {
     val tracksFlow = remember(exercise.id) { viewModel.progressTracks(exercise.id) }
+    ExerciseProgressScreen(
+        exerciseName = exercise.name,
+        tracksFlow = tracksFlow,
+        sessionsForTrack = viewModel::progressSessions,
+        onBack = onBack,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun ExerciseProgressScreen(
+    exerciseName: String,
+    tracksFlow: Flow<List<ExerciseProgressTrack>>,
+    sessionsForTrack: (Long) -> Flow<List<ExerciseProgressSession>>,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    initialTrackId: Long? = null,
+    backContentDescription: String = "Back to exercise library",
+) {
     val tracks by tracksFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    var selectedTrackId by rememberSaveable(exercise.id) { mutableStateOf<Long?>(null) }
+    var selectedTrackId by rememberSaveable(exerciseName, initialTrackId) { mutableStateOf(initialTrackId) }
     val selectedTrack = tracks.firstOrNull { it.workoutTemplateExerciseId == selectedTrackId }
         ?: tracks.firstOrNull()
 
@@ -79,7 +99,7 @@ fun ExerciseProgressScreen(
 
     val sessionsFlow = remember(selectedTrack?.workoutTemplateExerciseId) {
         selectedTrack?.let {
-            viewModel.progressSessions(it.workoutTemplateExerciseId)
+            sessionsForTrack(it.workoutTemplateExerciseId)
         } ?: flowOf(emptyList())
     }
     val sessions by sessionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -94,11 +114,11 @@ fun ExerciseProgressScreen(
         item {
             Spacer(modifier = Modifier.height(8.dp))
             WorkoutScreenHeader(
-                title = exercise.name,
+                title = exerciseName,
                 eyebrow = "Exercise progress",
                 navigation = {
                     IconButton(onClick = onBack) {
-                        WorkoutGlyph(WorkoutIcon.Back, contentDescription = "Back to exercise library")
+                        WorkoutGlyph(WorkoutIcon.Back, contentDescription = backContentDescription)
                     }
                 },
             )

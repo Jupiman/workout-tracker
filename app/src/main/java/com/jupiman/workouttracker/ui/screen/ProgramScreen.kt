@@ -115,6 +115,7 @@ private enum class ProgramDestinationTab(val label: String) {
 fun ProgramScreen(
     viewModel: ProgramViewModel,
     modifier: Modifier = Modifier,
+    backHandlerEnabled: Boolean = true,
 ) {
     val programs by viewModel.programs.collectAsStateWithLifecycle()
     val activeProgram by viewModel.activeProgram.collectAsStateWithLifecycle()
@@ -175,7 +176,7 @@ fun ProgramScreen(
     }
 
     if (progressExercise != null) {
-        BackHandler { progressExerciseId = null }
+        BackHandler(enabled = backHandlerEnabled) { progressExerciseId = null }
         ExerciseProgressScreen(
             exercise = progressExercise,
             viewModel = viewModel,

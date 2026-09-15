@@ -27,6 +27,10 @@ class ExerciseProgressRepository(
     fun tracksForExercise(exerciseId: Long) =
         workoutTemplateExerciseDao.observeProgressTracksForExercise(exerciseId)
 
+    fun trackById(workoutTemplateExerciseId: Long) =
+        workoutTemplateExerciseDao.observeProgressTrack(workoutTemplateExerciseId)
+            .map { track -> listOfNotNull(track) }
+
     fun sessionsForTrack(workoutTemplateExerciseId: Long) =
         workoutSessionDao.observeHistoryWithDetails().map { sessions ->
             buildExerciseProgressSessions(sessions, workoutTemplateExerciseId)

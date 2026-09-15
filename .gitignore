@@ -5,6 +5,7 @@
 /*/build/
 /local.properties
 /.idea/
+/visual-audit/
 *.iml
 *.jks
 *.keystore

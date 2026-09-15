@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,15 +71,36 @@ import java.util.Locale
 fun HistoryScreen(
     viewModel: HistoryViewModel,
     modifier: Modifier = Modifier,
+    backHandlerEnabled: Boolean = true,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedSession = uiState.selectedSession
+    var progressTrackId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var progressExerciseName by rememberSaveable { mutableStateOf("") }
+    val selectedProgressTrackId = progressTrackId
 
-    if (selectedSession != null) {
-        BackHandler(onBack = viewModel::closeDetails)
+    if (selectedProgressTrackId != null) {
+        BackHandler(enabled = backHandlerEnabled) { progressTrackId = null }
+        ExerciseProgressScreen(
+            exerciseName = progressExerciseName,
+            tracksFlow = remember(selectedProgressTrackId) {
+                viewModel.progressTrack(selectedProgressTrackId)
+            },
+            sessionsForTrack = viewModel::progressSessions,
+            initialTrackId = selectedProgressTrackId,
+            backContentDescription = "Back to workout history",
+            onBack = { progressTrackId = null },
+            modifier = modifier,
+        )
+    } else if (selectedSession != null) {
+        BackHandler(enabled = backHandlerEnabled, onBack = viewModel::closeDetails)
         WorkoutHistoryDetail(
             sessionDetails = selectedSession,
             onBack = viewModel::closeDetails,
+            onOpenExerciseProgress = { exerciseName, trackId ->
+                progressExerciseName = exerciseName
+                progressTrackId = trackId
+            },
             modifier = modifier,
         )
     } else {
@@ -392,6 +414,7 @@ private fun HistorySessionRow(
 private fun WorkoutHistoryDetail(
     sessionDetails: WorkoutSessionWithDetails,
     onBack: () -> Unit,
+    onOpenExerciseProgress: (String, Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val session = sessionDetails.session
@@ -435,7 +458,17 @@ private fun WorkoutHistoryDetail(
             .sortedBy { it.exercise.sortOrderSnapshot }
             .forEach { exercise ->
                 item(key = exercise.exercise.id) {
-                    HistoryExerciseCard(exercise = exercise)
+                    HistoryExerciseCard(
+                        exercise = exercise,
+                        onOpenProgress = exercise.exercise.sourceWorkoutTemplateExerciseId?.let { trackId ->
+                            {
+                                onOpenExerciseProgress(
+                                    exercise.exercise.exerciseNameSnapshot,
+                                    trackId,
+                                )
+                            }
+                        },
+                    )
                 }
             }
 
@@ -448,9 +481,12 @@ private fun WorkoutHistoryDetail(
 @Composable
 private fun HistoryExerciseCard(
     exercise: SessionExerciseWithSets,
+    onOpenProgress: (() -> Unit)?,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onOpenProgress != null) Modifier.clickable(onClick = onOpenProgress) else Modifier),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         Column(
@@ -464,6 +500,13 @@ private fun HistoryExerciseCard(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (onOpenProgress != null) {
+                Text(
+                    text = "View progress",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 text = "${exercise.exercise.plannedSetCountSnapshot} x " + trackingText(
                     exercise.exercise.trackingModeSnapshot,

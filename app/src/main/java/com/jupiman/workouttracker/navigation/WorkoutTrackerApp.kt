@@ -3,15 +3,18 @@ package com.jupiman.workouttracker.navigation
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,8 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -48,8 +49,9 @@ import java.time.LocalDate
 import kotlinx.coroutines.launch
 
 private const val SETTINGS_ROUTE = "settings"
+private const val MAIN_ROUTE = "main"
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun WorkoutTrackerApp(
     container: AppContainer,
@@ -59,8 +61,10 @@ fun WorkoutTrackerApp(
     val navController = rememberNavController()
     val viewModelFactory = AppViewModelFactory(container)
     val destinations = WorkoutTrackerDestination.entries
+    val pagerState = rememberPagerState(pageCount = { destinations.size })
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val currentDestination = destinations[pagerState.currentPage]
     var appMenuExpanded by remember { mutableStateOf(false) }
     val versionName = remember(context) {
         @Suppress("DEPRECATION")
@@ -117,7 +121,7 @@ fun WorkoutTrackerApp(
                         text = if (currentRoute == SETTINGS_ROUTE) {
                             "Settings"
                         } else {
-                            destinations.firstOrNull { it.route == currentRoute }?.label ?: "Workout Companion"
+                            currentDestination.label
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -152,15 +156,12 @@ fun WorkoutTrackerApp(
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 destinations.forEach { destination ->
+                    val page = destinations.indexOf(destination)
                     NavigationBarItem(
-                        selected = currentRoute == destination.route,
+                        selected = pagerState.currentPage == page,
                         onClick = {
-                            navController.navigate(destination.route) {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
+                            scope.launch {
+                                pagerState.animateScrollToPage(page)
                             }
                         },
                         label = { Text(destination.label) },
@@ -171,7 +172,7 @@ fun WorkoutTrackerApp(
                                     WorkoutTrackerDestination.Program -> WorkoutIcon.Program
                                     WorkoutTrackerDestination.History -> WorkoutIcon.History
                                 },
-                                contentDescription = destination.label,
+                                contentDescription = null,
                             )
                         },
                     )
@@ -181,20 +182,36 @@ fun WorkoutTrackerApp(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = WorkoutTrackerDestination.Workout.route,
+            startDestination = MAIN_ROUTE,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(WorkoutTrackerDestination.Workout.route) {
-                val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
-                WorkoutHomeScreen(viewModel = homeViewModel)
-            }
-            composable(WorkoutTrackerDestination.Program.route) {
-                val programViewModel: ProgramViewModel = viewModel(factory = viewModelFactory)
-                ProgramScreen(viewModel = programViewModel)
-            }
-            composable(WorkoutTrackerDestination.History.route) {
-                val historyViewModel: HistoryViewModel = viewModel(factory = viewModelFactory)
-                HistoryScreen(viewModel = historyViewModel)
+            composable(MAIN_ROUTE) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    key = { page -> destinations[page].route },
+                ) { page ->
+                    when (destinations[page]) {
+                        WorkoutTrackerDestination.Workout -> {
+                            val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
+                            WorkoutHomeScreen(viewModel = homeViewModel)
+                        }
+                        WorkoutTrackerDestination.Program -> {
+                            val programViewModel: ProgramViewModel = viewModel(factory = viewModelFactory)
+                            ProgramScreen(
+                                viewModel = programViewModel,
+                                backHandlerEnabled = pagerState.currentPage == page,
+                            )
+                        }
+                        WorkoutTrackerDestination.History -> {
+                            val historyViewModel: HistoryViewModel = viewModel(factory = viewModelFactory)
+                            HistoryScreen(
+                                viewModel = historyViewModel,
+                                backHandlerEnabled = pagerState.currentPage == page,
+                            )
+                        }
+                    }
+                }
             }
             composable(SETTINGS_ROUTE) {
                 SettingsScreen(
