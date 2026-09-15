@@ -2,12 +2,18 @@ package com.jupiman.workouttracker.healthconnect
 
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HealthConnectSyncManagerTest {
     @Test
     fun manualSyncUsesAllAndOnlyValidFinalizedSessions() = runTest {
@@ -19,6 +25,43 @@ class HealthConnectSyncManagerTest {
 
         assertEquals(HealthConnectSyncResult.Completed(2), manager.syncAllFinalizedWorkouts())
         assertEquals(setOf("Day 1", "Day 2"), gateway.records.values.map { it.title }.toSet())
+    }
+
+    @Test
+    fun postWorkoutSyncReturnsBeforeSlowWriteFinishes() = runTest {
+        val writeStarted = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val gateway = FakeHealthConnectGateway(
+            beforeWrite = {
+                writeStarted.complete(Unit)
+                releaseWrite.await()
+            },
+        )
+        val source = FakeFinalizedWorkoutSource(listOf(session(1)))
+        val manager = manager(gateway, source, postWorkoutScope = backgroundScope)
+
+        manager.syncAfterFinalization(1)
+        runCurrent()
+
+        assertTrue(writeStarted.isCompleted)
+        assertFalse(releaseWrite.isCompleted)
+        releaseWrite.complete(Unit)
+        runCurrent()
+        assertEquals(1, gateway.records.size)
+    }
+
+    @Test
+    fun postWorkoutSyncLoadsAndWritesOnlyTheNewlyFinalizedSession() = runTest {
+        val gateway = FakeHealthConnectGateway()
+        val source = FakeFinalizedWorkoutSource(listOf(session(1), session(2)))
+        val manager = manager(gateway, source, postWorkoutScope = backgroundScope)
+
+        manager.syncAfterFinalization(2)
+        runCurrent()
+
+        assertEquals(0, source.allFinalizedCalls)
+        assertEquals(listOf(2L), source.requestedSessionIds)
+        assertEquals(listOf("Day 2"), gateway.records.values.map { it.title })
     }
 
     @Test
@@ -65,11 +108,15 @@ class HealthConnectSyncManagerTest {
         assertEquals(0, disabledGateway.writeCalls)
 
         val enabledGateway = FakeHealthConnectGateway()
+        val enabledSource = FakeFinalizedWorkoutSource(listOf(session(1), session(2)))
         assertEquals(
-            HealthConnectSyncResult.Completed(1),
-            manager(enabledGateway, listOf(session(1)), enabled = true).syncIfEnabled(),
+            HealthConnectSyncResult.Completed(2),
+            manager(enabledGateway, enabledSource, enabled = true).syncIfEnabled(),
         )
         assertEquals(1, enabledGateway.writeCalls)
+        assertEquals(2, enabledGateway.records.size)
+        assertEquals(1, enabledSource.allFinalizedCalls)
+        assertTrue(enabledSource.requestedSessionIds.isEmpty())
     }
 
     @Test
@@ -84,10 +131,18 @@ class HealthConnectSyncManagerTest {
         gateway: FakeHealthConnectGateway,
         sessions: List<WorkoutSessionEntity>,
         enabled: Boolean = true,
+    ) = manager(gateway, FakeFinalizedWorkoutSource(sessions), enabled)
+
+    private fun manager(
+        gateway: FakeHealthConnectGateway,
+        source: FakeFinalizedWorkoutSource,
+        enabled: Boolean = true,
+        postWorkoutScope: CoroutineScope = CoroutineScope(Dispatchers.Unconfined),
     ) = HealthConnectSyncManager(
         gateway = gateway,
-        workoutSource = FinalizedWorkoutSource { sessions },
+        workoutSource = source,
         isSyncEnabled = { enabled },
+        postWorkoutScope = postWorkoutScope,
     )
 
     private fun session(id: Long, status: WorkoutSessionStatus = WorkoutSessionStatus.COMPLETED) =
@@ -107,6 +162,7 @@ class HealthConnectSyncManagerTest {
         var availability: HealthConnectAvailability = HealthConnectAvailability.AVAILABLE,
         var hasPermission: Boolean = true,
         var failWrites: Boolean = false,
+        val beforeWrite: suspend () -> Unit = {},
     ) : HealthConnectGateway {
         var writeCalls = 0
         val records = linkedMapOf<String, HealthConnectWorkoutRecord>()
@@ -116,7 +172,25 @@ class HealthConnectSyncManagerTest {
         override suspend fun writeExerciseSessions(records: List<HealthConnectWorkoutRecord>) {
             writeCalls += 1
             if (failWrites) error("Provider failure")
+            beforeWrite()
             records.forEach { record -> this.records[record.clientRecordId] = record }
+        }
+    }
+
+    private class FakeFinalizedWorkoutSource(
+        private val sessions: List<WorkoutSessionEntity>,
+    ) : FinalizedWorkoutSource {
+        var allFinalizedCalls = 0
+        val requestedSessionIds = mutableListOf<Long>()
+
+        override suspend fun finalizedWorkouts(): List<WorkoutSessionEntity> {
+            allFinalizedCalls += 1
+            return sessions
+        }
+
+        override suspend fun finalizedWorkout(sessionId: Long): WorkoutSessionEntity? {
+            requestedSessionIds += sessionId
+            return sessions.firstOrNull { it.id == sessionId }
         }
     }
 }

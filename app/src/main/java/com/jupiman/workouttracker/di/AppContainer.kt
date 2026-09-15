@@ -18,8 +18,12 @@ import com.jupiman.workouttracker.healthconnect.AndroidHealthConnectGateway
 import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSource
 import com.jupiman.workouttracker.healthconnect.HealthConnectSyncManager
 import com.jupiman.workouttracker.wear.AndroidWearWorkoutBridge
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 class AppContainer(context: Context) {
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val appPreferencesRepository = AppPreferencesRepository.create(context)
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
     private val durationTimerScheduler = AndroidDurationTimerScheduler(context.applicationContext)
@@ -54,8 +58,15 @@ class AppContainer(context: Context) {
     val programTransferRepository = ProgramTransferRepository(database)
     val healthConnectSyncManager = HealthConnectSyncManager(
         gateway = AndroidHealthConnectGateway(context.applicationContext),
-        workoutSource = FinalizedWorkoutSource { database.workoutSessionDao().getFinalizedForHealthConnect() },
+        workoutSource = object : FinalizedWorkoutSource {
+            override suspend fun finalizedWorkouts() =
+                database.workoutSessionDao().getFinalizedForHealthConnect()
+
+            override suspend fun finalizedWorkout(sessionId: Long) =
+                database.workoutSessionDao().getById(sessionId)
+        },
         isSyncEnabled = { appPreferencesRepository.current().healthConnectSyncEnabled },
+        postWorkoutScope = applicationScope,
     )
     val programRepository = ProgramRepository(
         database = database,

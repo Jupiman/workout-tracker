@@ -6,14 +6,15 @@ interface HealthConnectGateway {
     suspend fun writeExerciseSessions(records: List<HealthConnectWorkoutRecord>)
 }
 
-fun interface FinalizedWorkoutSource {
+interface FinalizedWorkoutSource {
     suspend fun finalizedWorkouts(): List<com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity>
+    suspend fun finalizedWorkout(sessionId: Long): com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity?
 }
 
 fun interface FinalizedWorkoutSync {
-    suspend fun syncAfterFinalization()
+    fun syncAfterFinalization(sessionId: Long)
 }
 
 object NoOpFinalizedWorkoutSync : FinalizedWorkoutSync {
-    override suspend fun syncAfterFinalization() = Unit
+    override fun syncAfterFinalization(sessionId: Long) = Unit
 }

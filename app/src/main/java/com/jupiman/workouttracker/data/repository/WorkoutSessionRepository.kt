@@ -903,7 +903,7 @@ class WorkoutSessionRepository(
         restTimerScheduler.cancel()
         durationTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
-        runCatching { finalizedWorkoutSync.syncAfterFinalization() }
+        runCatching { finalizedWorkoutSync.syncAfterFinalization(summary.sessionId) }
         return summary
     }
 

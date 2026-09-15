@@ -21,12 +21,19 @@ import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationState
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import com.jupiman.workouttracker.preferences.DurationPreparationProvider
+import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSource
 import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSync
+import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
+import com.jupiman.workouttracker.healthconnect.HealthConnectGateway
+import com.jupiman.workouttracker.healthconnect.HealthConnectSyncManager
+import com.jupiman.workouttracker.healthconnect.HealthConnectWorkoutRecord
 import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
 import com.jupiman.workouttracker.wear.WorkoutWearStateProjector
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -250,14 +257,13 @@ class WorkoutSessionRepositoryTest {
     }
 
     @Test
-    fun finalizedWorkoutTriggersExternalSyncOnlyAfterRoomCompletion() = runTest {
+    fun finishActiveWorkoutQueuesTheFinalizedSessionId() = runTest {
         var sessionId = 0L
         var syncCalls = 0
+        var queuedSessionId: Long? = null
         repository = createRepository(
-            finalizedWorkoutSync = FinalizedWorkoutSync {
-                val finalized = database.workoutSessionDao().getById(sessionId)!!
-                assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
-                assertTrue(finalized.progressionApplied)
+            finalizedWorkoutSync = FinalizedWorkoutSync { finalizedSessionId ->
+                queuedSessionId = finalizedSessionId
                 syncCalls += 1
             },
         )
@@ -266,7 +272,51 @@ class WorkoutSessionRepositoryTest {
 
         repository.finishActiveWorkout(allowPartial = false)
 
+        val finalized = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
+        assertTrue(finalized.progressionApplied)
+        assertEquals(sessionId, queuedSessionId)
         assertEquals(1, syncCalls)
+    }
+
+    @Test
+    fun finishActiveWorkoutDoesNotWaitForSlowHealthConnectWrite() = runTest {
+        val writeStarted = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val gateway = object : HealthConnectGateway {
+            override suspend fun availability() = HealthConnectAvailability.AVAILABLE
+            override suspend fun hasWriteExercisePermission() = true
+            override suspend fun writeExerciseSessions(records: List<HealthConnectWorkoutRecord>) {
+                writeStarted.complete(Unit)
+                releaseWrite.await()
+            }
+        }
+        val syncManager = HealthConnectSyncManager(
+            gateway = gateway,
+            workoutSource = object : FinalizedWorkoutSource {
+                override suspend fun finalizedWorkouts() =
+                    database.workoutSessionDao().getFinalizedForHealthConnect()
+
+                override suspend fun finalizedWorkout(sessionId: Long) =
+                    database.workoutSessionDao().getById(sessionId)
+            },
+            isSyncEnabled = { true },
+            postWorkoutScope = backgroundScope,
+        )
+        repository = createRepository(finalizedWorkoutSync = syncManager)
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        completeAllSets(sessionId, actualWeight = 7_000, actualReps = 10)
+
+        val summary = repository.finishActiveWorkout(allowPartial = false)
+
+        assertEquals(sessionId, summary.sessionId)
+        val finalized = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
+        assertTrue(finalized.progressionApplied)
+        withTimeout(5_000L) { writeStarted.await() }
+        assertTrue(writeStarted.isCompleted)
+        assertTrue(!releaseWrite.isCompleted)
+        releaseWrite.complete(Unit)
     }
 
     @Test
