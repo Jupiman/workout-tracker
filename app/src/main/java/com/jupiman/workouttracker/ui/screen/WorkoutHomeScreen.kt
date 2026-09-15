@@ -73,6 +73,7 @@ import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
+import com.jupiman.workouttracker.ui.theme.WorkoutEmptyState
 import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
 import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.theme.workoutStateColors
@@ -91,6 +92,8 @@ import kotlin.math.ceil
 fun WorkoutHomeScreen(
     viewModel: HomeViewModel,
     modifier: Modifier = Modifier,
+    onCreateProgram: () -> Unit = {},
+    onOpenProgram: () -> Unit = {},
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
@@ -145,10 +148,24 @@ fun WorkoutHomeScreen(
                 }
             } else if (activeWorkout == null) {
                 item {
-                    StartWorkoutPanel(
-                        uiState = uiState,
-                        onStartWorkout = viewModel::startWorkout,
-                    )
+                    when {
+                        uiState.activeProgram == null -> WorkoutEmptyState(
+                            title = "Create your first program",
+                            body = "Create a program, add a training day, and choose exercises from the ready-to-use library.",
+                            actionLabel = "Create program",
+                            onAction = onCreateProgram,
+                        )
+                        uiState.activeProgramTemplates.isEmpty() -> WorkoutEmptyState(
+                            title = "Add your first training day",
+                            body = "Open your program and add a training day before starting a workout.",
+                            actionLabel = "Open program",
+                            onAction = onOpenProgram,
+                        )
+                        else -> StartWorkoutPanel(
+                            uiState = uiState,
+                            onStartWorkout = viewModel::startWorkout,
+                        )
+                    }
                 }
             } else {
                 item {

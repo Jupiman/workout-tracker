@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +67,7 @@ fun WorkoutTrackerApp(
     val currentRoute = backStackEntry?.destination?.route
     val currentDestination = destinations[pagerState.currentPage]
     var appMenuExpanded by remember { mutableStateOf(false) }
+    var createProgramRequested by rememberSaveable { mutableStateOf(false) }
     val versionName = remember(context) {
         @Suppress("DEPRECATION")
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
@@ -194,13 +196,39 @@ fun WorkoutTrackerApp(
                     when (destinations[page]) {
                         WorkoutTrackerDestination.Workout -> {
                             val homeViewModel: HomeViewModel = viewModel(factory = viewModelFactory)
-                            WorkoutHomeScreen(viewModel = homeViewModel)
+                            WorkoutHomeScreen(
+                                viewModel = homeViewModel,
+                                onCreateProgram = {
+                                    createProgramRequested = true
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(
+                                            destinations.indexOf(WorkoutTrackerDestination.Program),
+                                        )
+                                    }
+                                },
+                                onOpenProgram = {
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(
+                                            destinations.indexOf(WorkoutTrackerDestination.Program),
+                                        )
+                                    }
+                                },
+                            )
                         }
                         WorkoutTrackerDestination.Program -> {
                             val programViewModel: ProgramViewModel = viewModel(factory = viewModelFactory)
                             ProgramScreen(
                                 viewModel = programViewModel,
                                 backHandlerEnabled = pagerState.currentPage == page,
+                                createProgramRequested = createProgramRequested,
+                                onCreateProgramRequestHandled = { createProgramRequested = false },
+                                onOpenWorkout = {
+                                    scope.launch {
+                                        pagerState.animateScrollToPage(
+                                            destinations.indexOf(WorkoutTrackerDestination.Workout),
+                                        )
+                                    }
+                                },
                             )
                         }
                         WorkoutTrackerDestination.History -> {

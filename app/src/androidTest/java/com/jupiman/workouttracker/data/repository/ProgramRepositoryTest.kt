@@ -43,6 +43,16 @@ class ProgramRepositoryTest {
     }
 
     @Test
+    fun firstCreatedProgramIsActiveForTheFirstRunSetupFlow() = runTest {
+        val programId = repository.createProgram("First Program")
+
+        val activeProgram = database.programDao().observeActive().first()
+
+        assertEquals(programId, activeProgram?.id)
+        assertEquals("First Program", activeProgram?.name)
+    }
+
+    @Test
     fun supersetWithPreviousGroupsAdjacentMatchingExercises() = runTest {
         val seed = seedTwoExerciseTemplate()
 

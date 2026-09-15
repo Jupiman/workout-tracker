@@ -3943,6 +3943,10 @@ Acceptance:
 
 STOP after Phase 7.
 
+### Phase 7 implementation decisions
+
+First-run onboarding is derived from existing Room state and uses the production Program builder throughout. With no active Program, Workout shows a focused Create program action that opens the existing Program creation dialog. The builder then uses contextual actions for creating a Training Day and adding the first exercise from the seeded Exercise Library. The repository's existing behavior activates the first created Program, and a configured active Training Day exposes a Go to workout action. No tutorial state, sample Program, preference flag, schema change, or duplicate setup flow is introduced. The app menu and Settings restore action remain available in every empty state.
+
 ## 57.8 Program export / import
 
 Add portable export/import for ONE training Program.

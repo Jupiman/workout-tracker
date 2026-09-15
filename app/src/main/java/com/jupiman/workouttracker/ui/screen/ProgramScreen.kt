@@ -116,6 +116,9 @@ fun ProgramScreen(
     viewModel: ProgramViewModel,
     modifier: Modifier = Modifier,
     backHandlerEnabled: Boolean = true,
+    createProgramRequested: Boolean = false,
+    onCreateProgramRequestHandled: () -> Unit = {},
+    onOpenWorkout: () -> Unit = {},
 ) {
     val programs by viewModel.programs.collectAsStateWithLifecycle()
     val activeProgram by viewModel.activeProgram.collectAsStateWithLifecycle()
@@ -223,6 +226,9 @@ fun ProgramScreen(
                         selectNewestDayWhenAvailable = true
                         viewModel.createWorkoutTemplate(programId, name)
                     },
+                    createProgramRequested = createProgramRequested,
+                    onCreateProgramRequestHandled = onCreateProgramRequestHandled,
+                    onOpenWorkout = onOpenWorkout,
                     modifier = Modifier.fillMaxSize(),
                 )
                 ProgramDestinationTab.Exercises -> ExerciseLibraryScreen(
@@ -269,6 +275,9 @@ private fun ProgramBuilderScreen(
     onCreateProgram: (String) -> Unit,
     onSelectDay: (Long) -> Unit,
     onCreateDay: (Long, String) -> Unit,
+    createProgramRequested: Boolean,
+    onCreateProgramRequestHandled: () -> Unit,
+    onOpenWorkout: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showCreateProgramDialog by rememberSaveable { mutableStateOf(false) }
@@ -305,6 +314,13 @@ private fun ProgramBuilderScreen(
     LaunchedEffect(sourceExerciseBlockKeys, draggedExerciseBlockKey) {
         if (draggedExerciseBlockKey == null) {
             visualExerciseBlockKeys = sourceExerciseBlockKeys
+        }
+    }
+
+    LaunchedEffect(createProgramRequested) {
+        if (createProgramRequested) {
+            showCreateProgramDialog = true
+            onCreateProgramRequestHandled()
         }
     }
 
@@ -436,19 +452,24 @@ private fun ProgramBuilderScreen(
                             onRemove = { showRemoveDayConfirmation = true },
                         )
                     }
-                    item {
-                        Button(
-                            onClick = { showAddExerciseDialog = true },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text("Add exercise")
-                        }
-                    }
                     if (selectedDayExercises.isEmpty()) {
                         item {
-                            Text("No exercises in this day.", style = MaterialTheme.typography.bodyLarge)
+                            EmptyStateCard(
+                                title = "Add your first exercise",
+                                body = "Choose from the seeded Exercise Library and configure it for this training day.",
+                                actionLabel = "Add exercise",
+                                onAction = { showAddExerciseDialog = true },
+                            )
                         }
                     } else {
+                        item {
+                            Button(
+                                onClick = { showAddExerciseDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Add exercise")
+                            }
+                        }
                         visualExerciseBlocks.forEachIndexed { blockIndex, block ->
                             item(key = block.key) {
                                 val isDraggedBlock = draggedExerciseBlockKey == block.key
@@ -499,6 +520,16 @@ private fun ProgramBuilderScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        if (activeProgram?.id == program.id) {
+                            item {
+                                EmptyStateCard(
+                                    title = "Ready to train",
+                                    body = "Your active program has a configured training day. Continue on the Workout screen.",
+                                    actionLabel = "Go to workout",
+                                    onAction = onOpenWorkout,
+                                )
                             }
                         }
                     }
