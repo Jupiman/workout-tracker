@@ -4120,6 +4120,14 @@ Acceptance:
 - Android notification settings opens from the app
 - Wear uses the phone-selected unit and older state payloads decode as kilograms
 
+### Phase 9 implementation decisions
+
+Preferences are stored in a dedicated Preferences DataStore named `app_preferences`. The repository exposes one observable immutable state plus granular setters so concurrent UI changes update only their own keys. Missing, unknown, or invalid stored values fall back to kilograms, System theme, three-second duration preparation, normal screen timeout, and enabled rest and duration phone alerts. These preferences remain device-local and are excluded from both full backup/restore and Program transfer.
+
+Room and transfer formats continue to store all weights as integer centi-kilograms. A central formatter/parser converts only UI input and presentation using `1 kg = 2.2046226218 lb`; Program editing, active logging, completion, History, Progress, notifications, and Wear use the selected display unit without mutating canonical data. The Wear state payload is version 4 and carries the selected unit; versions 1, 2, and 3 decode as kilograms.
+
+The duration preparation value is read once when a new timer starts and is represented by the persisted `durationStartsAt` and `durationEndsAt` timestamps. Existing timers keep their original deadlines when the preference changes, and both phone and Wear count down from those timestamps. Duration completion notification work is suspending so the timer receiver finishes its `goAsync()` token only after alert policy and notification refresh complete. Alert toggles suppress only the dedicated phone alert, while reconciliation, persistent workout state, and Wear updates continue normally. The phone keep-awake flag is applied to the activity decor view only while an active workout exists.
+
 STOP after Phase 9.
 
 ## 57.11 Health Connect

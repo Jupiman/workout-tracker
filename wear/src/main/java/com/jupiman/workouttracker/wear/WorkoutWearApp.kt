@@ -256,10 +256,10 @@ private fun ActiveWorkoutScreen(
     }
 }
 
-private fun durationTimerText(state: WorkoutWearState, now: Long): String? {
+internal fun durationTimerText(state: WorkoutWearState, now: Long): String? {
     val startsAt = state.durationStartsAt ?: return null
     val endsAt = state.durationEndsAt ?: return null
-    if (now < startsAt) return ceil((startsAt - now) / 1_000.0).toInt().coerceIn(1, 3).toString()
+    if (now < startsAt) return ceil((startsAt - now) / 1_000.0).toInt().coerceAtLeast(1).toString()
     if (now < startsAt + 1_000L) return "GO"
     return ceil((endsAt - now).coerceAtLeast(0L) / 1_000.0).toInt().toString()
 }

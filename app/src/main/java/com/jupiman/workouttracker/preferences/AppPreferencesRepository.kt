@@ -23,20 +23,11 @@ class AppPreferencesRepository(
         .catch { exception ->
             if (exception is IOException) emit(emptyPreferences()) else throw exception
         }
-        .map(::mapPreferences)
+        .map { values -> values.toAppPreferences() }
 
     suspend fun current(): AppPreferences = preferences.first()
 
     override suspend fun durationPrepSeconds(): Int = current().durationPrepSeconds
-
-    suspend fun setPreferences(value: AppPreferences) = dataStore.edit {
-        it[WEIGHT_UNIT] = value.weightUnit.name
-        it[THEME_MODE] = value.themeMode.name
-        it[DURATION_PREP_SECONDS] = value.durationPrepSeconds
-        it[KEEP_PHONE_SCREEN_AWAKE] = value.keepPhoneScreenAwake
-        it[REST_COMPLETION_PHONE_ALERT] = value.restCompletionPhoneAlert
-        it[DURATION_COMPLETION_PHONE_ALERT] = value.durationCompletionPhoneAlert
-    }
 
     suspend fun setWeightUnit(value: WeightUnit) = dataStore.edit { it[WEIGHT_UNIT] = value.name }
     suspend fun setThemeMode(value: ThemeMode) = dataStore.edit { it[THEME_MODE] = value.name }
@@ -47,20 +38,6 @@ class AppPreferencesRepository(
     suspend fun setKeepPhoneScreenAwake(value: Boolean) = dataStore.edit { it[KEEP_PHONE_SCREEN_AWAKE] = value }
     suspend fun setRestCompletionPhoneAlert(value: Boolean) = dataStore.edit { it[REST_COMPLETION_PHONE_ALERT] = value }
     suspend fun setDurationCompletionPhoneAlert(value: Boolean) = dataStore.edit { it[DURATION_COMPLETION_PHONE_ALERT] = value }
-
-    private fun mapPreferences(values: Preferences): AppPreferences = AppPreferences(
-        weightUnit = values[WEIGHT_UNIT].toEnumOrDefault(WeightUnit.KG),
-        themeMode = values[THEME_MODE].toEnumOrDefault(ThemeMode.SYSTEM),
-        durationPrepSeconds = values[DURATION_PREP_SECONDS]
-            ?.takeIf { it in ALLOWED_DURATION_PREP_SECONDS }
-            ?: 3,
-        keepPhoneScreenAwake = values[KEEP_PHONE_SCREEN_AWAKE] ?: false,
-        restCompletionPhoneAlert = values[REST_COMPLETION_PHONE_ALERT] ?: true,
-        durationCompletionPhoneAlert = values[DURATION_COMPLETION_PHONE_ALERT] ?: true,
-    )
-
-    private inline fun <reified T : Enum<T>> String?.toEnumOrDefault(default: T): T =
-        this?.let { stored -> enumValues<T>().firstOrNull { it.name == stored } } ?: default
 
     companion object {
         val ALLOWED_DURATION_PREP_SECONDS = setOf(0, 3, 5)
@@ -79,3 +56,17 @@ class AppPreferencesRepository(
         )
     }
 }
+
+internal fun Preferences.toAppPreferences(): AppPreferences = AppPreferences(
+    weightUnit = this[AppPreferencesRepository.WEIGHT_UNIT].toEnumOrDefault(WeightUnit.KG),
+    themeMode = this[AppPreferencesRepository.THEME_MODE].toEnumOrDefault(ThemeMode.SYSTEM),
+    durationPrepSeconds = this[AppPreferencesRepository.DURATION_PREP_SECONDS]
+        ?.takeIf { it in AppPreferencesRepository.ALLOWED_DURATION_PREP_SECONDS }
+        ?: 3,
+    keepPhoneScreenAwake = this[AppPreferencesRepository.KEEP_PHONE_SCREEN_AWAKE] ?: false,
+    restCompletionPhoneAlert = this[AppPreferencesRepository.REST_COMPLETION_PHONE_ALERT] ?: true,
+    durationCompletionPhoneAlert = this[AppPreferencesRepository.DURATION_COMPLETION_PHONE_ALERT] ?: true,
+)
+
+private inline fun <reified T : Enum<T>> String?.toEnumOrDefault(default: T): T =
+    this?.let { stored -> enumValues<T>().firstOrNull { it.name == stored } } ?: default

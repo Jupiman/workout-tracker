@@ -26,6 +26,9 @@ fun shouldUseDarkTheme(themeMode: ThemeMode, systemDark: Boolean): Boolean = whe
     ThemeMode.DARK -> true
 }
 
+fun shouldKeepPhoneScreenAwake(preferences: AppPreferences, hasActiveWorkout: Boolean): Boolean =
+    preferences.keepPhoneScreenAwake && hasActiveWorkout
+
 fun interface DurationPreparationProvider {
     suspend fun durationPrepSeconds(): Int
 }

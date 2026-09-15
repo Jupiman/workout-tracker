@@ -66,6 +66,6 @@ private fun validateTemplateExerciseConfig(
     require(plannedWorkingSets >= 1) { "Working sets must be at least 1." }
     require(repMin >= 1) { "Minimum reps must be at least 1." }
     require(repMax >= repMin) { "Maximum reps must be greater than or equal to minimum reps." }
-    require(incrementCentiKg > 0) { "Increment must be greater than 0 kg." }
+    require(incrementCentiKg > 0) { "Increment must be greater than 0." }
     require(restSeconds >= 0) { "Rest time cannot be negative." }
 }

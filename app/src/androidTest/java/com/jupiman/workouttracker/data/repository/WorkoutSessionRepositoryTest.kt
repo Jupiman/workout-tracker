@@ -20,6 +20,7 @@ import com.jupiman.workouttracker.notification.DurationTimerScheduler
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationState
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
+import com.jupiman.workouttracker.preferences.DurationPreparationProvider
 import com.jupiman.workouttracker.wear.WorkoutWearStateProjector
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import kotlinx.coroutines.flow.first
@@ -52,7 +53,9 @@ class WorkoutSessionRepositoryTest {
         repository = createRepository()
     }
 
-    private fun createRepository() = WorkoutSessionRepository(
+    private fun createRepository(
+        durationPreparationProvider: DurationPreparationProvider = DurationPreparationProvider { 3 },
+    ) = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
             sessionExerciseDao = database.sessionExerciseDao(),
@@ -67,6 +70,7 @@ class WorkoutSessionRepositoryTest {
             restTimerScheduler = restTimerScheduler,
             durationTimerScheduler = durationTimerScheduler,
             workoutNotificationUpdater = workoutNotificationUpdater,
+            durationPreparationProvider = durationPreparationProvider,
         )
 
     @After
@@ -1501,6 +1505,37 @@ class WorkoutSessionRepositoryTest {
         assertNull(session.restEndsAt)
         assertEquals(64_000L, durationTimerScheduler.scheduledEndsAt)
         assertTrue(restTimerScheduler.cancelled)
+    }
+
+    @Test
+    fun durationPreparationSupportsOffThreeAndFiveSeconds() = runTest {
+        listOf(0, 3, 5).forEach { preparationSeconds ->
+            repository = createRepository(DurationPreparationProvider { preparationSeconds })
+            val sessionId = repository.startWorkout(seedDurationWorkout(60))
+            val setId = firstSessionSets(sessionId).first().id
+
+            assertTrue(repository.startDurationSet(sessionId, setId, now = 1_000L))
+            val session = database.workoutSessionDao().getById(sessionId)!!
+            assertEquals(1_000L + preparationSeconds * 1_000L, session.durationStartsAt)
+            assertEquals(61_000L + preparationSeconds * 1_000L, session.durationEndsAt)
+
+            repository.discardActiveWorkout()
+        }
+    }
+
+    @Test
+    fun changingPreparationDoesNotShiftAnAlreadyRunningTimer() = runTest {
+        var preparationSeconds = 3
+        repository = createRepository(DurationPreparationProvider { preparationSeconds })
+        val sessionId = repository.startWorkout(seedDurationWorkout(60))
+        val setId = firstSessionSets(sessionId).first().id
+        repository.startDurationSet(sessionId, setId, now = 1_000L)
+        preparationSeconds = 5
+
+        assertTrue(repository.startDurationSet(sessionId, setId, now = 2_000L))
+        val session = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(4_000L, session.durationStartsAt)
+        assertEquals(64_000L, session.durationEndsAt)
     }
 
     @Test

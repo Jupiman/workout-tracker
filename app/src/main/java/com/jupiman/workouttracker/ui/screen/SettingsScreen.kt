@@ -40,7 +40,12 @@ private enum class ChoiceSetting { WEIGHT_UNIT, THEME, DURATION_PREP }
 fun SettingsScreen(
     versionName: String?,
     preferences: AppPreferences,
-    onPreferencesChange: (AppPreferences) -> Unit,
+    onWeightUnitChange: (WeightUnit) -> Unit,
+    onThemeModeChange: (ThemeMode) -> Unit,
+    onDurationPrepSecondsChange: (Int) -> Unit,
+    onKeepPhoneScreenAwakeChange: (Boolean) -> Unit,
+    onRestCompletionPhoneAlertChange: (Boolean) -> Unit,
+    onDurationCompletionPhoneAlertChange: (Boolean) -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onExportBackup: () -> Unit,
     onRestoreBackup: () -> Unit,
@@ -61,7 +66,7 @@ fun SettingsScreen(
                     if (preferences.durationPrepSeconds == 0) "Off" else "${preferences.durationPrepSeconds} seconds",
                 ) { choiceSetting = ChoiceSetting.DURATION_PREP }
                 SwitchRow("Keep phone screen awake", preferences.keepPhoneScreenAwake) {
-                    onPreferencesChange(preferences.copy(keepPhoneScreenAwake = it))
+                    onKeepPhoneScreenAwakeChange(it)
                 }
             }
         }
@@ -75,10 +80,10 @@ fun SettingsScreen(
         item {
             SettingsCard {
                 SwitchRow("Rest completion alert", preferences.restCompletionPhoneAlert) {
-                    onPreferencesChange(preferences.copy(restCompletionPhoneAlert = it))
+                    onRestCompletionPhoneAlertChange(it)
                 }
                 SwitchRow("Duration completion alert", preferences.durationCompletionPhoneAlert) {
-                    onPreferencesChange(preferences.copy(durationCompletionPhoneAlert = it))
+                    onDurationCompletionPhoneAlertChange(it)
                 }
                 TextButton(onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth()) {
                     Text("Android notification settings")
@@ -124,20 +129,20 @@ fun SettingsScreen(
             ChoiceSetting.WEIGHT_UNIT -> {
                 title = "Weight units"
                 choices = WeightUnit.entries.map { unit ->
-                    unit.symbol to { onPreferencesChange(preferences.copy(weightUnit = unit)) }
+                    unit.symbol to { onWeightUnitChange(unit) }
                 }
             }
             ChoiceSetting.THEME -> {
                 title = "Theme"
                 choices = ThemeMode.entries.map { mode ->
-                    mode.displayName to { onPreferencesChange(preferences.copy(themeMode = mode)) }
+                    mode.displayName to { onThemeModeChange(mode) }
                 }
             }
             ChoiceSetting.DURATION_PREP -> {
                 title = "Duration preparation"
                 choices = listOf(0, 3, 5).map { seconds ->
                     (if (seconds == 0) "Off" else "$seconds seconds") to {
-                        onPreferencesChange(preferences.copy(durationPrepSeconds = seconds))
+                        onDurationPrepSecondsChange(seconds)
                     }
                 }
             }

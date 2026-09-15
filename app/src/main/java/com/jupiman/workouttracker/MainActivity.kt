@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jupiman.workouttracker.navigation.WorkoutTrackerApp
 import com.jupiman.workouttracker.preferences.AppPreferences
 import com.jupiman.workouttracker.preferences.shouldUseDarkTheme
+import com.jupiman.workouttracker.preferences.shouldKeepPhoneScreenAwake
 import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.WorkoutTrackerTheme
 
@@ -44,7 +45,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
             DisposableEffect(preferences.keepPhoneScreenAwake, activeSession?.id) {
-                val keepAwake = preferences.keepPhoneScreenAwake && activeSession != null
+                val keepAwake = shouldKeepPhoneScreenAwake(preferences, activeSession != null)
                 window.decorView.keepScreenOn = keepAwake
                 onDispose { window.decorView.keepScreenOn = false }
             }

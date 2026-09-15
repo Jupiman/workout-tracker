@@ -90,26 +90,24 @@ class AndroidWorkoutNotificationCoordinator(
         }
     }
 
-    fun showDurationFinishedAlert() {
-        scope.launch {
-            if (appPreferencesRepository.current().durationCompletionPhoneAlert && canPostNotifications()) {
-                val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_stat_rest_timer)
-                    .setContentTitle("Set complete")
-                    .setContentText("Duration target reached.")
-                    .setContentIntent(contentIntent())
-                    .setAutoCancel(true)
-                    .setCategory(NotificationCompat.CATEGORY_ALARM)
-                    .setDefaults(NotificationCompat.DEFAULT_ALL)
-                    .setOnlyAlertOnce(false)
-                    .setPriority(NotificationCompat.PRIORITY_MAX)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setVibrate(longArrayOf(0, 250, 120, 250))
-                    .build()
-                notificationManager.notify(DURATION_TIMER_NOTIFICATION_ID, notification)
-            }
-            showCurrentState()
+    suspend fun showDurationFinishedAlert() {
+        if (appPreferencesRepository.current().durationCompletionPhoneAlert && canPostNotifications()) {
+            val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_stat_rest_timer)
+                .setContentTitle("Set complete")
+                .setContentText("Duration target reached.")
+                .setContentIntent(contentIntent())
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setOnlyAlertOnce(false)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setVibrate(longArrayOf(0, 250, 120, 250))
+                .build()
+            notificationManager.notify(DURATION_TIMER_NOTIFICATION_ID, notification)
         }
+        showCurrentState()
     }
 
     private fun buildNotification(

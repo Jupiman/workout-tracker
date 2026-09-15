@@ -7,13 +7,16 @@ class WorkoutWearCodecsTest {
     @Test
     fun allTrackingModesRoundTrip() {
         WearTrackingMode.entries.forEach { mode ->
+            WearWeightUnit.entries.forEach { unit ->
             val state = WorkoutWearState.noActive(100).copy(
                 trackingMode = mode,
+                weightUnit = unit,
                 targetDurationSeconds = if (mode == WearTrackingMode.DURATION) 45 else null,
                 durationStartsAt = if (mode == WearTrackingMode.DURATION) 1_000L else null,
                 durationEndsAt = if (mode == WearTrackingMode.DURATION) 46_000L else null,
             )
             assertEquals(state, WorkoutWearCodecs.decodeState(WorkoutWearCodecs.encodeState(state)))
+            }
         }
     }
 
@@ -98,5 +101,22 @@ class WorkoutWearCodecsTest {
             it.writeLong(100)
         }
         assertEquals(WorkoutWearState.noActive(100), WorkoutWearCodecs.decodeState(bytes.toByteArray()))
+    }
+
+    @Test
+    fun versionThreeStateDefaultsWeightUnitToKg() {
+        val bytes = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(bytes).use {
+            it.writeInt(3)
+            it.writeBoolean(false) // sessionId
+            it.writeInt(WearSessionStatus.NO_ACTIVE.ordinal)
+            repeat(4) { _ -> it.writeBoolean(false) } // set, exercise, weight, reps
+            it.writeInt(WearTrackingMode.WEIGHT_REPS.ordinal)
+            repeat(10) { _ -> it.writeBoolean(false) } // duration target through superset size
+            it.writeLong(100)
+            it.writeLong(100)
+        }
+
+        assertEquals(WearWeightUnit.KG, WorkoutWearCodecs.decodeState(bytes.toByteArray()).weightUnit)
     }
 }

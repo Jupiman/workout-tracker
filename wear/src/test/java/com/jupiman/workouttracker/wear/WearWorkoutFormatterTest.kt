@@ -3,6 +3,7 @@ package com.jupiman.workouttracker.wear
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
+import com.jupiman.workouttracker.wearprotocol.WearWeightUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -51,6 +52,24 @@ class WearWorkoutFormatterTest {
         assertEquals(20, targetFontSizeSp(threeDigitWeight))
         assertEquals("100.25kg × 99", decimalWeight)
         assertEquals(18, targetFontSizeSp(decimalWeight))
+    }
+
+    @Test
+    fun poundsUseTheProtocolUnitWithoutChangingCanonicalWeight() {
+        val pounds = state().copy(weightCentiKg = 10_000, targetReps = 8, weightUnit = WearWeightUnit.LB)
+
+        assertEquals("220.46lb × 8", targetText(pounds))
+        assertEquals(10_000, pounds.weightCentiKg)
+    }
+
+    @Test
+    fun fiveSecondPreparationUsesTheAuthoritativeStartTimestamp() {
+        val preparing = state().copy(durationStartsAt = 6_000L, durationEndsAt = 66_000L)
+
+        assertEquals("5", durationTimerText(preparing, now = 1_000L))
+        assertEquals("4", durationTimerText(preparing, now = 2_000L))
+        assertEquals("1", durationTimerText(preparing, now = 5_000L))
+        assertEquals("GO", durationTimerText(preparing, now = 6_000L))
     }
 
     private fun state() = WorkoutWearState(

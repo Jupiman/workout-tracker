@@ -301,9 +301,12 @@ fun WorkoutTrackerApp(
                 SettingsScreen(
                     versionName = versionName,
                     preferences = preferences,
-                    onPreferencesChange = { updated ->
-                        scope.launch { container.appPreferencesRepository.setPreferences(updated) }
-                    },
+                    onWeightUnitChange = { scope.launch { container.appPreferencesRepository.setWeightUnit(it) } },
+                    onThemeModeChange = { scope.launch { container.appPreferencesRepository.setThemeMode(it) } },
+                    onDurationPrepSecondsChange = { scope.launch { container.appPreferencesRepository.setDurationPrepSeconds(it) } },
+                    onKeepPhoneScreenAwakeChange = { scope.launch { container.appPreferencesRepository.setKeepPhoneScreenAwake(it) } },
+                    onRestCompletionPhoneAlertChange = { scope.launch { container.appPreferencesRepository.setRestCompletionPhoneAlert(it) } },
+                    onDurationCompletionPhoneAlertChange = { scope.launch { container.appPreferencesRepository.setDurationCompletionPhoneAlert(it) } },
                     onOpenNotificationSettings = {
                         context.startActivity(
                             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

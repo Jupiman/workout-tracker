@@ -1,5 +1,6 @@
 package com.jupiman.workouttracker.data.repository
 
+import com.jupiman.workouttracker.preferences.WeightUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -25,5 +26,21 @@ class WeightTextTest {
             parseCentiKg("-1")
         }
     }
-}
 
+    @Test
+    fun poundsArePresentationAndInputOverCanonicalCentiKg() {
+        val canonicalCentiKg = 10_000
+
+        assertEquals("100 kg", formatWeight(canonicalCentiKg, WeightUnit.KG))
+        assertEquals("220.46 lb", formatWeight(canonicalCentiKg, WeightUnit.LB))
+        assertEquals(canonicalCentiKg, parseWeight("220.46", WeightUnit.LB))
+    }
+
+    @Test
+    fun formattedPoundsRoundTripToTheSameCanonicalWeight() {
+        listOf(0, 125, 7_255, 10_000, 25_000).forEach { canonicalCentiKg ->
+            val displayed = formatWeightValue(canonicalCentiKg, WeightUnit.LB)
+            assertEquals(canonicalCentiKg, parseWeight(displayed, WeightUnit.LB))
+        }
+    }
+}
