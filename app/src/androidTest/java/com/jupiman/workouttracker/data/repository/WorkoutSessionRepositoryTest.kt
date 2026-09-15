@@ -1691,9 +1691,10 @@ class WorkoutSessionRepositoryTest {
 
     @Test
     fun durationPreparationSupportsOffThreeAndFiveSeconds() = runTest {
+        val templateId = seedDurationWorkout(60)
         listOf(0, 3, 5).forEach { preparationSeconds ->
             repository = createRepository(DurationPreparationProvider { preparationSeconds })
-            val sessionId = repository.startWorkout(seedDurationWorkout(60))
+            val sessionId = repository.startWorkout(templateId)
             val setId = firstSessionSets(sessionId).first().id
 
             assertTrue(repository.startDurationSet(sessionId, setId, now = 1_000L))

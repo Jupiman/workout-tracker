@@ -1,82 +1,87 @@
 # Workout Companion
 
-Workout Companion is a local-first Android workout tracker with a Wear OS companion app. It is built for strength training programs where progression, rest timing, history snapshots, and quick set logging matter more than social feeds or analytics dashboards.
+Workout Companion 1.6 is a local-first Android workout tracker with a Wear OS
+companion. It supports strength and duration-based programs, quick set logging,
+progression, timers, and immutable workout history without requiring an account.
 
 ## Features
 
-- Start from a curated exercise library of common gym movements, then rename, archive, or add custom exercises as needed.
-- Build training programs with multiple training days.
-- Configure each exercise with sets, target reps, rep range, working weight, increment, rest time, setup notes, per-set targets, and warm-up schemes.
-- Duplicate training days and exercise configurations without sharing mutable progression state.
-- Use the same exercise in multiple workouts with independent progression.
-- Start the recommended workout and log prescribed sets with one tap.
-- Log modified sets, failed sets, skipped sets, AMRAP sets, drop sets, and extra normal sets.
-- Configure and perform supersets.
-- Run persisted rest timers with in-app feedback, Android notification behavior, overtime display, and Wear OS haptics.
-- Replace an exercise for the current workout only when equipment is unavailable.
-- Review completed workouts in read-only history with calendar navigation and support for multiple workouts on the same day.
-- Keep historical workout details as snapshots, so later program edits do not rewrite what was performed.
-- Export and restore local backups.
-- Use a Wear OS companion during active workouts for glanceable targets, set completion, rest status, and haptic feedback.
+- `WEIGHT_REPS`, `REPS`, and `DURATION` exercise tracking.
+- Double progression, including fixed rep ranges such as 8–8.
+- Advanced None, Minimal, Standard, Heavy, and Custom warm-up schemes with
+  percentage or fixed loads and configurable kg/lb rounding.
+- Per-set targets, supersets, AMRAP, drop, extra, failed, and skipped sets.
+- Rest and duration timers with persisted lifecycle and notification handling.
+- Read-only workout history and per-exercise progress.
+- Kilogram and pound display with canonical local storage.
+- Portable Program export/import and full local backup/restore.
+- Wear OS active-workout companion with phone-authoritative state.
+- Optional, write-only Health Connect sync for finalized workouts.
+
+The implementation details and behavior contracts are maintained in [SPEC.md](SPEC.md).
 
 ## Project Structure
 
 - `app`: Android phone app.
 - `wear`: Wear OS companion app.
-- `wear-protocol`: Shared phone-watch protocol models.
-- `SPEC.md`: Product and implementation specification.
-- `.github/workflows/build-release-apk.yml`: Release APK build workflow.
-
-## Tech Stack
-
-- Kotlin
-- Jetpack Compose
-- Material 3
-- Room
-- Kotlin coroutines and Flow
-- Android Gradle Plugin
-- Wear OS Data Layer
+- `wear-protocol`: Shared phone-watch protocol models and codecs.
 
 ## Requirements
 
-- Android Studio with Android SDK 35 installed.
+- Android Studio with Android SDK 36 installed.
 - JDK 17 or newer.
-- Android device or emulator running Android 8.0 or newer.
-- Wear OS device or emulator for the companion app.
+- Android 8.0/API 26 or newer for the phone app.
+- A Wear OS emulator or device for companion testing.
 
-## Build And Test
+## Build and Test
 
-On Windows:
-
-```powershell
-.\gradlew.bat test :app:assembleDebug :wear:assembleDebug
-```
-
-Build the Android instrumentation test APK:
+On Windows, run all JVM unit tests:
 
 ```powershell
-.\gradlew.bat :app:assembleDebugAndroidTest
+.\gradlew.bat test
 ```
 
-Build release APKs locally:
+Run all phone instrumentation tests on a connected Android device or emulator:
 
 ```powershell
-.\gradlew.bat assembleRelease
+.\gradlew.bat :app:connectedDebugAndroidTest
 ```
 
-Release signing is configured through environment variables:
+Build phone and Wear debug and release variants:
+
+```powershell
+.\gradlew.bat :app:assembleDebug :app:assembleRelease :wear:assembleDebug :wear:assembleRelease
+```
+
+Release signing uses these environment variables:
 
 - `ANDROID_KEYSTORE_PATH`
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
 
-The GitHub release workflow expects matching repository secrets, including a base64-encoded keystore in `ANDROID_KEYSTORE_BASE64`.
+The GitHub Release workflow also expects `ANDROID_KEYSTORE_BASE64` as a repository
+secret. Pull requests and pushes to `master` run unit tests and phone/Wear debug
+builds in CI. Instrumentation tests remain a required local pre-release check.
 
-## Data And Privacy
+## 1.6 Release Checklist
 
-Workout Companion stores workout data locally in the app database. Backup and restore are explicit user actions. The app is designed around local workout tracking and does not include social sharing, cloud sync, ads, or analytics in the current version.
+- Provide a public privacy policy before publishing.
+- Complete the Play Console Health/Fitness declaration.
+- Ensure the `WRITE_EXERCISE` disclosure matches the in-app Health Connect rationale.
+- Configure and verify release signing.
+- Run all instrumentation tests on a real or emulated Android device.
+- Manually smoke-test Health Connect writes with Health Connect Toolbox.
+- Manually smoke-test active workouts on a Wear emulator or device.
 
-## Current Status
+## Data and Privacy
 
-This repository represents the MVP version described in `SPEC.md`. The current focus is reliability: fast logging, correct progression, stable rest timing, Wear OS companion behavior, readable history, and immutable workout snapshots.
+Workout data remains in the local Room database unless the user explicitly exports
+a backup or Program file, or enables write-only Health Connect synchronization.
+The app has no account system, ads, or analytics.
+
+## Status
+
+The repository is the Workout Companion 1.6 release-candidate codebase. Feature work
+for 1.6 is complete; release readiness depends on automated verification, release
+signing, and the manual checks above.

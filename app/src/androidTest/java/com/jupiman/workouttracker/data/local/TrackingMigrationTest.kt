@@ -13,7 +13,7 @@ class TrackingMigrationTest {
     val helper = MigrationTestHelper(InstrumentationRegistry.getInstrumentation(), WorkoutTrackerDatabase::class.java)
 
     @Test
-    fun versionFiveHistorySurvivesWithWeightRepsDefaults() {
+    fun versionFiveHistorySurvivesThroughCurrentSchemaWithSafeDefaults() {
         val name = "tracking-migration-test"
         helper.createDatabase(name, 5).apply {
             execSQL("INSERT INTO programs VALUES (1, 'Program', 1, 0, 1000)")
@@ -25,12 +25,24 @@ class TrackingMigrationTest {
             execSQL("INSERT INTO session_sets VALUES (1, 1, 0, 'WORKING', 1, 1, 7000, 10, 7000, 10, 'COMPLETED', 2000)")
             close()
         }
-        helper.runMigrationsAndValidate(name, 7, true, WorkoutTrackerDatabase.MIGRATION_5_6, WorkoutTrackerDatabase.MIGRATION_6_7).use { db ->
-            db.query("SELECT trackingMode, durationIncrementSeconds, setupNote FROM workout_template_exercises").use {
+        helper.runMigrationsAndValidate(
+            name,
+            9,
+            true,
+            WorkoutTrackerDatabase.MIGRATION_5_6,
+            WorkoutTrackerDatabase.MIGRATION_6_7,
+            WorkoutTrackerDatabase.MIGRATION_7_8,
+            WorkoutTrackerDatabase.MIGRATION_8_9,
+        ).use { db ->
+            db.query(
+                "SELECT trackingMode, durationIncrementSeconds, setupNote, warmupRoundingCentiKg " +
+                    "FROM workout_template_exercises",
+            ).use {
                 assertTrue(it.moveToFirst())
                 assertEquals("WEIGHT_REPS", it.getString(0))
                 assertEquals(0, it.getInt(1))
                 assertEquals("Keep note", it.getString(2))
+                assertEquals(500, it.getInt(3))
             }
             db.query("SELECT trackingModeSnapshot, targetDurationSecondsSnapshot, setupNoteSnapshot FROM session_exercises").use {
                 assertTrue(it.moveToFirst())
@@ -42,6 +54,12 @@ class TrackingMigrationTest {
                 assertTrue(it.moveToFirst())
                 assertEquals(7000, it.getInt(0))
                 assertEquals(10, it.getInt(1))
+                assertTrue(it.isNull(2))
+            }
+            db.query("SELECT activeDurationSetId, durationStartsAt, durationEndsAt FROM workout_sessions").use {
+                assertTrue(it.moveToFirst())
+                assertTrue(it.isNull(0))
+                assertTrue(it.isNull(1))
                 assertTrue(it.isNull(2))
             }
         }
