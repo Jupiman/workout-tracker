@@ -85,13 +85,15 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
-import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.data.repository.formatWeight
+import com.jupiman.workouttracker.data.repository.formatWeightValue
 import com.jupiman.workouttracker.ui.component.WeightAdjuster
 import com.jupiman.workouttracker.ui.component.TrackingModePicker
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.repository.trackingText
 import com.jupiman.workouttracker.ui.component.toPositiveCentiKgOrDefault
 import com.jupiman.workouttracker.ui.filterByExerciseSearchQuery
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
@@ -1898,6 +1900,7 @@ private fun CompactTemplateExerciseCard(
     onDragEnd: () -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     val setTargetsFlow = remember(item.id) { viewModel.templateSetTargets(item.id) }
     val setTargets by setTargetsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val warmupSetsFlow = remember(item.id) { viewModel.templateWarmupSets(item.id) }
@@ -1960,13 +1963,13 @@ private fun CompactTemplateExerciseCard(
                 )
                 Text(
                     text = "${item.plannedWorkingSets} x " + trackingText(item.trackingMode,
-                        item.currentWeightCentiKg, item.currentTargetReps, item.targetDurationSeconds),
+                        item.currentWeightCentiKg, item.currentTargetReps, item.targetDurationSeconds, weightUnit),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = when (item.trackingMode) {
-                        TrackingMode.WEIGHT_REPS -> "+${formatCentiKg(item.incrementCentiKg)} kg · "
+                        TrackingMode.WEIGHT_REPS -> "+${formatWeight(item.incrementCentiKg, weightUnit)} · "
                         TrackingMode.REPS -> "Reps ${item.repMin}-${item.repMax} · "
                         TrackingMode.DURATION -> "+${item.durationIncrementSeconds} sec · "
                     } + "Rest ${item.restSeconds}s",
@@ -2029,10 +2032,11 @@ private fun TemplateExerciseEditorDialog(
     viewModel: ProgramViewModel,
     onDismiss: () -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var showRemoveConfirmation by rememberSaveable(item.id) { mutableStateOf(false) }
     var showUnsavedChangesConfirmation by rememberSaveable(item.id) { mutableStateOf(false) }
-    var currentDraft by remember(item) { mutableStateOf(item.toEditorDraft()) }
-    val hasUnsavedChanges = currentDraft != item.toEditorDraft()
+    var currentDraft by remember(item, weightUnit) { mutableStateOf(item.toEditorDraft(weightUnit)) }
+    val hasUnsavedChanges = currentDraft != item.toEditorDraft(weightUnit)
 
     fun saveCurrentDraft() {
         viewModel.updateTemplateExercise(
@@ -2049,6 +2053,7 @@ private fun TemplateExerciseEditorDialog(
             durationSeconds = currentDraft.durationSeconds,
             durationIncrementSeconds = currentDraft.durationIncrementSeconds,
             setupNote = currentDraft.setupNote,
+            weightUnit = weightUnit,
         )
     }
 
@@ -2153,15 +2158,15 @@ private data class TemplateExerciseEditorDraft(
     val durationIncrementSeconds: String = "0",
 )
 
-private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(): TemplateExerciseEditorDraft =
+private fun WorkoutTemplateExerciseEditorItem.toEditorDraft(weightUnit: com.jupiman.workouttracker.preferences.WeightUnit): TemplateExerciseEditorDraft =
     TemplateExerciseEditorDraft(
         exerciseName = exerciseName,
         sets = plannedWorkingSets.toString(),
         repMin = repMin.toString(),
         repMax = repMax.toString(),
-        currentWeight = formatCentiKg(currentWeightCentiKg),
+        currentWeight = formatWeightValue(currentWeightCentiKg, weightUnit),
         currentTargetReps = currentTargetReps.toString(),
-        increment = formatCentiKg(incrementCentiKg),
+        increment = formatWeightValue(incrementCentiKg, weightUnit),
         restSeconds = restSeconds.toString(),
         setupNote = setupNote,
         trackingMode = trackingMode,
@@ -2182,13 +2187,14 @@ private fun TemplateExerciseEditor(
     onDraftChange: (TemplateExerciseEditorDraft) -> Unit = {},
     onDragStep: (Int) -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var exerciseName by remember(item) { mutableStateOf(item.exerciseName) }
     var sets by remember(item) { mutableStateOf(item.plannedWorkingSets.toString()) }
     var repMin by remember(item) { mutableStateOf(item.repMin.toString()) }
     var repMax by remember(item) { mutableStateOf(item.repMax.toString()) }
-    var currentWeight by remember(item) { mutableStateOf(formatCentiKg(item.currentWeightCentiKg)) }
+    var currentWeight by remember(item, weightUnit) { mutableStateOf(formatWeightValue(item.currentWeightCentiKg, weightUnit)) }
     var currentTargetReps by remember(item) { mutableStateOf(item.currentTargetReps.toString()) }
-    var increment by remember(item) { mutableStateOf(formatCentiKg(item.incrementCentiKg)) }
+    var increment by remember(item, weightUnit) { mutableStateOf(formatWeightValue(item.incrementCentiKg, weightUnit)) }
     var restSeconds by remember(item) { mutableStateOf(item.restSeconds.toString()) }
     var setupNote by remember(item) { mutableStateOf(item.setupNote) }
     var trackingMode by remember(item) { mutableStateOf(item.trackingMode) }
@@ -2265,7 +2271,7 @@ private fun TemplateExerciseEditor(
                 }
             }
             Text(
-                text = "${item.plannedWorkingSets} x " + trackingText(item.trackingMode, item.currentWeightCentiKg, item.currentTargetReps, item.targetDurationSeconds) + " | Rest ${item.restSeconds}s",
+                text = "${item.plannedWorkingSets} x " + trackingText(item.trackingMode, item.currentWeightCentiKg, item.currentTargetReps, item.targetDurationSeconds, weightUnit) + " | Rest ${item.restSeconds}s",
                 style = MaterialTheme.typography.bodyMedium,
             )
             TrackingModePicker(mode = trackingMode, onChange = { trackingMode = it })
@@ -2289,17 +2295,18 @@ private fun TemplateExerciseEditor(
                 SmallNumberField("Rep max", repMax, { repMax = it }, Modifier.weight(1f))
             }
             if (trackingMode == TrackingMode.WEIGHT_REPS) WeightAdjuster(
-                label = "Weight kg",
+                label = "Weight ${weightUnit.symbol}",
                 value = currentWeight,
                 onValueChange = { currentWeight = it },
-                incrementCentiKg = increment.toPositiveCentiKgOrDefault(item.incrementCentiKg),
+                incrementCentiKg = increment.toPositiveCentiKgOrDefault(item.incrementCentiKg, weightUnit),
                 modifier = Modifier.fillMaxWidth(),
+                weightUnit = weightUnit,
             )
             if (trackingMode == TrackingMode.DURATION) SmallNumberField(
                 "Increment seconds", durationIncrementSeconds, { durationIncrementSeconds = it }, Modifier.fillMaxWidth(),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (trackingMode == TrackingMode.WEIGHT_REPS) SmallNumberField("Increment kg", increment, { increment = it }, Modifier.weight(1f), decimal = true)
+                if (trackingMode == TrackingMode.WEIGHT_REPS) SmallNumberField("Increment ${weightUnit.symbol}", increment, { increment = it }, Modifier.weight(1f), decimal = true)
                 SmallNumberField("Rest sec", restSeconds, { restSeconds = it }, Modifier.weight(1f))
             }
             if (trackingMode == TrackingMode.DURATION) Text(
@@ -2328,6 +2335,7 @@ private fun TemplateExerciseEditor(
                         setOrder = setOrder,
                         prescribedWeight = weight,
                         prescribedReps = reps,
+                        weightUnit = weightUnit,
                     )
                 },
                 onResetSetTarget = { setOrder ->
@@ -2360,6 +2368,7 @@ private fun TemplateExerciseEditor(
                                 trackingMode = trackingMode,
                                 durationSeconds = durationSeconds,
                                 durationIncrementSeconds = durationIncrementSeconds,
+                                weightUnit = weightUnit,
                             )
                         },
                     ) {
@@ -2631,11 +2640,12 @@ private fun TemplateSetTargetsEditor(
     onResetSetTarget: (Int) -> Unit,
     onResetAllSetTargets: () -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var selectedSetOrder by remember(setCount) { mutableStateOf<Int?>(null) }
     val selectedTarget = selectedSetOrder?.let { setOrder ->
         setTargets.firstOrNull { it.setOrder == setOrder }
     }
-    val selectedDefaultWeight = selectedTarget?.prescribedWeightCentiKg?.let(::formatCentiKg) ?: defaultWeight
+    val selectedDefaultWeight = selectedTarget?.prescribedWeightCentiKg?.let { formatWeightValue(it, weightUnit) } ?: defaultWeight
     val selectedDefaultReps = selectedTarget?.prescribedReps?.toString() ?: defaultReps
     var selectedWeight by remember(selectedSetOrder, selectedDefaultWeight) {
         mutableStateOf(selectedDefaultWeight)
@@ -2666,8 +2676,8 @@ private fun TemplateSetTargetsEditor(
             (0 until setCount).forEach { setOrder ->
                 val setTarget = setTargets.firstOrNull { it.setOrder == setOrder }
                 val repsLabel = setTarget?.prescribedReps?.toString() ?: defaultReps
-                val weightLabel = setTarget?.prescribedWeightCentiKg?.let(::formatCentiKg) ?: defaultWeight
-                val label = if (trackingMode == TrackingMode.REPS) "Set ${setOrder + 1}: $repsLabel reps" else "Set ${setOrder + 1}: $repsLabel @ ${weightLabel}kg"
+                val weightLabel = setTarget?.prescribedWeightCentiKg?.let { formatWeightValue(it, weightUnit) } ?: defaultWeight
+                val label = if (trackingMode == TrackingMode.REPS) "Set ${setOrder + 1}: $repsLabel reps" else "Set ${setOrder + 1}: $repsLabel @ $weightLabel${weightUnit.symbol}"
                 if (selectedSetOrder == setOrder) {
                     Button(onClick = { selectedSetOrder = null }) {
                         Text(label)
@@ -2682,11 +2692,12 @@ private fun TemplateSetTargetsEditor(
 
         selectedSetOrder?.let { setOrder ->
             if (trackingMode == TrackingMode.WEIGHT_REPS) WeightAdjuster(
-                label = "Set ${setOrder + 1} weight kg",
+                label = "Set ${setOrder + 1} weight ${weightUnit.symbol}",
                 value = selectedWeight,
                 onValueChange = { selectedWeight = it },
-                incrementCentiKg = increment.toPositiveCentiKgOrDefault(fallbackIncrementCentiKg),
+                incrementCentiKg = increment.toPositiveCentiKgOrDefault(fallbackIncrementCentiKg, weightUnit),
                 modifier = Modifier.fillMaxWidth(),
+                weightUnit = weightUnit,
             )
             OutlinedTextField(
                 value = selectedReps,
@@ -2797,14 +2808,15 @@ private fun AddExerciseDialog(
     viewModel: ProgramViewModel,
     onDismiss: () -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var selectedExerciseId by rememberSaveable(workoutTemplateId) { mutableStateOf<Long?>(null) }
     var exerciseName by rememberSaveable(workoutTemplateId) { mutableStateOf("") }
     var sets by rememberSaveable(workoutTemplateId) { mutableStateOf("3") }
     var repMin by rememberSaveable(workoutTemplateId) { mutableStateOf("8") }
     var repMax by rememberSaveable(workoutTemplateId) { mutableStateOf("12") }
-    var currentWeight by rememberSaveable(workoutTemplateId) { mutableStateOf("0") }
+    var currentWeight by rememberSaveable(workoutTemplateId, weightUnit) { mutableStateOf(formatWeightValue(0, weightUnit)) }
     var currentTargetReps by rememberSaveable(workoutTemplateId) { mutableStateOf("8") }
-    var increment by rememberSaveable(workoutTemplateId) { mutableStateOf("2.5") }
+    var increment by rememberSaveable(workoutTemplateId, weightUnit) { mutableStateOf(formatWeightValue(250, weightUnit)) }
     var restSeconds by rememberSaveable(workoutTemplateId) { mutableStateOf("180") }
     var trackingMode by rememberSaveable(workoutTemplateId) { mutableStateOf(TrackingMode.WEIGHT_REPS) }
     var durationSeconds by rememberSaveable(workoutTemplateId) { mutableStateOf("60") }
@@ -2865,6 +2877,7 @@ private fun AddExerciseDialog(
                             trackingMode = trackingMode,
                             durationSeconds = durationSeconds,
                             durationIncrementSeconds = durationIncrementSeconds,
+                            weightUnit = weightUnit,
                         )
                     } else {
                         viewModel.createExerciseAndAddToWorkout(
@@ -2880,6 +2893,7 @@ private fun AddExerciseDialog(
                             trackingMode = trackingMode,
                             durationSeconds = durationSeconds,
                             durationIncrementSeconds = durationIncrementSeconds,
+                            weightUnit = weightUnit,
                         )
                     }
                     onDismiss()
@@ -2926,6 +2940,7 @@ internal fun AddExerciseDialogContent(
     onDurationIncrementSecondsChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var dismissedSuggestionQuery by remember { mutableStateOf<String?>(null) }
     var exerciseNameField by remember {
         mutableStateOf(TextFieldValue(text = exerciseName, selection = TextRange(exerciseName.length)))
@@ -2992,17 +3007,18 @@ internal fun AddExerciseDialogContent(
             }
         }
         if (trackingMode == TrackingMode.WEIGHT_REPS) WeightAdjuster(
-            label = "Weight kg",
+            label = "Weight ${weightUnit.symbol}",
             value = currentWeight,
             onValueChange = onCurrentWeightChange,
-            incrementCentiKg = increment.toPositiveCentiKgOrDefault(250),
+            incrementCentiKg = increment.toPositiveCentiKgOrDefault(250, weightUnit),
             modifier = Modifier.fillMaxWidth(),
+            weightUnit = weightUnit,
         )
         if (!sessionOnly && trackingMode == TrackingMode.DURATION) SmallNumberField(
             "Increment seconds", durationIncrementSeconds, onDurationIncrementSecondsChange, Modifier.fillMaxWidth(),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!sessionOnly && trackingMode == TrackingMode.WEIGHT_REPS) SmallNumberField("Increment kg", increment, onIncrementChange, Modifier.weight(1f), decimal = true)
+            if (!sessionOnly && trackingMode == TrackingMode.WEIGHT_REPS) SmallNumberField("Increment ${weightUnit.symbol}", increment, onIncrementChange, Modifier.weight(1f), decimal = true)
             SmallNumberField("Rest sec", restSeconds, onRestSecondsChange, Modifier.weight(1f))
         }
         if (!sessionOnly && trackingMode == TrackingMode.DURATION) Text(

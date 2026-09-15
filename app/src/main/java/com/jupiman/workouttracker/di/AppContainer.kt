@@ -13,9 +13,11 @@ import com.jupiman.workouttracker.notification.AndroidRestTimerScheduler
 import com.jupiman.workouttracker.notification.AndroidDurationTimerScheduler
 import com.jupiman.workouttracker.notification.AndroidWorkoutNotificationCoordinator
 import com.jupiman.workouttracker.notification.WorkoutNotificationActionHandler
+import com.jupiman.workouttracker.preferences.AppPreferencesRepository
 import com.jupiman.workouttracker.wear.AndroidWearWorkoutBridge
 
 class AppContainer(context: Context) {
+    val appPreferencesRepository = AppPreferencesRepository.create(context)
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
     private val durationTimerScheduler = AndroidDurationTimerScheduler(context.applicationContext)
 
@@ -37,6 +39,7 @@ class AppContainer(context: Context) {
     val workoutNotificationCoordinator = AndroidWorkoutNotificationCoordinator(
         context = context.applicationContext,
         workoutSessionDao = database.workoutSessionDao(),
+        appPreferencesRepository = appPreferencesRepository,
     )
 
     val exerciseRepository = ExerciseRepository(database.exerciseDao())
@@ -72,12 +75,14 @@ class AppContainer(context: Context) {
         restTimerScheduler = restTimerScheduler,
         durationTimerScheduler = durationTimerScheduler,
         workoutNotificationUpdater = workoutNotificationCoordinator,
+        durationPreparationProvider = appPreferencesRepository,
     )
 
     val wearWorkoutBridge = AndroidWearWorkoutBridge(
         context = context.applicationContext,
         workoutSessionRepository = workoutSessionRepository,
         workoutSessionDao = database.workoutSessionDao(),
+        appPreferencesRepository = appPreferencesRepository,
     )
 
     val workoutNotificationActionHandler = WorkoutNotificationActionHandler(

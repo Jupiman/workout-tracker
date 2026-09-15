@@ -9,6 +9,7 @@ import com.jupiman.workouttracker.data.repository.formatCentiKg
 import kotlin.math.abs
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.repository.trackingText
+import com.jupiman.workouttracker.preferences.WeightUnit
 
 sealed interface WorkoutNotificationState {
     data class SetAction(
@@ -41,12 +42,13 @@ object WorkoutNotificationProjector {
     fun stateFor(
         activeWorkout: WorkoutSessionWithDetails?,
         now: Long = System.currentTimeMillis(),
+        weightUnit: WeightUnit = WeightUnit.KG,
     ): WorkoutNotificationState? {
         val workout = activeWorkout ?: return null
         val nextSet = workout.findNextActionableSet()
         val restEndsAt = workout.session.restEndsAt
         if (restEndsAt != null) {
-            val nextText = nextSet?.let { "Next: ${it.exerciseName} • ${it.targetText}" }
+            val nextText = nextSet?.let { "Next: ${it.exerciseName} • ${it.targetText(weightUnit)}" }
                 ?: "No pending sets"
             return if (restEndsAt > now) {
                 WorkoutNotificationState.Resting(
@@ -58,12 +60,12 @@ object WorkoutNotificationProjector {
                 WorkoutNotificationState.RestFinished(
                     title = "Rest finished",
                     text = nextText.removePrefix("Next: "),
-                    setAction = nextSet?.toSetAction(workout.session.id),
+                    setAction = nextSet?.toSetAction(workout.session.id, weightUnit),
                 )
             }
         }
 
-        return nextSet?.toSetAction(workout.session.id)
+        return nextSet?.toSetAction(workout.session.id, weightUnit)
             ?: WorkoutNotificationState.WaitingToFinish(
                 title = "Workout complete",
                 text = "Finish workout in the app",
@@ -170,14 +172,17 @@ data class ActionableSet(
     val durationSeconds: Int? = null,
 ) {
     val targetText: String
-        get() = trackingText(trackingMode, prescribedWeightCentiKg, prescribedReps, durationSeconds).replace("×", "x")
+        get() = targetText(WeightUnit.KG)
 
-    fun toSetAction(sessionId: Long): WorkoutNotificationState.SetAction =
+    fun targetText(weightUnit: WeightUnit = WeightUnit.KG): String =
+        trackingText(trackingMode, prescribedWeightCentiKg, prescribedReps, durationSeconds, weightUnit).replace("×", "x")
+
+    fun toSetAction(sessionId: Long, weightUnit: WeightUnit = WeightUnit.KG): WorkoutNotificationState.SetAction =
         WorkoutNotificationState.SetAction(
             sessionId = sessionId,
             setId = setId,
             title = exerciseName,
-            text = "$label • $targetText",
+            text = "$label • ${targetText(weightUnit)}",
             trackingMode = trackingMode,
         )
 }

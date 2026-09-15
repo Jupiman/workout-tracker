@@ -8,6 +8,7 @@ import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
+import com.jupiman.workouttracker.wearprotocol.WearWeightUnit
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
 import kotlin.math.abs
 
@@ -15,12 +16,14 @@ object WorkoutWearStateProjector {
     fun stateFor(
         activeWorkout: WorkoutSessionWithDetails?,
         now: Long = System.currentTimeMillis(),
+        weightUnit: WearWeightUnit = WearWeightUnit.KG,
     ): WorkoutWearState {
-        val workout = activeWorkout ?: return WorkoutWearState.noActive(now)
+        val workout = activeWorkout ?: return WorkoutWearState.noActive(now, weightUnit)
         val currentSet = workout.findNextActionableSet()
             ?: return WorkoutWearState.workoutComplete(
                 sessionId = workout.session.id,
                 now = now,
+                weightUnit = weightUnit,
             )
 
         return WorkoutWearState(
@@ -37,6 +40,7 @@ object WorkoutWearStateProjector {
                 TrackingMode.REPS -> WearTrackingMode.REPS
                 TrackingMode.DURATION -> WearTrackingMode.DURATION
             },
+            weightUnit = weightUnit,
             targetDurationSeconds = currentSet.set.prescribedDurationSeconds
                 ?: currentSet.exercise.exercise.targetDurationSecondsSnapshot,
             setLabel = setLabel(currentSet.set, currentSet.exercise),

@@ -19,8 +19,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import com.jupiman.workouttracker.data.repository.formatCentiKg
-import com.jupiman.workouttracker.data.repository.parseCentiKg
+import com.jupiman.workouttracker.data.repository.formatWeightValue
+import com.jupiman.workouttracker.data.repository.parseWeight
+import com.jupiman.workouttracker.preferences.WeightUnit
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import kotlin.math.roundToInt
 
@@ -35,9 +36,10 @@ internal fun WeightAdjuster(
     onValueChange: (String) -> Unit,
     incrementCentiKg: Int,
     modifier: Modifier = Modifier,
+    weightUnit: WeightUnit = WeightUnit.KG,
 ) {
     val normalizedIncrement = incrementCentiKg.coerceAtLeast(1)
-    val parsedWeight = value.toCentiKgOrNull()
+    val parsedWeight = value.toCentiKgOrNull(weightUnit)
     var sliderDragInProgress by remember { mutableStateOf(false) }
     var sliderUpperBoundCentiKg by remember { mutableStateOf(DefaultWeightSliderUpperBoundCentiKg) }
 
@@ -62,7 +64,7 @@ internal fun WeightAdjuster(
             value = value,
             onValueChange = { nextValue ->
                 onValueChange(nextValue)
-                nextValue.toCentiKgOrNull()?.let { typedWeight ->
+                nextValue.toCentiKgOrNull(weightUnit)?.let { typedWeight ->
                     if (!sliderDragInProgress && typedWeight > sliderUpperBoundCentiKg) {
                         sliderUpperBoundCentiKg = upperBoundBucketFor(
                             weightCentiKg = typedWeight,
@@ -82,7 +84,7 @@ internal fun WeightAdjuster(
         ) {
             OutlinedButton(
                 onClick = {
-                    val nextValue = value.adjustedBy(-normalizedIncrement)
+                    val nextValue = value.adjustedBy(-normalizedIncrement, weightUnit)
                     onValueChange(nextValue)
                 },
             ) {
@@ -93,10 +95,11 @@ internal fun WeightAdjuster(
                 onValueChange = { rawKg ->
                     sliderDragInProgress = true
                     onValueChange(
-                        formatCentiKg(
+                        formatWeightValue(
                             rawKg
                                 .centiKgFromSlider(normalizedIncrement)
                                 .coerceIn(0, sliderUpperBoundCentiKg),
+                            weightUnit,
                         ),
                     )
                 },
@@ -111,9 +114,9 @@ internal fun WeightAdjuster(
             )
             OutlinedButton(
                 onClick = {
-                    val nextValue = value.adjustedBy(normalizedIncrement)
+                    val nextValue = value.adjustedBy(normalizedIncrement, weightUnit)
                     onValueChange(nextValue)
-                    nextValue.toCentiKgOrNull()?.let { adjustedWeight ->
+                    nextValue.toCentiKgOrNull(weightUnit)?.let { adjustedWeight ->
                         if (adjustedWeight > sliderUpperBoundCentiKg) {
                             sliderUpperBoundCentiKg = upperBoundBucketFor(
                                 weightCentiKg = adjustedWeight,
@@ -129,8 +132,11 @@ internal fun WeightAdjuster(
     }
 }
 
-internal fun String.toPositiveCentiKgOrDefault(defaultCentiKg: Int): Int =
-    toCentiKgOrNull()
+internal fun String.toPositiveCentiKgOrDefault(
+    defaultCentiKg: Int,
+    weightUnit: WeightUnit = WeightUnit.KG,
+): Int =
+    toCentiKgOrNull(weightUnit)
         ?.coerceAtLeast(1)
         ?: defaultCentiKg
 
@@ -145,9 +151,9 @@ internal fun upperBoundBucketFor(
     } ?: WeightSliderUpperBoundBucketsCentiKg.last()
 }
 
-private fun String.adjustedBy(deltaCentiKg: Int): String {
-    val current = toCentiKgOrNull() ?: 0
-    return formatCentiKg((current + deltaCentiKg).coerceAtLeast(0))
+private fun String.adjustedBy(deltaCentiKg: Int, weightUnit: WeightUnit): String {
+    val current = toCentiKgOrNull(weightUnit) ?: 0
+    return formatWeightValue((current + deltaCentiKg).coerceAtLeast(0), weightUnit)
 }
 
 private fun Float.centiKgFromSlider(incrementCentiKg: Int): Int {
@@ -156,5 +162,5 @@ private fun Float.centiKgFromSlider(incrementCentiKg: Int): Int {
         .roundToInt() * incrementCentiKg
 }
 
-private fun String.toCentiKgOrNull(): Int? =
-    runCatching { parseCentiKg(this) }.getOrNull()
+private fun String.toCentiKgOrNull(weightUnit: WeightUnit): Int? =
+    runCatching { parseWeight(this, weightUnit) }.getOrNull()

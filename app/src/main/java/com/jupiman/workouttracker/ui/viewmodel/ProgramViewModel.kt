@@ -13,7 +13,8 @@ import com.jupiman.workouttracker.data.repository.ExerciseRepository
 import com.jupiman.workouttracker.data.repository.ExerciseProgressRepository
 import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.TemplateExerciseConfig
-import com.jupiman.workouttracker.data.repository.parseCentiKg
+import com.jupiman.workouttracker.data.repository.parseWeight
+import com.jupiman.workouttracker.preferences.WeightUnit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -129,6 +130,7 @@ class ProgramViewModel(
         trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
         durationSeconds: String = "60",
         durationIncrementSeconds: String = "0",
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = launchOperation("Exercise added to workout.") {
         require(exerciseId != null) { "Choose an exercise first." }
         programRepository.addExistingExerciseToWorkout(
@@ -145,6 +147,7 @@ class ProgramViewModel(
                 trackingMode = trackingMode,
                 durationSeconds = durationSeconds,
                 durationIncrementSeconds = durationIncrementSeconds,
+                weightUnit = weightUnit,
             ),
         )
     }
@@ -162,6 +165,7 @@ class ProgramViewModel(
         trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
         durationSeconds: String = "60",
         durationIncrementSeconds: String = "0",
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = launchOperation("Exercise created and added.") {
         programRepository.createExerciseAndAddToWorkout(
             workoutTemplateId = workoutTemplateId,
@@ -177,6 +181,7 @@ class ProgramViewModel(
                 trackingMode = trackingMode,
                 durationSeconds = durationSeconds,
                 durationIncrementSeconds = durationIncrementSeconds,
+                weightUnit = weightUnit,
             ),
         )
     }
@@ -195,6 +200,7 @@ class ProgramViewModel(
         durationSeconds: String = "60",
         durationIncrementSeconds: String = "0",
         setupNote: String,
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = launchOperation("Exercise saved.") {
         programRepository.updateTemplateExercise(
             item = item,
@@ -210,6 +216,7 @@ class ProgramViewModel(
                 trackingMode = trackingMode,
                 durationSeconds = durationSeconds,
                 durationIncrementSeconds = durationIncrementSeconds,
+                weightUnit = weightUnit,
             ),
             setupNote = setupNote,
         )
@@ -228,11 +235,12 @@ class ProgramViewModel(
         setOrder: Int,
         prescribedWeight: String,
         prescribedReps: String,
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = launchOperation("Set target saved.") {
         programRepository.updateTemplateSetTarget(
             workoutTemplateExerciseId = workoutTemplateExerciseId,
             setOrder = setOrder,
-            prescribedWeightCentiKg = parseCentiKg(prescribedWeight),
+            prescribedWeightCentiKg = parseWeight(prescribedWeight, weightUnit),
             prescribedReps = prescribedReps.toPositiveInt("Set reps"),
         )
     }
@@ -286,6 +294,7 @@ class ProgramViewModel(
         trackingMode: TrackingMode = TrackingMode.WEIGHT_REPS,
         durationSeconds: String = "60",
         durationIncrementSeconds: String = "0",
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = TemplateExerciseConfig(
         plannedWorkingSets = sets.toPositiveInt("Working sets"),
         trackingMode = trackingMode,
@@ -294,9 +303,9 @@ class ProgramViewModel(
         targetDurationSeconds = if (trackingMode == TrackingMode.DURATION) durationSeconds.toPositiveInt("Duration seconds") else null,
         repMin = if (trackingMode == TrackingMode.DURATION) 1 else repMin.toPositiveInt("Minimum reps"),
         repMax = if (trackingMode == TrackingMode.DURATION) 1 else repMax.toPositiveInt("Maximum reps"),
-        currentWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(currentWeight) else 0,
+        currentWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseWeight(currentWeight, weightUnit) else 0,
         currentTargetReps = if (trackingMode == TrackingMode.DURATION) 1 else currentTargetReps.toPositiveInt("Current target reps"),
-        incrementCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(increment) else 250,
+        incrementCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseWeight(increment, weightUnit) else 250,
         restSeconds = restSeconds.toNonNegativeInt("Rest seconds"),
     )
 

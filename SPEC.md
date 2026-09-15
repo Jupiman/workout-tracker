@@ -4074,10 +4074,6 @@ DO NOT IMPLEMENT THEM as part of this roadmap.
 Deferred:
 
 - workout/session free-text notes
-- kg / lb unit switching
-  - future Settings preference
-  - architecture should not unnecessarily block it
-  - do not implement yet
 - plate calculator
 
 Not planned:
@@ -4103,7 +4099,32 @@ Continue to avoid unless explicitly requested later:
 - achievements
 - streaks
 - gamification
-- Health Connect
+
+## 57.10 Expanded Settings
+
+Add a small DataStore-backed preferences layer with observable, validated settings. Defaults preserve existing behavior: kilograms, system theme, a three-second duration preparation countdown, normal phone screen timeout, and enabled phone alerts for completed rest and duration timers.
+
+Settings uses compact Workout, Appearance, Notifications, Data, and About sections. It supports kilograms or pounds, System/Light/Dark theme, Off/3-second/5-second duration preparation, keeping the phone screen awake only during an active workout, independent phone alert toggles for rest and duration completion, and a link to Android's notification settings.
+
+All stored weights remain canonical integer centi-kilograms. Unit selection changes presentation and input conversion only across Program configuration, active workouts, completion summaries, History, Progress, notifications, and Wear OS. Program transfer and full backup formats keep their canonical weights and do not include the device-local display preference. Theme changes apply at the root immediately. Duration preparation is resolved centrally for every phone, Wear, and notification start path; timer timestamps and reconciliation remain authoritative. Alert preferences suppress only their dedicated phone notification, never timer scheduling, reconciliation, workout state, or Wear behavior. No Room schema change is required.
+
+Acceptance:
+
+- preferences persist and invalid values fall back to documented defaults
+- every user-facing workout weight uses the selected kg/lb unit while stored centi-kilograms remain unchanged
+- progression, immutable History, Program transfer, and full backup semantics remain unchanged
+- System/Light/Dark theme applies immediately
+- duration preparation supports exactly Off, 3 seconds, and 5 seconds through every start entry point
+- phone keep-awake is active only for an active workout when enabled
+- rest and duration phone alerts can be suppressed without disabling timer correctness
+- Android notification settings opens from the app
+- Wear uses the phone-selected unit and older state payloads decode as kilograms
+
+STOP after Phase 9.
+
+## 57.11 Health Connect
+
+Planned next phase. Not implemented in Phase 9.
 
 ARCHITECTURE RULES
 

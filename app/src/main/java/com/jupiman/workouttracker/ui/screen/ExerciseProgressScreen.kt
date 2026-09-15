@@ -41,8 +41,10 @@ import com.jupiman.workouttracker.data.local.entity.TrackingMode
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.model.ExerciseProgressTrack
 import com.jupiman.workouttracker.data.repository.ExerciseProgressSession
-import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.data.repository.formatWeight
 import com.jupiman.workouttracker.data.repository.trackingText
+import com.jupiman.workouttracker.preferences.WeightUnit
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
@@ -175,6 +177,7 @@ fun ExerciseProgressScreen(
 
 @Composable
 private fun CurrentProgressTarget(track: ExerciseProgressTrack) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
@@ -187,6 +190,7 @@ private fun CurrentProgressTarget(track: ExerciseProgressTrack) {
                     track.currentWeightCentiKg,
                     track.currentTargetReps,
                     track.targetDurationSeconds,
+                    weightUnit,
                 ),
                 style = MaterialTheme.typography.titleLarge,
             )
@@ -205,6 +209,7 @@ private fun CurrentProgressTarget(track: ExerciseProgressTrack) {
 
 @Composable
 private fun ProgressChartCard(track: ExerciseProgressTrack, sessions: List<ExerciseProgressSession>) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     val points = sessions.filter {
         it.trackingMode == track.trackingMode && it.graphValue != null
     }.take(12).reversed()
@@ -255,8 +260,8 @@ private fun ProgressChartCard(track: ExerciseProgressTrack, sessions: List<Exerc
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(formatGraphValue(minValue, track.trackingMode), style = MaterialTheme.typography.labelSmall)
-                    Text(formatGraphValue(maxValue, track.trackingMode), style = MaterialTheme.typography.labelSmall)
+                    Text(formatGraphValue(minValue, track.trackingMode, weightUnit), style = MaterialTheme.typography.labelSmall)
+                    Text(formatGraphValue(maxValue, track.trackingMode, weightUnit), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -265,6 +270,7 @@ private fun ProgressChartCard(track: ExerciseProgressTrack, sessions: List<Exerc
 
 @Composable
 private fun ProgressSessionCard(session: ExerciseProgressSession) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(WorkoutSpacing.card), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -282,7 +288,7 @@ private fun ProgressSessionCard(session: ExerciseProgressSession) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(set.progressLabel(), style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        set.progressValue(session.trackingMode),
+                        set.progressValue(session.trackingMode, weightUnit),
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = if (set.status == SessionSetStatus.SKIPPED) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
@@ -293,8 +299,8 @@ private fun ProgressSessionCard(session: ExerciseProgressSession) {
     }
 }
 
-private fun formatGraphValue(value: Int, mode: TrackingMode): String = when (mode) {
-    TrackingMode.WEIGHT_REPS -> "${formatCentiKg(value)} kg"
+private fun formatGraphValue(value: Int, mode: TrackingMode, weightUnit: WeightUnit): String = when (mode) {
+    TrackingMode.WEIGHT_REPS -> formatWeight(value, weightUnit)
     TrackingMode.REPS -> "$value reps"
     TrackingMode.DURATION -> "$value sec"
 }
@@ -307,10 +313,10 @@ private fun SessionSetEntity.progressLabel(): String = when (setType) {
     SetType.DROP -> "Drop"
 }
 
-private fun SessionSetEntity.progressValue(mode: TrackingMode): String = when (status) {
+private fun SessionSetEntity.progressValue(mode: TrackingMode, weightUnit: WeightUnit): String = when (status) {
     SessionSetStatus.SKIPPED -> "Skipped"
     SessionSetStatus.PENDING -> "Pending"
-    SessionSetStatus.COMPLETED -> trackingText(mode, actualWeightCentiKg, actualReps, actualDurationSeconds)
+    SessionSetStatus.COMPLETED -> trackingText(mode, actualWeightCentiKg, actualReps, actualDurationSeconds, weightUnit)
 }
 
 private fun formatProgressDate(timestamp: Long): String = Instant.ofEpochMilli(timestamp)

@@ -30,12 +30,12 @@ import com.jupiman.workouttracker.notification.NoOpDurationTimerScheduler
 import com.jupiman.workouttracker.notification.NoOpWorkoutNotificationUpdater
 import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
+import com.jupiman.workouttracker.preferences.DefaultDurationPreparationProvider
+import com.jupiman.workouttracker.preferences.DurationPreparationProvider
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-private const val DURATION_PREP_MILLIS = 3_000L
 
 class WorkoutSessionRepository(
     private val database: WorkoutTrackerDatabase,
@@ -52,6 +52,7 @@ class WorkoutSessionRepository(
     private val restTimerScheduler: RestTimerScheduler,
     private val durationTimerScheduler: DurationTimerScheduler = NoOpDurationTimerScheduler,
     private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
+    private val durationPreparationProvider: DurationPreparationProvider = DefaultDurationPreparationProvider,
 ) {
     // Only the short-lived affordance is transient; the set and timer live in Room.
     private var latestUndo: SetCompletionUndo? = null
@@ -197,6 +198,7 @@ class WorkoutSessionRepository(
         setId: Long,
         now: Long = System.currentTimeMillis(),
     ): Boolean {
+        val prepMillis = durationPreparationProvider.durationPrepSeconds() * 1_000L
         var endToSchedule: Long? = null
         val started = database.withTransaction {
             val activeWorkout = workoutSessionDao.getActiveWithDetails() ?: return@withTransaction false
@@ -216,7 +218,7 @@ class WorkoutSessionRepository(
             }
             val target = set.prescribedDurationSeconds ?: exercise.targetDurationSecondsSnapshot
             if (target == null || target <= 0) return@withTransaction false
-            val startsAt = now + DURATION_PREP_MILLIS
+            val startsAt = now + prepMillis
             val endsAt = startsAt + target * 1_000L
             workoutSessionDao.update(
                 session.copy(

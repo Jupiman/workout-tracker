@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.data.local.entity.ExerciseEntity
 import kotlinx.coroutines.launch
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.data.repository.formatWeightValue
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.WorkoutInlineError
 
 @Composable
@@ -30,6 +32,7 @@ internal fun AddSessionExerciseDialog(
     onDismiss: () -> Unit,
     onAdd: suspend (Long, Long, String, String, String, String, TrackingMode, String) -> Unit,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     var selectedId by rememberSaveable(sessionId) { mutableStateOf<Long?>(null) }
     var name by rememberSaveable(sessionId) { mutableStateOf("") }
     var sets by rememberSaveable(sessionId) { mutableStateOf("3") }
@@ -66,7 +69,7 @@ internal fun AddSessionExerciseDialog(
                     restSeconds = rest, onRestSecondsChange = { rest = it },
                     repMin = reps, onRepMinChange = {},
                     repMax = reps, onRepMaxChange = {},
-                    increment = "2.5", onIncrementChange = {},
+                    increment = formatWeightValue(250, weightUnit), onIncrementChange = {},
                     sessionOnly = true,
                     trackingMode = trackingMode, onTrackingModeChange = { trackingMode = it },
                     durationSeconds = durationSeconds, onDurationSecondsChange = { durationSeconds = it },

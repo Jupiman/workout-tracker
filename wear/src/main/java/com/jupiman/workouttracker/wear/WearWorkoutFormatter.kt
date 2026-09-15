@@ -2,6 +2,9 @@ package com.jupiman.workouttracker.wear
 
 import com.jupiman.workouttracker.wearprotocol.WearTrackingMode
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
+import com.jupiman.workouttracker.wearprotocol.WearWeightUnit
+import java.math.BigDecimal
+import java.math.RoundingMode
 import kotlin.math.max
 
 fun formatCentiKg(centiKg: Int): String {
@@ -15,8 +18,16 @@ fun formatCentiKg(centiKg: Int): String {
     }
 }
 
+private val KilogramsToPounds = BigDecimal("2.2046226218")
+
+fun formatWeight(centiKg: Int, unit: WearWeightUnit): String = when (unit) {
+    WearWeightUnit.KG -> formatCentiKg(centiKg)
+    WearWeightUnit.LB -> BigDecimal(centiKg).movePointLeft(2).multiply(KilogramsToPounds)
+        .setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+}
+
 fun targetText(state: WorkoutWearState): String = when (state.trackingMode) {
-    WearTrackingMode.WEIGHT_REPS -> "${formatCentiKg(state.weightCentiKg ?: 0)}kg × ${state.targetReps ?: 0}"
+    WearTrackingMode.WEIGHT_REPS -> "${formatWeight(state.weightCentiKg ?: 0, state.weightUnit)}${state.weightUnit.name.lowercase()} × ${state.targetReps ?: 0}"
     WearTrackingMode.REPS -> "${state.targetReps ?: 0} reps"
     WearTrackingMode.DURATION -> "${state.targetDurationSeconds ?: 0} sec"
 }

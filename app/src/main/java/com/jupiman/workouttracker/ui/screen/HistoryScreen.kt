@@ -46,9 +46,9 @@ import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.model.SessionExerciseWithSets
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
-import com.jupiman.workouttracker.data.repository.formatCentiKg
 import com.jupiman.workouttracker.data.repository.trackingText
 import com.jupiman.workouttracker.data.local.entity.TrackingMode
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutRadii
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
@@ -483,6 +483,7 @@ private fun HistoryExerciseCard(
     exercise: SessionExerciseWithSets,
     onOpenProgress: (() -> Unit)?,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -513,6 +514,7 @@ private fun HistoryExerciseCard(
                     exercise.exercise.prescribedWeightCentiKgSnapshot,
                     exercise.exercise.targetRepsSnapshot,
                     exercise.exercise.targetDurationSecondsSnapshot,
+                    weightUnit,
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -545,6 +547,7 @@ private fun HistorySetLine(
     set: SessionSetEntity,
     trackingMode: TrackingMode,
 ) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     val state = when (set.status) {
         SessionSetStatus.COMPLETED -> WorkoutVisualState.Completed
         SessionSetStatus.SKIPPED -> WorkoutVisualState.Skipped
@@ -565,7 +568,7 @@ private fun HistorySetLine(
             color = palette.content,
         )
         Text(
-            text = set.trackingText(trackingMode, actual = set.status == SessionSetStatus.COMPLETED) +
+            text = set.trackingText(trackingMode, actual = set.status == SessionSetStatus.COMPLETED, weightUnit = weightUnit) +
                 when (set.status) { SessionSetStatus.COMPLETED -> ""; SessionSetStatus.SKIPPED -> " skipped"; SessionSetStatus.PENDING -> " pending" },
             style = MaterialTheme.typography.bodyMedium,
             color = palette.content,

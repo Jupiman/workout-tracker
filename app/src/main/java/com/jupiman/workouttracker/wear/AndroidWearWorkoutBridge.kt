@@ -7,10 +7,13 @@ import com.google.android.gms.wearable.PutDataRequest
 import com.google.android.gms.wearable.Wearable
 import com.jupiman.workouttracker.data.local.dao.WorkoutSessionDao
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
+import com.jupiman.workouttracker.preferences.AppPreferencesRepository
+import com.jupiman.workouttracker.preferences.WeightUnit
 import com.jupiman.workouttracker.wearprotocol.CommandAck
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearCodecs
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearPaths
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
+import com.jupiman.workouttracker.wearprotocol.WearWeightUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
@@ -19,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
@@ -26,6 +30,7 @@ class AndroidWearWorkoutBridge(
     context: Context,
     private val workoutSessionRepository: WorkoutSessionRepository,
     private val workoutSessionDao: WorkoutSessionDao,
+    private val appPreferencesRepository: AppPreferencesRepository,
 ) {
     private val appContext = context.applicationContext
     private val dataClient = Wearable.getDataClient(appContext)
@@ -38,8 +43,12 @@ class AndroidWearWorkoutBridge(
     fun start() {
         if (!started.compareAndSet(false, true)) return
         scope.launch {
-            workoutSessionRepository.activeSessionWithDetails.collectLatest { activeWorkout ->
-                publishState(WorkoutWearStateProjector.stateFor(activeWorkout))
+            combine(
+                workoutSessionRepository.activeSessionWithDetails,
+                appPreferencesRepository.preferences,
+            ) { activeWorkout, preferences -> activeWorkout to preferences.weightUnit }
+                .collectLatest { (activeWorkout, weightUnit) ->
+                publishState(WorkoutWearStateProjector.stateFor(activeWorkout, weightUnit = weightUnit.toWearUnit()))
             }
         }
     }
@@ -51,7 +60,10 @@ class AndroidWearWorkoutBridge(
     }
 
     suspend fun publishCurrentState(): WorkoutWearState {
-        val state = WorkoutWearStateProjector.stateFor(workoutSessionDao.getActiveWithDetails())
+        val state = WorkoutWearStateProjector.stateFor(
+            workoutSessionDao.getActiveWithDetails(),
+            weightUnit = appPreferencesRepository.current().weightUnit.toWearUnit(),
+        )
         publishState(state)
         return state
     }
@@ -143,6 +155,11 @@ class AndroidWearWorkoutBridge(
             WorkoutWearCodecs.encodeCommandAck(ack),
         ).await()
     }
+}
+
+private fun WeightUnit.toWearUnit(): WearWeightUnit = when (this) {
+    WeightUnit.KG -> WearWeightUnit.KG
+    WeightUnit.LB -> WearWeightUnit.LB
 }
 
 suspend fun <T> Task<T>.await(): T =

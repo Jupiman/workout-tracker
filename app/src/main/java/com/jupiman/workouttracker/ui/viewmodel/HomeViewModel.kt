@@ -16,7 +16,8 @@ import com.jupiman.workouttracker.data.repository.ProgramRepository
 import com.jupiman.workouttracker.data.repository.ProgressionFinishChoice
 import com.jupiman.workouttracker.data.repository.WorkoutSessionRepository
 import com.jupiman.workouttracker.data.repository.SetCompletionUndo
-import com.jupiman.workouttracker.data.repository.parseCentiKg
+import com.jupiman.workouttracker.data.repository.parseWeight
+import com.jupiman.workouttracker.preferences.WeightUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -146,6 +147,7 @@ class HomeViewModel(
         actualWeight: String,
         actualReps: String,
         trackingMode: TrackingMode,
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) = launchOperation("") {
         val reps = actualReps.trim().toIntOrNull()
             ?: throw IllegalArgumentException("Reps or seconds must be a whole number.")
@@ -153,7 +155,7 @@ class HomeViewModel(
 
         _undo.value = workoutSessionRepository.completeSet(
             setId = setId,
-            actualWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(actualWeight) else 0,
+            actualWeightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseWeight(actualWeight, weightUnit) else 0,
             actualReps = if (trackingMode == TrackingMode.DURATION) 0 else reps,
             actualDurationSeconds = if (trackingMode == TrackingMode.DURATION) reps else null,
         )
@@ -232,13 +234,14 @@ class HomeViewModel(
     suspend fun addExerciseForToday(
         sessionId: Long, exerciseId: Long, sets: String, reps: String, weight: String, rest: String,
         trackingMode: TrackingMode, durationSeconds: String,
+        weightUnit: WeightUnit = WeightUnit.KG,
     ) {
         workoutSessionRepository.addExerciseForToday(
             sessionId = sessionId,
             exerciseId = exerciseId,
             sets = sets.toIntOrNull() ?: error("Sets must be a whole number."),
             reps = if (trackingMode == TrackingMode.DURATION) 1 else reps.toIntOrNull() ?: error("Reps must be a whole number."),
-            weightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseCentiKg(weight) else 0,
+            weightCentiKg = if (trackingMode == TrackingMode.WEIGHT_REPS) parseWeight(weight, weightUnit) else 0,
             trackingMode = trackingMode,
             durationSeconds = if (trackingMode == TrackingMode.DURATION) durationSeconds.toIntOrNull() ?: error("Seconds must be a whole number.") else null,
             restSeconds = rest.toIntOrNull() ?: error("Rest must be a whole number of seconds."),

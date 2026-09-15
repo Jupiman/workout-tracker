@@ -1,5 +1,7 @@
 package com.jupiman.workouttracker.navigation
 
+import android.content.Intent
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +42,7 @@ import com.jupiman.workouttracker.ui.screen.HistoryScreen
 import com.jupiman.workouttracker.ui.screen.ProgramScreen
 import com.jupiman.workouttracker.ui.screen.SettingsScreen
 import com.jupiman.workouttracker.ui.screen.WorkoutHomeScreen
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.WorkoutGlyph
 import com.jupiman.workouttracker.ui.theme.WorkoutIcon
 import com.jupiman.workouttracker.ui.viewmodel.AppViewModelFactory
@@ -66,6 +69,7 @@ fun WorkoutTrackerApp(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val currentDestination = destinations[pagerState.currentPage]
+    val preferences = LocalAppPreferences.current
     var appMenuExpanded by remember { mutableStateOf(false) }
     var createProgramRequested by rememberSaveable { mutableStateOf(false) }
     var pendingProgramExportId by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -296,6 +300,16 @@ fun WorkoutTrackerApp(
             composable(SETTINGS_ROUTE) {
                 SettingsScreen(
                     versionName = versionName,
+                    preferences = preferences,
+                    onPreferencesChange = { updated ->
+                        scope.launch { container.appPreferencesRepository.setPreferences(updated) }
+                    },
+                    onOpenNotificationSettings = {
+                        context.startActivity(
+                            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                        )
+                    },
                     onExportBackup = {
                         exportBackupLauncher.launch(
                             "workout-companion-backup-${LocalDate.now()}.json",

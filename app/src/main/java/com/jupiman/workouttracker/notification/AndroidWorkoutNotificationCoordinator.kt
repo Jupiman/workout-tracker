@@ -14,6 +14,7 @@ import com.jupiman.workouttracker.MainActivity
 import com.jupiman.workouttracker.R
 import com.jupiman.workouttracker.data.local.dao.WorkoutSessionDao
 import com.jupiman.workouttracker.wear.await
+import com.jupiman.workouttracker.preferences.AppPreferencesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 class AndroidWorkoutNotificationCoordinator(
     private val context: Context,
     private val workoutSessionDao: WorkoutSessionDao,
+    private val appPreferencesRepository: AppPreferencesRepository,
 ) : WorkoutNotificationUpdater {
     private val appContext = context.applicationContext
     private val notificationManager = appContext.getSystemService(NotificationManager::class.java)
@@ -39,7 +41,7 @@ class AndroidWorkoutNotificationCoordinator(
 
     suspend fun showCurrentState() {
         val activeWorkout = workoutSessionDao.getActiveWithDetails()
-        val state = WorkoutNotificationProjector.stateFor(activeWorkout)
+        val state = WorkoutNotificationProjector.stateFor(activeWorkout, weightUnit = appPreferencesRepository.current().weightUnit)
         if (state == null) {
             cancel()
             return
@@ -50,8 +52,12 @@ class AndroidWorkoutNotificationCoordinator(
 
     fun showRestFinishedAlert() {
         scope.launch {
+            if (!appPreferencesRepository.current().restCompletionPhoneAlert) {
+                showCurrentState()
+                return@launch
+            }
             val activeWorkout = workoutSessionDao.getActiveWithDetails()
-            val state = WorkoutNotificationProjector.stateFor(activeWorkout)
+            val state = WorkoutNotificationProjector.stateFor(activeWorkout, weightUnit = appPreferencesRepository.current().weightUnit)
             val restFinishedState = state as? WorkoutNotificationState.RestFinished
             if (!canPostNotifications() || restFinishedState == null) {
                 showCurrentState()
@@ -85,22 +91,25 @@ class AndroidWorkoutNotificationCoordinator(
     }
 
     fun showDurationFinishedAlert() {
-        if (!canPostNotifications()) return
-        val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_rest_timer)
-            .setContentTitle("Set complete")
-            .setContentText("Duration target reached.")
-            .setContentIntent(contentIntent())
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setOnlyAlertOnce(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setVibrate(longArrayOf(0, 250, 120, 250))
-            .build()
-        notificationManager.notify(DURATION_TIMER_NOTIFICATION_ID, notification)
-        refresh()
+        scope.launch {
+            if (appPreferencesRepository.current().durationCompletionPhoneAlert && canPostNotifications()) {
+                val notification = NotificationCompat.Builder(appContext, REST_TIMER_ALERT_CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_stat_rest_timer)
+                    .setContentTitle("Set complete")
+                    .setContentText("Duration target reached.")
+                    .setContentIntent(contentIntent())
+                    .setAutoCancel(true)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setDefaults(NotificationCompat.DEFAULT_ALL)
+                    .setOnlyAlertOnce(false)
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setVibrate(longArrayOf(0, 250, 120, 250))
+                    .build()
+                notificationManager.notify(DURATION_TIMER_NOTIFICATION_ID, notification)
+            }
+            showCurrentState()
+        }
     }
 
     private fun buildNotification(

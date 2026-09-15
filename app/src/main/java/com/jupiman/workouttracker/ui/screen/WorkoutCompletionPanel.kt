@@ -15,13 +15,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.data.repository.CompletionTarget
 import com.jupiman.workouttracker.data.repository.WorkoutCompletionSummary
-import com.jupiman.workouttracker.data.repository.formatCentiKg
+import com.jupiman.workouttracker.data.repository.formatWeight
+import com.jupiman.workouttracker.preferences.WeightUnit
+import com.jupiman.workouttracker.ui.LocalAppPreferences
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.ui.theme.StatusPill
 import com.jupiman.workouttracker.ui.theme.WorkoutVisualState
 
 @Composable
 internal fun WorkoutCompletionPanel(summary: WorkoutCompletionSummary, onDone: () -> Unit) {
+    val weightUnit = LocalAppPreferences.current.weightUnit
     Column(verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section)) {
         StatusPill(text = "Completed", state = WorkoutVisualState.Completed)
         Text("Workout complete", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -52,17 +55,17 @@ internal fun WorkoutCompletionPanel(summary: WorkoutCompletionSummary, onDone: (
                         before == null || after == null -> Text("No permanent progression track", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         before == after -> {
                             Text("No change", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TargetList(after)
+                            TargetList(after, weightUnit)
                         }
                         before.distinct().size == 1 && after.distinct().size == 1 && before.size == after.size -> {
-                            Text("${before.first().displayText()} → ${after.first().displayText()}", color = MaterialTheme.colorScheme.primary)
+                            Text("${before.first().displayText(weightUnit)} → ${after.first().displayText(weightUnit)}", color = MaterialTheme.colorScheme.primary)
                         }
                         else -> after.forEachIndexed { index, target ->
                             val old = before.getOrNull(index)
                             Text("Set ${index + 1}: " + when {
-                                old == target -> "${target.displayText()} · No change"
-                                old == null -> target.displayText()
-                                else -> "${old.displayText()} → ${target.displayText()}"
+                                old == target -> "${target.displayText(weightUnit)} · No change"
+                                old == null -> target.displayText(weightUnit)
+                                else -> "${old.displayText(weightUnit)} → ${target.displayText(weightUnit)}"
                             })
                         }
                     }
@@ -74,13 +77,13 @@ internal fun WorkoutCompletionPanel(summary: WorkoutCompletionSummary, onDone: (
 }
 
 @Composable
-private fun TargetList(targets: List<CompletionTarget>) {
-    if (targets.distinct().size == 1) Text(targets.first().displayText())
-    else targets.forEachIndexed { index, target -> Text("Set ${index + 1}: ${target.displayText()}") }
+private fun TargetList(targets: List<CompletionTarget>, weightUnit: WeightUnit) {
+    if (targets.distinct().size == 1) Text(targets.first().displayText(weightUnit))
+    else targets.forEachIndexed { index, target -> Text("Set ${index + 1}: ${target.displayText(weightUnit)}") }
 }
 
-private fun CompletionTarget.displayText() = when (trackingMode) {
-    com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS -> "${formatCentiKg(weightCentiKg)} kg × $reps"
+private fun CompletionTarget.displayText(weightUnit: WeightUnit) = when (trackingMode) {
+    com.jupiman.workouttracker.data.local.entity.TrackingMode.WEIGHT_REPS -> "${formatWeight(weightCentiKg, weightUnit)} × $reps"
     com.jupiman.workouttracker.data.local.entity.TrackingMode.REPS -> "$reps reps"
     com.jupiman.workouttracker.data.local.entity.TrackingMode.DURATION -> "${durationSeconds ?: 0} sec"
 }

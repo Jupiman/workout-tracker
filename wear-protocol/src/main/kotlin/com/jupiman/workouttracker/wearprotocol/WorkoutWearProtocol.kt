@@ -23,6 +23,7 @@ enum class WearSessionStatus {
     UNAVAILABLE,
 }
 enum class WearTrackingMode { WEIGHT_REPS, REPS, DURATION }
+enum class WearWeightUnit { KG, LB }
 
 data class WorkoutWearState(
     val sessionId: Long?,
@@ -32,6 +33,7 @@ data class WorkoutWearState(
     val weightCentiKg: Int?,
     val targetReps: Int?,
     val trackingMode: WearTrackingMode = WearTrackingMode.WEIGHT_REPS,
+    val weightUnit: WearWeightUnit = WearWeightUnit.KG,
     val targetDurationSeconds: Int? = null,
     val setLabel: String?,
     val setNumber: Int?,
@@ -48,7 +50,7 @@ data class WorkoutWearState(
         get() = sessionStatus == WearSessionStatus.ACTIVE && currentSetId != null
 
     companion object {
-        fun noActive(now: Long): WorkoutWearState =
+        fun noActive(now: Long, weightUnit: WearWeightUnit = WearWeightUnit.KG): WorkoutWearState =
             WorkoutWearState(
                 sessionId = null,
                 sessionStatus = WearSessionStatus.NO_ACTIVE,
@@ -57,6 +59,7 @@ data class WorkoutWearState(
                 weightCentiKg = null,
                 targetReps = null,
                 trackingMode = WearTrackingMode.WEIGHT_REPS,
+                weightUnit = weightUnit,
                 targetDurationSeconds = null,
                 setLabel = null,
                 setNumber = null,
@@ -70,7 +73,11 @@ data class WorkoutWearState(
                 updatedAt = now,
             )
 
-        fun workoutComplete(sessionId: Long, now: Long): WorkoutWearState =
+        fun workoutComplete(
+            sessionId: Long,
+            now: Long,
+            weightUnit: WearWeightUnit = WearWeightUnit.KG,
+        ): WorkoutWearState =
             WorkoutWearState(
                 sessionId = sessionId,
                 sessionStatus = WearSessionStatus.WORKOUT_COMPLETE,
@@ -79,6 +86,7 @@ data class WorkoutWearState(
                 weightCentiKg = null,
                 targetReps = null,
                 trackingMode = WearTrackingMode.WEIGHT_REPS,
+                weightUnit = weightUnit,
                 targetDurationSeconds = null,
                 setLabel = null,
                 setNumber = null,
@@ -136,7 +144,7 @@ object WorkoutWearCodecs {
 
     fun encodeState(state: WorkoutWearState): ByteArray =
         writeBytes {
-            writeInt(3)
+            writeInt(4)
             writeNullableLong(state.sessionId)
             writeInt(state.sessionStatus.ordinal)
             writeNullableLong(state.currentSetId)
@@ -144,6 +152,7 @@ object WorkoutWearCodecs {
             writeNullableInt(state.weightCentiKg)
             writeNullableInt(state.targetReps)
             writeInt(state.trackingMode.ordinal)
+            writeInt(state.weightUnit.ordinal)
             writeNullableInt(state.targetDurationSeconds)
             writeNullableString(state.setLabel)
             writeNullableInt(state.setNumber)
@@ -160,7 +169,7 @@ object WorkoutWearCodecs {
     fun decodeState(bytes: ByteArray): WorkoutWearState =
         DataInputStream(ByteArrayInputStream(bytes)).use { input ->
             val version = input.readInt()
-            require(version in 1..3) { "Unsupported Wear state version $version." }
+            require(version in 1..4) { "Unsupported Wear state version $version." }
             WorkoutWearState(
                 sessionId = input.readNullableLong(),
                 sessionStatus = WearSessionStatus.entries[input.readInt()],
@@ -169,6 +178,7 @@ object WorkoutWearCodecs {
                 weightCentiKg = input.readNullableInt(),
                 targetReps = input.readNullableInt(),
                 trackingMode = if (version >= 2) WearTrackingMode.entries[input.readInt()] else WearTrackingMode.WEIGHT_REPS,
+                weightUnit = if (version >= 4) WearWeightUnit.entries[input.readInt()] else WearWeightUnit.KG,
                 targetDurationSeconds = if (version >= 2) input.readNullableInt() else null,
                 setLabel = input.readNullableString(),
                 setNumber = input.readNullableInt(),
