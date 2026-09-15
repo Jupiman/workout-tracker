@@ -46,7 +46,8 @@ Do NOT implement these features unless explicitly requested later:
 - exercise videos
 - workout recommendations
 - scheduling workouts to particular weekdays
-- Apple / Google Health integration
+- Google Fit integration
+- Apple Health integration
 - standalone wearable workout tracking
 - watch-side program editing, history editing, or independent progression logic
 - nutrition tracking
@@ -4132,7 +4133,46 @@ STOP after Phase 9.
 
 ## 57.11 Health Connect
 
-Planned next phase. Not implemented in Phase 9.
+Add an optional, write-only Health Connect destination for finalized Workout Companion workouts. Room remains authoritative, and Health Connect is never required to start, log, finish, restore, or view a workout. The integration defaults off and requests permission only after an explicit Settings action.
+
+Each finalized `COMPLETED` or `PARTIAL` `WorkoutSession` exports as one manually entered `ExerciseSessionRecord` with strength-training exercise type. Its start and end times come directly from `startedAt` and `completedAt`, its title comes from `workoutNameSnapshot`, and its notes use `programNameSnapshot` with a simple partial-workout indication when applicable. `ACTIVE` sessions and invalid finalized sessions without a valid end time are excluded. Historical snapshots remain authoritative.
+
+Phase 10 exports no exercise, segment, set, rep, weight, duration-set, warm-up, superset, heart-rate, calorie, distance, step, route, or sensor data. It requests only `android.permission.health.WRITE_EXERCISE` and never reads Health Connect data. Export metadata identifies the record as manually entered and uses a deterministic `clientRecordId` based on immutable session identity, including both Room session ID and `startedAt`, with client record version 0. This identity survives backup/restore and avoids collisions when Room IDs are reused after a clean installation. Unknown historical zone offsets remain null.
+
+Health Connect availability is represented as available, provider update required, or unavailable. Settings adds a Health Connect section with connection/permission state, an explicit `Sync completed workouts` preference, Connect or Install/update when required, Sync now when writable, and the official Manage Health Connect action. The device-local sync preference defaults off and is excluded from Room, full backup JSON, and Program transfer. Permission denial leaves automatic sync disabled; later external revocation preserves the desired preference but blocks writes and reports that permission is required.
+
+Synchronization verifies provider availability and `WRITE_EXERCISE` permission on every attempt, loads all finalized sessions from Room, maps them from snapshot data, and submits reasonable batches through one gateway hidden behind a small abstraction. Repeated catch-up is duplicate-safe through `clientRecordId` and does not read Health Connect to find existing records. Catch-up may run after enabling sync, on application start or resume while enabled, after successful Room finalization, and when the user taps Sync now.
+
+Automatic synchronization happens only after the Room finish transaction and progression work succeed. Health Connect is not part of that transaction, and any provider, permission, or transport failure cannot fail or roll back workout completion. Turning sync off stops future automatic writes without deleting external records or changing Room. Restored finalized History may be exported by a later catch-up using the same deterministic identity; Health Connect records themselves are not backed up or deleted during restore.
+
+Add the official provider package query and the required permissions-rationale activity/alias flow. The rationale states that Workout Companion writes only workout start/end time, workout type, workout name, and program name; reads no Health Connect data; uploads no Health Connect data to a Workout Companion server; and allows permission revocation in Android settings. Before Play release, the same disclosure must appear in the public privacy policy and the Play Console Health apps/data declarations.
+
+Acceptance:
+
+- Health Connect is optional, disabled by default, and safe on unsupported Android versions
+- Settings reports available, permission-required, provider-update-required, and unavailable states
+- only write-exercise permission is declared and requested after explicit user action
+- finalized completed and partial sessions map to one strength-training exercise session from immutable snapshots
+- active and invalid sessions never export
+- repeated and restored-session sync is duplicate-safe
+- manual and automatic sync share one write-only pipeline
+- sync catches up finalized History without a local sync ledger or Room migration
+- provider, permission, and write failures never corrupt or roll back Workout Companion data
+- backup/restore, Program transfer, and Wear remain unchanged
+- required permission rationale and management intents are present
+
+Do not implement Google Fit, Apple Health, Health Connect reads, set-level export, deletion sync, WorkManager, or future Health Connect features.
+
+### Phase 10 implementation decisions
+
+- The phone module uses `androidx.health.connect:connect-client:1.1.0`. It declares and requests only `android.permission.health.WRITE_EXERCISE`; no Health Connect read permission or read API is used.
+- Each valid finalized session maps to one manually entered strength-training `ExerciseSessionRecord`: `startedAt`/`completedAt` supply the timestamps, `workoutNameSnapshot` supplies the title, and `programNameSnapshot` supplies the notes with `Partial workout` appended for partial sessions. Zone offsets remain null, and no exercise, set, rep, weight, duration, route, calorie, or sensor detail is exported.
+- The metadata client identity is `workout-companion-session-{sessionId}-{startedAt}` with client record version `0`. Both components are immutable and retained by full backup/restore, so repeated catch-up and restored-session synchronization reuse the same Health Connect identity while a reused Room ID with a different start time remains distinct.
+- Automatic synchronization uses the same batched, write-only pipeline as Sync now. It runs after successful Room finalization, when synchronization is enabled, on app resume, and after restore; enabling synchronization also performs catch-up. Every attempt rechecks availability and write permission, and external failures never roll back or fail local workout completion.
+- `healthConnectSyncEnabled` remains a device-local DataStore preference and is not part of Room, full backup JSON, or Program transfer. Phase 10 adds no Room entity or schema change, and Health Connect records are not included in backup/restore.
+- Before Play release, Workout Companion must accurately declare its Health/Fitness use and `WRITE_EXERCISE` access in the Play Console Health apps/data declarations and provide a public privacy policy containing the same disclosure as the in-app rationale.
+
+STOP after Phase 10.
 
 ARCHITECTURE RULES
 

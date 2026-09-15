@@ -31,6 +31,7 @@ class AppPreferencesRepositoryTest {
             first.setKeepPhoneScreenAwake(true)
             first.setRestCompletionPhoneAlert(false)
             first.setDurationCompletionPhoneAlert(false)
+            first.setHealthConnectSyncEnabled(true)
 
             val firstJob = scope.coroutineContext[Job]!!
             scope.cancel()
@@ -45,6 +46,7 @@ class AppPreferencesRepositoryTest {
                     keepPhoneScreenAwake = true,
                     restCompletionPhoneAlert = false,
                     durationCompletionPhoneAlert = false,
+                    healthConnectSyncEnabled = true,
                 ),
                 repository(file, scope).current(),
             )
@@ -69,11 +71,12 @@ class AppPreferencesRepositoryTest {
                     launch { repository.setKeepPhoneScreenAwake(true) },
                     launch { repository.setRestCompletionPhoneAlert(false) },
                     launch { repository.setDurationCompletionPhoneAlert(false) },
+                    launch { repository.setHealthConnectSyncEnabled(true) },
                 ).joinAll()
             }
 
             assertEquals(
-                AppPreferences(WeightUnit.LB, ThemeMode.DARK, 0, true, false, false),
+                AppPreferences(WeightUnit.LB, ThemeMode.DARK, 0, true, false, false, true),
                 repository.current(),
             )
         } finally {

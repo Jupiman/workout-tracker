@@ -21,6 +21,8 @@ import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationState
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import com.jupiman.workouttracker.preferences.DurationPreparationProvider
+import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSync
+import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
 import com.jupiman.workouttracker.wear.WorkoutWearStateProjector
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import kotlinx.coroutines.flow.first
@@ -55,6 +57,7 @@ class WorkoutSessionRepositoryTest {
 
     private fun createRepository(
         durationPreparationProvider: DurationPreparationProvider = DurationPreparationProvider { 3 },
+        finalizedWorkoutSync: FinalizedWorkoutSync = NoOpFinalizedWorkoutSync,
     ) = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
@@ -71,6 +74,7 @@ class WorkoutSessionRepositoryTest {
             durationTimerScheduler = durationTimerScheduler,
             workoutNotificationUpdater = workoutNotificationUpdater,
             durationPreparationProvider = durationPreparationProvider,
+            finalizedWorkoutSync = finalizedWorkoutSync,
         )
 
     @After
@@ -243,6 +247,41 @@ class WorkoutSessionRepositoryTest {
 
         val progression = database.progressionStateDao().getForTemplateExercise(templateExerciseId)
         assertEquals(11, progression?.currentTargetReps)
+    }
+
+    @Test
+    fun finalizedWorkoutTriggersExternalSyncOnlyAfterRoomCompletion() = runTest {
+        var sessionId = 0L
+        var syncCalls = 0
+        repository = createRepository(
+            finalizedWorkoutSync = FinalizedWorkoutSync {
+                val finalized = database.workoutSessionDao().getById(sessionId)!!
+                assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
+                assertTrue(finalized.progressionApplied)
+                syncCalls += 1
+            },
+        )
+        sessionId = repository.startWorkout(seedBenchWorkout())
+        completeAllSets(sessionId, actualWeight = 7_000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        assertEquals(1, syncCalls)
+    }
+
+    @Test
+    fun externalSyncFailureCannotUndoFinalizedWorkout() = runTest {
+        repository = createRepository(
+            finalizedWorkoutSync = FinalizedWorkoutSync { error("Health Connect failed") },
+        )
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        completeAllSets(sessionId, actualWeight = 7_000, actualReps = 10)
+
+        repository.finishActiveWorkout(allowPartial = false)
+
+        val finalized = database.workoutSessionDao().getById(sessionId)!!
+        assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
+        assertTrue(finalized.progressionApplied)
     }
 
     @Test

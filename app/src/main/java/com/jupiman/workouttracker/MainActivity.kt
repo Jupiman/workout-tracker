@@ -16,6 +16,8 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import com.jupiman.workouttracker.navigation.WorkoutTrackerApp
 import com.jupiman.workouttracker.preferences.AppPreferences
 import com.jupiman.workouttracker.preferences.shouldUseDarkTheme
@@ -54,6 +56,14 @@ class MainActivity : ComponentActivity() {
                     WorkoutTrackerApp(container = container)
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val container = (application as WorkoutTrackerApplication).container
+        lifecycleScope.launch {
+            container.healthConnectSyncManager.syncIfEnabled()
         }
     }
 

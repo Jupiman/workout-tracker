@@ -32,6 +32,8 @@ import com.jupiman.workouttracker.notification.WorkoutNotificationProjector
 import com.jupiman.workouttracker.notification.WorkoutNotificationUpdater
 import com.jupiman.workouttracker.preferences.DefaultDurationPreparationProvider
 import com.jupiman.workouttracker.preferences.DurationPreparationProvider
+import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSync
+import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +55,7 @@ class WorkoutSessionRepository(
     private val durationTimerScheduler: DurationTimerScheduler = NoOpDurationTimerScheduler,
     private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
     private val durationPreparationProvider: DurationPreparationProvider = DefaultDurationPreparationProvider,
+    private val finalizedWorkoutSync: FinalizedWorkoutSync = NoOpFinalizedWorkoutSync,
 ) {
     // Only the short-lived affordance is transient; the set and timer live in Room.
     private var latestUndo: SetCompletionUndo? = null
@@ -900,6 +903,7 @@ class WorkoutSessionRepository(
         restTimerScheduler.cancel()
         durationTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
+        runCatching { finalizedWorkoutSync.syncAfterFinalization() }
         return summary
     }
 

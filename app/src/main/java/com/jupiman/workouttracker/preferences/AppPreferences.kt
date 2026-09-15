@@ -18,6 +18,7 @@ data class AppPreferences(
     val keepPhoneScreenAwake: Boolean = false,
     val restCompletionPhoneAlert: Boolean = true,
     val durationCompletionPhoneAlert: Boolean = true,
+    val healthConnectSyncEnabled: Boolean = false,
 )
 
 fun shouldUseDarkTheme(themeMode: ThemeMode, systemDark: Boolean): Boolean = when (themeMode) {

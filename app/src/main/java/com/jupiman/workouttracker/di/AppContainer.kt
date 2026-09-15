@@ -14,6 +14,9 @@ import com.jupiman.workouttracker.notification.AndroidDurationTimerScheduler
 import com.jupiman.workouttracker.notification.AndroidWorkoutNotificationCoordinator
 import com.jupiman.workouttracker.notification.WorkoutNotificationActionHandler
 import com.jupiman.workouttracker.preferences.AppPreferencesRepository
+import com.jupiman.workouttracker.healthconnect.AndroidHealthConnectGateway
+import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSource
+import com.jupiman.workouttracker.healthconnect.HealthConnectSyncManager
 import com.jupiman.workouttracker.wear.AndroidWearWorkoutBridge
 
 class AppContainer(context: Context) {
@@ -49,6 +52,11 @@ class AppContainer(context: Context) {
     )
     val dataBackupRepository = DataBackupRepository(database)
     val programTransferRepository = ProgramTransferRepository(database)
+    val healthConnectSyncManager = HealthConnectSyncManager(
+        gateway = AndroidHealthConnectGateway(context.applicationContext),
+        workoutSource = FinalizedWorkoutSource { database.workoutSessionDao().getFinalizedForHealthConnect() },
+        isSyncEnabled = { appPreferencesRepository.current().healthConnectSyncEnabled },
+    )
     val programRepository = ProgramRepository(
         database = database,
         programDao = database.programDao(),
@@ -76,6 +84,7 @@ class AppContainer(context: Context) {
         durationTimerScheduler = durationTimerScheduler,
         workoutNotificationUpdater = workoutNotificationCoordinator,
         durationPreparationProvider = appPreferencesRepository,
+        finalizedWorkoutSync = healthConnectSyncManager,
     )
 
     val wearWorkoutBridge = AndroidWearWorkoutBridge(

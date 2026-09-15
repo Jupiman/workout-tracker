@@ -32,6 +32,7 @@ class AppPreferencesTest {
         assertTrue(stored.keepPhoneScreenAwake)
         assertFalse(stored.restCompletionPhoneAlert)
         assertFalse(stored.durationCompletionPhoneAlert)
+        assertFalse(stored.healthConnectSyncEnabled)
     }
 
     @Test

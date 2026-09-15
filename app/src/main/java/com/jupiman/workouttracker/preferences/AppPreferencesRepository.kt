@@ -38,6 +38,7 @@ class AppPreferencesRepository(
     suspend fun setKeepPhoneScreenAwake(value: Boolean) = dataStore.edit { it[KEEP_PHONE_SCREEN_AWAKE] = value }
     suspend fun setRestCompletionPhoneAlert(value: Boolean) = dataStore.edit { it[REST_COMPLETION_PHONE_ALERT] = value }
     suspend fun setDurationCompletionPhoneAlert(value: Boolean) = dataStore.edit { it[DURATION_COMPLETION_PHONE_ALERT] = value }
+    suspend fun setHealthConnectSyncEnabled(value: Boolean) = dataStore.edit { it[HEALTH_CONNECT_SYNC_ENABLED] = value }
 
     companion object {
         val ALLOWED_DURATION_PREP_SECONDS = setOf(0, 3, 5)
@@ -48,6 +49,7 @@ class AppPreferencesRepository(
         internal val KEEP_PHONE_SCREEN_AWAKE = booleanPreferencesKey("keep_phone_screen_awake")
         internal val REST_COMPLETION_PHONE_ALERT = booleanPreferencesKey("rest_completion_phone_alert")
         internal val DURATION_COMPLETION_PHONE_ALERT = booleanPreferencesKey("duration_completion_phone_alert")
+        internal val HEALTH_CONNECT_SYNC_ENABLED = booleanPreferencesKey("health_connect_sync_enabled")
 
         fun create(context: Context): AppPreferencesRepository = AppPreferencesRepository(
             PreferenceDataStoreFactory.create {
@@ -66,6 +68,7 @@ internal fun Preferences.toAppPreferences(): AppPreferences = AppPreferences(
     keepPhoneScreenAwake = this[AppPreferencesRepository.KEEP_PHONE_SCREEN_AWAKE] ?: false,
     restCompletionPhoneAlert = this[AppPreferencesRepository.REST_COMPLETION_PHONE_ALERT] ?: true,
     durationCompletionPhoneAlert = this[AppPreferencesRepository.DURATION_COMPLETION_PHONE_ALERT] ?: true,
+    healthConnectSyncEnabled = this[AppPreferencesRepository.HEALTH_CONNECT_SYNC_ENABLED] ?: false,
 )
 
 private inline fun <reified T : Enum<T>> String?.toEnumOrDefault(default: T): T =

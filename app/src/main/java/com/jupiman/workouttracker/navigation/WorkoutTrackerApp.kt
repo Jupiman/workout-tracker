@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.navigation
 
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,6 +24,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,11 +36,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.PermissionController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.jupiman.workouttracker.di.AppContainer
+import com.jupiman.workouttracker.healthconnect.AndroidHealthConnectGateway
+import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
+import com.jupiman.workouttracker.healthconnect.HealthConnectSettingsState
+import com.jupiman.workouttracker.healthconnect.HealthConnectSyncResult
 import com.jupiman.workouttracker.ui.screen.HistoryScreen
 import com.jupiman.workouttracker.ui.screen.ProgramScreen
 import com.jupiman.workouttracker.ui.screen.SettingsScreen
@@ -74,12 +86,56 @@ fun WorkoutTrackerApp(
     var createProgramRequested by rememberSaveable { mutableStateOf(false) }
     var pendingProgramExportId by rememberSaveable { mutableStateOf<Long?>(null) }
     var importedProgramId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var healthConnectState by remember { mutableStateOf<HealthConnectSettingsState?>(null) }
+    var healthConnectBusy by remember { mutableStateOf(false) }
     val versionName = remember(context) {
         @Suppress("DEPRECATION")
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
     }
     fun showToast(message: String) {
         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
+    fun refreshHealthConnectState() {
+        scope.launch {
+            healthConnectState = container.healthConnectSyncManager.settingsState()
+        }
+    }
+    fun showHealthConnectResult(result: HealthConnectSyncResult) {
+        showToast(
+            when (result) {
+                is HealthConnectSyncResult.Completed -> "Health Connect sync completed."
+                HealthConnectSyncResult.PermissionRequired -> "Health Connect permission is required."
+                HealthConnectSyncResult.ProviderUpdateRequired -> "Health Connect must be installed or updated."
+                HealthConnectSyncResult.Unavailable -> "Health Connect is not available on this device."
+                HealthConnectSyncResult.Failed -> "Health Connect sync could not be completed."
+                HealthConnectSyncResult.Disabled -> "Health Connect sync is disabled."
+            },
+        )
+    }
+    val healthConnectPermissionLauncher = rememberLauncherForActivityResult(
+        PermissionController.createRequestPermissionResultContract(),
+    ) { grantedPermissions ->
+        scope.launch {
+            if (AndroidHealthConnectGateway.WRITE_EXERCISE_PERMISSION in grantedPermissions) {
+                container.appPreferencesRepository.setHealthConnectSyncEnabled(true)
+                showHealthConnectResult(container.healthConnectSyncManager.syncAllFinalizedWorkouts())
+            }
+            healthConnectState = container.healthConnectSyncManager.settingsState()
+        }
+    }
+
+    LaunchedEffect(currentRoute, preferences.healthConnectSyncEnabled) {
+        if (currentRoute == SETTINGS_ROUTE) {
+            healthConnectState = container.healthConnectSyncManager.settingsState()
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshHealthConnectState()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val exportBackupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -112,6 +168,7 @@ fun WorkoutTrackerApp(
                 }
                 container.workoutSessionRepository.syncTimers()
                 container.workoutNotificationCoordinator.refresh()
+                container.healthConnectSyncManager.syncIfEnabled()
             }.onSuccess {
                 showToast("Backup restored.")
             }.onFailure { throwable ->
@@ -307,6 +364,56 @@ fun WorkoutTrackerApp(
                     onKeepPhoneScreenAwakeChange = { scope.launch { container.appPreferencesRepository.setKeepPhoneScreenAwake(it) } },
                     onRestCompletionPhoneAlertChange = { scope.launch { container.appPreferencesRepository.setRestCompletionPhoneAlert(it) } },
                     onDurationCompletionPhoneAlertChange = { scope.launch { container.appPreferencesRepository.setDurationCompletionPhoneAlert(it) } },
+                    healthConnectState = healthConnectState,
+                    healthConnectBusy = healthConnectBusy,
+                    onHealthConnectSyncEnabledChange = { enabled ->
+                        if (!enabled) {
+                            scope.launch { container.appPreferencesRepository.setHealthConnectSyncEnabled(false) }
+                        } else {
+                            scope.launch {
+                                val state = container.healthConnectSyncManager.settingsState()
+                                healthConnectState = state
+                                when {
+                                    state.availability != HealthConnectAvailability.AVAILABLE -> Unit
+                                    state.hasWritePermission -> {
+                                        container.appPreferencesRepository.setHealthConnectSyncEnabled(true)
+                                        container.healthConnectSyncManager.syncAllFinalizedWorkouts()
+                                    }
+                                    else -> healthConnectPermissionLauncher.launch(
+                                        setOf(AndroidHealthConnectGateway.WRITE_EXERCISE_PERMISSION),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onConnectHealthConnect = {
+                        healthConnectPermissionLauncher.launch(
+                            setOf(AndroidHealthConnectGateway.WRITE_EXERCISE_PERMISSION),
+                        )
+                    },
+                    onSyncHealthConnectNow = {
+                        scope.launch {
+                            healthConnectBusy = true
+                            val result = container.healthConnectSyncManager.syncAllFinalizedWorkouts()
+                            healthConnectBusy = false
+                            showHealthConnectResult(result)
+                            refreshHealthConnectState()
+                        }
+                    },
+                    onManageHealthConnect = {
+                        runCatching {
+                            context.startActivity(Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS))
+                        }.onFailure { showToast("Health Connect settings could not be opened.") }
+                    },
+                    onInstallHealthConnect = {
+                        val provider = AndroidHealthConnectGateway.PROVIDER_PACKAGE_NAME
+                        val marketIntent = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$provider"))
+                        runCatching { context.startActivity(marketIntent) }.onFailure {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$provider")),
+                            )
+                        }
+                    },
                     onOpenNotificationSettings = {
                         context.startActivity(
                             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)

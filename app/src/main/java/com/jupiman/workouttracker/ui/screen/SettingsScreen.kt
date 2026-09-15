@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import com.jupiman.workouttracker.preferences.AppPreferences
 import com.jupiman.workouttracker.preferences.ThemeMode
 import com.jupiman.workouttracker.preferences.WeightUnit
+import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
+import com.jupiman.workouttracker.healthconnect.HealthConnectSettingsState
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 
 private enum class ChoiceSetting { WEIGHT_UNIT, THEME, DURATION_PREP }
@@ -46,6 +48,13 @@ fun SettingsScreen(
     onKeepPhoneScreenAwakeChange: (Boolean) -> Unit,
     onRestCompletionPhoneAlertChange: (Boolean) -> Unit,
     onDurationCompletionPhoneAlertChange: (Boolean) -> Unit,
+    healthConnectState: HealthConnectSettingsState?,
+    healthConnectBusy: Boolean,
+    onHealthConnectSyncEnabledChange: (Boolean) -> Unit,
+    onConnectHealthConnect: () -> Unit,
+    onSyncHealthConnectNow: () -> Unit,
+    onManageHealthConnect: () -> Unit,
+    onInstallHealthConnect: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onExportBackup: () -> Unit,
     onRestoreBackup: () -> Unit,
@@ -87,6 +96,54 @@ fun SettingsScreen(
                 }
                 TextButton(onClick = onOpenNotificationSettings, modifier = Modifier.fillMaxWidth()) {
                     Text("Android notification settings")
+                }
+            }
+        }
+        item { SettingsSectionLabel("HEALTH CONNECT") }
+        item {
+            SettingsCard {
+                Column(
+                    modifier = Modifier.padding(horizontal = WorkoutSpacing.card, vertical = WorkoutSpacing.item),
+                    verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+                ) {
+                    Text("Health Connect", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        healthConnectState.statusText,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                SwitchRow(
+                    title = "Sync completed workouts",
+                    checked = preferences.healthConnectSyncEnabled,
+                    enabled = healthConnectState?.availability == HealthConnectAvailability.AVAILABLE && !healthConnectBusy,
+                    onCheckedChange = onHealthConnectSyncEnabledChange,
+                )
+                when (healthConnectState?.availability) {
+                    HealthConnectAvailability.AVAILABLE -> {
+                        if (healthConnectState.hasWritePermission) {
+                            TextButton(
+                                onClick = onSyncHealthConnectNow,
+                                enabled = !healthConnectBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(if (healthConnectBusy) "Syncing…" else "Sync now") }
+                            TextButton(onClick = onManageHealthConnect, modifier = Modifier.fillMaxWidth()) {
+                                Text("Manage Health Connect")
+                            }
+                        } else {
+                            TextButton(
+                                onClick = onConnectHealthConnect,
+                                enabled = !healthConnectBusy,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text("Connect") }
+                        }
+                    }
+                    HealthConnectAvailability.PROVIDER_UPDATE_REQUIRED -> {
+                        TextButton(onClick = onInstallHealthConnect, modifier = Modifier.fillMaxWidth()) {
+                            Text("Install / update Health Connect")
+                        }
+                    }
+                    HealthConnectAvailability.UNAVAILABLE,
+                    null -> Unit
                 }
             }
         }
@@ -205,16 +262,33 @@ private fun ChoiceRow(title: String, value: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SwitchRow(
+    title: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { onCheckedChange(!checked) }.padding(WorkoutSpacing.card),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(WorkoutSpacing.card),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }
 
 private val ThemeMode.displayName: String
     get() = name.lowercase().replaceFirstChar(Char::uppercase)
+
+private val HealthConnectSettingsState?.statusText: String
+    get() = when {
+        this == null -> "Checking availability…"
+        availability == HealthConnectAvailability.PROVIDER_UPDATE_REQUIRED -> "Update required"
+        availability == HealthConnectAvailability.UNAVAILABLE -> "Not available on this device"
+        hasWritePermission -> "Connected"
+        else -> "Permission required"
+    }
