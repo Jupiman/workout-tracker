@@ -12,7 +12,7 @@ android {
         applicationId = "com.jupiman.workouttracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17001
+        versionCode = 17101
         versionName = "1.71"
     }
 
