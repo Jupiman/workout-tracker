@@ -431,21 +431,21 @@ fun WorkoutTrackerApp(
                     selfHostedState = selfHostedState,
                     selfHostedBusy = selfHostedBusy,
                     selfHostedConnectionStatus = selfHostedConnectionStatus,
-                    onSaveSelfHostedConfiguration = { serverUrl, token ->
+                    onSaveSelfHostedConfiguration = { serverAddress, useHttps, token ->
                         scope.launch {
                             selfHostedBusy = true
-                            val result = container.selfHostedSyncManager.saveConfiguration(serverUrl, token)
+                            val result = container.selfHostedSyncManager.saveConfiguration(serverAddress, useHttps, token)
                             if (result.isSuccess) selfHostedConnectionStatus = null
                             selfHostedBusy = false
                             showToast(result.fold({ "Self-hosted sync configuration saved." }, { it.message ?: "Configuration is invalid." }))
                             refreshSelfHostedState()
                         }
                     },
-                    onTestSelfHostedConnection = { serverUrl, token ->
+                    onTestSelfHostedConnection = { serverAddress, useHttps, token ->
                         scope.launch {
                             selfHostedBusy = true
                             val result = runCatching {
-                                container.selfHostedSyncManager.testConnection(serverUrl, token)
+                                container.selfHostedSyncManager.testConnection(serverAddress, useHttps, token)
                             }.getOrElse { ConnectionTestResult.Unexpected("Connection test failed.") }
                             selfHostedBusy = false
                             selfHostedConnectionStatus = result.displayMessage()
@@ -453,13 +453,13 @@ fun WorkoutTrackerApp(
                             refreshSelfHostedState()
                         }
                     },
-                    onSelfHostedSyncEnabledChange = { enabled, serverUrl, token ->
+                    onSelfHostedSyncEnabledChange = { enabled, serverAddress, useHttps, token ->
                         scope.launch {
                             selfHostedBusy = true
                             val saveResult = if (enabled) {
-                                container.selfHostedSyncManager.saveConfiguration(serverUrl, token)
+                                container.selfHostedSyncManager.saveConfiguration(serverAddress, useHttps, token)
                             } else {
-                                Result.success(serverUrl)
+                                Result.success(Unit)
                             }
                             val result = saveResult.fold(
                                 onSuccess = { container.selfHostedSyncManager.setEnabled(enabled) },

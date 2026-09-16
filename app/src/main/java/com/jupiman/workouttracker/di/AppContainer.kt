@@ -24,7 +24,6 @@ import com.jupiman.workouttracker.selfhosted.HttpSelfHostedSyncClient
 import com.jupiman.workouttracker.selfhosted.SelfHostedSyncManager
 import com.jupiman.workouttracker.selfhosted.RoomSelfHostedWorkoutStore
 import com.jupiman.workouttracker.selfhosted.DataStoreSelfHostedSettingsStore
-import android.content.pm.ApplicationInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +33,6 @@ class AppContainer(context: Context) {
     val appPreferencesRepository = AppPreferencesRepository.create(context)
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
     private val durationTimerScheduler = AndroidDurationTimerScheduler(context.applicationContext)
-    private val allowLocalSelfHostedHttp = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     val database: WorkoutTrackerDatabase = Room.databaseBuilder(
         context.applicationContext,
@@ -59,7 +57,6 @@ class AppContainer(context: Context) {
         scope = applicationScope,
         preferencesRepository = appPreferencesRepository,
         tokenStore = selfHostedTokenStore,
-        allowLocalHttp = allowLocalSelfHostedHttp,
     )
     val selfHostedSyncManager = SelfHostedSyncManager(
         client = HttpSelfHostedSyncClient(),
@@ -67,7 +64,6 @@ class AppContainer(context: Context) {
         settingsStore = DataStoreSelfHostedSettingsStore(appPreferencesRepository),
         tokenStore = selfHostedTokenStore,
         scheduler = selfHostedSyncScheduler,
-        allowLocalHttp = allowLocalSelfHostedHttp,
     )
 
     val workoutNotificationCoordinator = AndroidWorkoutNotificationCoordinator(

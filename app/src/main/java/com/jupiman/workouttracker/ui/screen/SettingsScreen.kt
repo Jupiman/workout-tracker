@@ -39,7 +39,9 @@ import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
 import com.jupiman.workouttracker.healthconnect.HealthConnectSettingsState
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
 import com.jupiman.workouttracker.selfhosted.SelfHostedSettingsState
+import com.jupiman.workouttracker.selfhosted.ServerAddressValidation
 import com.jupiman.workouttracker.selfhosted.formatSelfHostedLastSync
+import com.jupiman.workouttracker.selfhosted.validateServerAddress
 
 private enum class ChoiceSetting { WEIGHT_UNIT, THEME, DURATION_PREP }
 
@@ -63,9 +65,9 @@ fun SettingsScreen(
     selfHostedState: SelfHostedSettingsState?,
     selfHostedBusy: Boolean,
     selfHostedConnectionStatus: String?,
-    onSaveSelfHostedConfiguration: (String, String) -> Unit,
-    onTestSelfHostedConnection: (String, String) -> Unit,
-    onSelfHostedSyncEnabledChange: (Boolean, String, String) -> Unit,
+    onSaveSelfHostedConfiguration: (String, Boolean, String) -> Unit,
+    onTestSelfHostedConnection: (String, Boolean, String) -> Unit,
+    onSelfHostedSyncEnabledChange: (Boolean, String, Boolean, String) -> Unit,
     onSyncSelfHostedNow: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onExportBackup: () -> Unit,
@@ -73,10 +75,17 @@ fun SettingsScreen(
 ) {
     var confirmingRestore by rememberSaveable { mutableStateOf(false) }
     var choiceSetting by rememberSaveable { mutableStateOf<ChoiceSetting?>(null) }
-    var selfHostedServerUrl by rememberSaveable { mutableStateOf("") }
+    var selfHostedServerAddress by rememberSaveable { mutableStateOf("") }
+    var selfHostedUseHttps by rememberSaveable { mutableStateOf(true) }
     var selfHostedToken by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(selfHostedState?.serverUrl) {
-        if (selfHostedServerUrl.isBlank()) selfHostedServerUrl = selfHostedState?.serverUrl.orEmpty()
+    var selfHostedConfigurationInitialized by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(selfHostedState?.serverAddress, selfHostedState?.useHttps) {
+        val state = selfHostedState
+        if (!selfHostedConfigurationInitialized && state != null) {
+            selfHostedServerAddress = state.serverAddress
+            selfHostedUseHttps = state.useHttps
+            selfHostedConfigurationInitialized = true
+        }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = WorkoutSpacing.screen),
@@ -172,13 +181,36 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
                 ) {
                     OutlinedTextField(
-                        value = selfHostedServerUrl,
-                        onValueChange = { selfHostedServerUrl = it },
-                        label = { Text("Server URL") },
-                        placeholder = { Text("https://workout.example.com") },
+                        value = selfHostedServerAddress,
+                        onValueChange = { value ->
+                            val pastedFullUrl = value.trimStart().startsWith("http://", ignoreCase = true) ||
+                                value.trimStart().startsWith("https://", ignoreCase = true)
+                            val parsed = validateServerAddress(value, selfHostedUseHttps)
+                            if (pastedFullUrl && parsed is ServerAddressValidation.Valid) {
+                                selfHostedServerAddress = parsed.serverAddress
+                                selfHostedUseHttps = parsed.useHttps
+                            } else {
+                                selfHostedServerAddress = value
+                            }
+                        },
+                        label = { Text("Server address") },
+                        placeholder = { Text("192.168.1.140:5544") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    SwitchRow(
+                        title = "Use HTTPS",
+                        checked = selfHostedUseHttps,
+                        enabled = !selfHostedBusy,
+                        onCheckedChange = { selfHostedUseHttps = it },
+                    )
+                    if (!selfHostedUseHttps) {
+                        Text(
+                            "HTTP is intended for trusted local networks only. Your API token and workout data will not be encrypted.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     OutlinedTextField(
                         value = selfHostedToken,
                         onValueChange = { selfHostedToken = it },
@@ -193,12 +225,24 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
                     ) {
                         OutlinedButton(
-                            onClick = { onSaveSelfHostedConfiguration(selfHostedServerUrl, selfHostedToken) },
+                            onClick = {
+                                onSaveSelfHostedConfiguration(
+                                    selfHostedServerAddress,
+                                    selfHostedUseHttps,
+                                    selfHostedToken,
+                                )
+                            },
                             enabled = !selfHostedBusy,
                             modifier = Modifier.weight(1f),
                         ) { Text("Save") }
                         OutlinedButton(
-                            onClick = { onTestSelfHostedConnection(selfHostedServerUrl, selfHostedToken) },
+                            onClick = {
+                                onTestSelfHostedConnection(
+                                    selfHostedServerAddress,
+                                    selfHostedUseHttps,
+                                    selfHostedToken,
+                                )
+                            },
                             enabled = !selfHostedBusy,
                             modifier = Modifier.weight(1f),
                         ) { Text("Test connection") }
@@ -228,7 +272,14 @@ fun SettingsScreen(
                     title = "Sync completed workouts",
                     checked = selfHostedState?.enabled == true,
                     enabled = !selfHostedBusy,
-                ) { onSelfHostedSyncEnabledChange(it, selfHostedServerUrl, selfHostedToken) }
+                ) {
+                    onSelfHostedSyncEnabledChange(
+                        it,
+                        selfHostedServerAddress,
+                        selfHostedUseHttps,
+                        selfHostedToken,
+                    )
+                }
                 TextButton(
                     onClick = onSyncSelfHostedNow,
                     enabled = selfHostedState?.enabled == true && !selfHostedBusy,

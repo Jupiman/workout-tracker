@@ -48,7 +48,11 @@ interface SelfHostedSyncClient {
     ): UploadResult
 }
 
-class HttpSelfHostedSyncClient : SelfHostedSyncClient {
+class HttpSelfHostedSyncClient(
+    private val openConnection: (URL) -> HttpURLConnection = { url ->
+        url.openConnection() as HttpURLConnection
+    },
+) : SelfHostedSyncClient {
     override suspend fun testConnection(configuration: SelfHostedConfiguration): ConnectionTestResult = withContext(Dispatchers.IO) {
         val response = request(configuration, "GET", "/api/v1/info", null)
         when (response) {
@@ -141,7 +145,7 @@ class HttpSelfHostedSyncClient : SelfHostedSyncClient {
         body: String?,
     ): HttpResponse {
         val connection = try {
-            (URL(configuration.serverUrl + path).openConnection() as HttpURLConnection)
+            openConnection(URL(configuration.baseUrl + path))
         } catch (_: Exception) {
             return HttpResponse.Failure.InvalidUrl
         }
@@ -171,7 +175,7 @@ class HttpSelfHostedSyncClient : SelfHostedSyncClient {
             }.orEmpty()
             HttpResponse.Value(code, responseBody)
         } catch (_: SSLException) {
-            HttpResponse.Failure.Tls
+            if (configuration.useHttps) HttpResponse.Failure.Tls else HttpResponse.Failure.Network
         } catch (_: SocketTimeoutException) {
             HttpResponse.Failure.Network
         } catch (_: IOException) {

@@ -2,6 +2,8 @@ package com.jupiman.workouttracker.preferences
 
 import android.content.Context
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -32,6 +34,7 @@ class AppPreferencesRepositoryTest {
             first.setRestCompletionPhoneAlert(false)
             first.setDurationCompletionPhoneAlert(false)
             first.setHealthConnectSyncEnabled(true)
+            first.setSelfHostedServerConfiguration("192.168.1.140:5544", false)
 
             val firstJob = scope.coroutineContext[Job]!!
             scope.cancel()
@@ -47,6 +50,8 @@ class AppPreferencesRepositoryTest {
                     restCompletionPhoneAlert = false,
                     durationCompletionPhoneAlert = false,
                     healthConnectSyncEnabled = true,
+                    selfHostedServerAddress = "192.168.1.140:5544",
+                    selfHostedUseHttps = false,
                 ),
                 repository(file, scope).current(),
             )
@@ -79,6 +84,29 @@ class AppPreferencesRepositoryTest {
                 AppPreferences(WeightUnit.LB, ThemeMode.DARK, 0, true, false, false, true),
                 repository.current(),
             )
+        } finally {
+            scope.cancel()
+            file.delete()
+        }
+    }
+
+    @Test
+    fun legacyFullUrlMigratesToCanonicalAddressAndProtocolKeys() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val file = File(context.cacheDir, "self-hosted-migration-${System.nanoTime()}.preferences_pb")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        try {
+            val dataStore = PreferenceDataStoreFactory.create(scope = scope) { file }
+            dataStore.edit {
+                it[stringPreferencesKey("self_hosted_server_url")] = "http://192.168.1.140:5544/"
+            }
+            val repository = AppPreferencesRepository(dataStore)
+
+            val migrated = repository.current()
+
+            assertEquals("192.168.1.140:5544", migrated.selfHostedServerAddress)
+            assertEquals(false, migrated.selfHostedUseHttps)
+            assertEquals(migrated, repository.current())
         } finally {
             scope.cancel()
             file.delete()

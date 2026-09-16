@@ -5,7 +5,8 @@ import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 
 data class SelfHostedSettingsState(
     val enabled: Boolean,
-    val serverUrl: String,
+    val serverAddress: String,
+    val useHttps: Boolean,
     val hasToken: Boolean,
     val lastSuccessfulSyncAt: Long?,
     val latestError: String?,
@@ -21,13 +22,13 @@ class SelfHostedSyncManager(
     private val settingsStore: SelfHostedSettingsStore,
     private val tokenStore: SelfHostedTokenStore,
     private val scheduler: SelfHostedWorkoutScheduler,
-    private val allowLocalHttp: Boolean,
 ) {
     suspend fun settingsState(): SelfHostedSettingsState {
         val preferences = settingsStore.current()
         return SelfHostedSettingsState(
             enabled = preferences.enabled,
-            serverUrl = preferences.serverUrl,
+            serverAddress = preferences.serverAddress,
+            useHttps = preferences.useHttps,
             hasToken = tokenStore.hasToken(),
             lastSuccessfulSyncAt = preferences.lastSuccessfulSyncAt,
             latestError = preferences.lastError,
@@ -52,13 +53,17 @@ class SelfHostedSyncManager(
         }
     }
 
-    suspend fun saveConfiguration(serverUrl: String, replacementToken: String?): Result<String> = runCatching {
-        val normalized = when (val validation = validateServerUrl(serverUrl, allowLocalHttp)) {
-            is ServerUrlValidation.Invalid -> error(validation.message)
-            is ServerUrlValidation.Valid -> validation.normalizedUrl
+    suspend fun saveConfiguration(
+        serverAddress: String,
+        useHttps: Boolean,
+        replacementToken: String?,
+    ): Result<ServerAddressValidation.Valid> = runCatching {
+        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps)) {
+            is ServerAddressValidation.Invalid -> error(validation.message)
+            is ServerAddressValidation.Valid -> validation
         }
         replacementToken?.trim()?.takeIf { it.isNotEmpty() }?.let(tokenStore::setToken)
-        settingsStore.setServerUrl(normalized)
+        settingsStore.setServerConfiguration(normalized.serverAddress, normalized.useHttps)
         settingsStore.setLastError(null)
         if (settingsStore.current().enabled) scheduler.scheduleFullSync()
         normalized
@@ -67,7 +72,7 @@ class SelfHostedSyncManager(
     suspend fun setEnabled(enabled: Boolean): Result<Unit> = runCatching {
         if (enabled) {
             requireNotNull(configurationOrNull(recordError = false)) {
-                "Enter a valid server URL and API token first."
+                "Enter a valid server address and API token first."
             }
             settingsStore.setEnabled(true)
             settingsStore.setLastError(null)
@@ -78,14 +83,20 @@ class SelfHostedSyncManager(
         }
     }
 
-    suspend fun testConnection(serverUrl: String, token: String?): ConnectionTestResult {
-        val normalized = when (val validation = validateServerUrl(serverUrl, allowLocalHttp)) {
-            is ServerUrlValidation.Invalid -> return ConnectionTestResult.InvalidUrl(validation.message)
-            is ServerUrlValidation.Valid -> validation.normalizedUrl
+    suspend fun testConnection(
+        serverAddress: String,
+        useHttps: Boolean,
+        token: String?,
+    ): ConnectionTestResult {
+        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps)) {
+            is ServerAddressValidation.Invalid -> return ConnectionTestResult.InvalidUrl(validation.message)
+            is ServerAddressValidation.Valid -> validation
         }
         val effectiveToken = token?.trim()?.takeIf { it.isNotEmpty() } ?: tokenStore.getToken()
         if (effectiveToken.isNullOrBlank()) return ConnectionTestResult.Unauthorized
-        return client.testConnection(SelfHostedConfiguration(normalized, effectiveToken))
+        return client.testConnection(
+            SelfHostedConfiguration(normalized.serverAddress, normalized.useHttps, effectiveToken),
+        )
     }
 
     suspend fun syncPending(): SelfHostedSyncSummary {
@@ -236,9 +247,11 @@ class SelfHostedSyncManager(
 
     private suspend fun configurationOrNull(recordError: Boolean): SelfHostedConfiguration? {
         val preferences = settingsStore.current()
-        val normalized = when (val validation = validateServerUrl(preferences.serverUrl, allowLocalHttp)) {
-            is ServerUrlValidation.Valid -> validation.normalizedUrl
-            is ServerUrlValidation.Invalid -> {
+        val normalized = when (
+            val validation = validateServerAddress(preferences.serverAddress, preferences.useHttps)
+        ) {
+            is ServerAddressValidation.Valid -> validation
+            is ServerAddressValidation.Invalid -> {
                 if (recordError) settingsStore.setLastError(validation.message)
                 return null
             }
@@ -248,7 +261,7 @@ class SelfHostedSyncManager(
             if (recordError) settingsStore.setLastError("API token is missing.")
             return null
         }
-        return SelfHostedConfiguration(normalized, token)
+        return SelfHostedConfiguration(normalized.serverAddress, normalized.useHttps, token)
     }
 
     private suspend fun recordSuccessfulRun() {

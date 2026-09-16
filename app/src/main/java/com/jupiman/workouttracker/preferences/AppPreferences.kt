@@ -20,7 +20,8 @@ data class AppPreferences(
     val durationCompletionPhoneAlert: Boolean = true,
     val healthConnectSyncEnabled: Boolean = false,
     val selfHostedSyncEnabled: Boolean = false,
-    val selfHostedServerUrl: String = "",
+    val selfHostedServerAddress: String = "",
+    val selfHostedUseHttps: Boolean = true,
     val selfHostedLastSuccessfulSyncAt: Long? = null,
     val selfHostedLastError: String? = null,
 )

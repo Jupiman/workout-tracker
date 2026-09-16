@@ -4272,12 +4272,24 @@ algorithm is used. Finalized sessions persist `PENDING`, `SYNCED`, or
 remain pending; explicit full Sync now may retry every finalized session, including
 previously synced and permanently failed records.
 
-Device-local Settings contain enabled state, normalized server URL, status, and
-last successful synchronization time. The API token is stored separately using an
-Android Keystore-backed encrypted value and is never logged, placed in a URL,
-included in Program transfer, or included in full backup. Sync defaults off and
-cannot be enabled until the URL is valid and the token is non-empty. Release builds
-require HTTPS; debug builds may use HTTP for localhost/emulator development.
+Device-local Settings contain enabled state, a normalized `serverAddress` without
+a scheme, `useHttps`, status, and last successful synchronization time. `useHttps`
+defaults to true. Existing full `https://` or `http://` URLs migrate into the address
+and protocol fields without changing enabled state, token storage, or pending Room
+sync state. The API token is stored separately using an Android Keystore-backed
+encrypted value and is never logged, placed in a URL, included in Program transfer,
+or included in full backup. Sync defaults off and cannot be enabled until the address
+is valid and the token is non-empty.
+
+HTTPS is the default and recommended transport. HTTP may be explicitly enabled for
+trusted private networks. When HTTP is selected, the API token and synchronized
+workout data are transmitted without transport encryption. Android permits cleartext
+transport at the platform layer so arbitrary LAN addresses can work, but application
+logic constructs an HTTP URL only when `useHttps` is false. HTTPS always uses normal
+Android certificate and hostname validation. The app never falls back from HTTPS to
+HTTP and does not bypass TLS errors or trust self-signed certificates automatically.
+Test connection, single and batch uploads, Sync now, WorkManager, and restore catch-up
+all use the same effective base-URL builder.
 
 API v1 uses `Authorization: Bearer <token>` and payload schema 1. Connection testing
 calls `GET /api/v1/info` and succeeds only when the response declares API version 1

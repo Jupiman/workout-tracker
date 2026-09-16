@@ -2,34 +2,65 @@ package com.jupiman.workouttracker.selfhosted
 
 import java.net.URI
 
-data class SelfHostedConfiguration(val serverUrl: String, val apiToken: String)
-
-sealed interface ServerUrlValidation {
-    data class Valid(val normalizedUrl: String) : ServerUrlValidation
-    data class Invalid(val message: String) : ServerUrlValidation
+data class SelfHostedConfiguration(
+    val serverAddress: String,
+    val useHttps: Boolean,
+    val apiToken: String,
+) {
+    val baseUrl: String
+        get() = buildSelfHostedBaseUrl(serverAddress, useHttps)
 }
 
-fun validateServerUrl(raw: String, allowLocalHttp: Boolean): ServerUrlValidation {
+sealed interface ServerAddressValidation {
+    data class Valid(
+        val serverAddress: String,
+        val useHttps: Boolean,
+    ) : ServerAddressValidation
+
+    data class Invalid(val message: String) : ServerAddressValidation
+}
+
+/**
+ * Normalizes an address and, when a full URL was pasted, treats its explicit scheme as authoritative.
+ */
+fun validateServerAddress(raw: String, useHttps: Boolean): ServerAddressValidation {
     val trimmed = raw.trim().trimEnd('/')
-    if (trimmed.isEmpty()) return ServerUrlValidation.Invalid("Enter a server URL.")
-    val uri = runCatching { URI(trimmed) }.getOrNull()
-        ?: return ServerUrlValidation.Invalid("The server URL is invalid.")
-    val scheme = uri.scheme?.lowercase()
-    val host = uri.host?.lowercase()
-    if (host.isNullOrBlank() || uri.userInfo != null || uri.query != null || uri.fragment != null) {
-        return ServerUrlValidation.Invalid("The server URL is invalid.")
+    if (trimmed.isEmpty()) return ServerAddressValidation.Invalid("Enter a server address.")
+
+    val explicitScheme = SCHEME_PREFIX.find(trimmed)?.value?.dropLast(3)?.lowercase()
+    if (explicitScheme != null && explicitScheme !in setOf("http", "https")) {
+        return ServerAddressValidation.Invalid("The server address is invalid.")
     }
-    val localHost = host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2" || host == "::1"
-    if (scheme != "https" && !(allowLocalHttp && scheme == "http" && localHost)) {
-        return ServerUrlValidation.Invalid("HTTPS is required for this server URL.")
+    val effectiveUseHttps = explicitScheme?.let { it == "https" } ?: useHttps
+    val candidate = if (explicitScheme == null) {
+        buildSelfHostedBaseUrl(trimmed, effectiveUseHttps)
+    } else {
+        trimmed
     }
+    val uri = runCatching { URI(candidate) }.getOrNull()
+        ?: return ServerAddressValidation.Invalid("The server address is invalid.")
+    val host = uri.host
+    if (
+        host.isNullOrBlank() || uri.userInfo != null || uri.query != null || uri.fragment != null ||
+        uri.port !in -1..65535 ||
+        uri.scheme?.lowercase() !in setOf("http", "https")
+    ) {
+        return ServerAddressValidation.Invalid("The server address is invalid.")
+    }
+
+    val authority = uri.rawAuthority?.lowercase()
+        ?: return ServerAddressValidation.Invalid("The server address is invalid.")
     val path = uri.rawPath.orEmpty().trimEnd('/')
-    val authority = if (uri.port >= 0) "$host:${uri.port}" else host
-    return ServerUrlValidation.Valid("$scheme://$authority$path")
+    return ServerAddressValidation.Valid(authority + path, effectiveUseHttps)
 }
+
+fun buildSelfHostedBaseUrl(serverAddress: String, useHttps: Boolean): String =
+    "${if (useHttps) "https" else "http"}://${serverAddress.trim().trimEnd('/')}"
 
 fun compatiblePayloadSchema(minimum: Int, maximum: Int, schema: Int = PAYLOAD_SCHEMA_VERSION): Boolean =
     minimum <= schema && schema <= maximum
 
 const val PAYLOAD_SCHEMA_VERSION = 1
 const val SELF_HOSTED_BATCH_SIZE = 50
+
+private val SCHEME_PREFIX = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")

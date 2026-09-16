@@ -20,7 +20,6 @@ android {
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
         }
-        manifestPlaceholders["usesCleartextTraffic"] = "false"
     }
 
     signingConfigs {
@@ -37,9 +36,6 @@ android {
     }
 
     buildTypes {
-        debug {
-            manifestPlaceholders["usesCleartextTraffic"] = "true"
-        }
         release {
             isMinifyEnabled = false
             signingConfigs.getByName("release").takeIf { it.storeFile != null }?.let {

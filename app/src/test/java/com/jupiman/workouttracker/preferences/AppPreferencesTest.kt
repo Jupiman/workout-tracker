@@ -33,6 +33,24 @@ class AppPreferencesTest {
         assertFalse(stored.restCompletionPhoneAlert)
         assertFalse(stored.durationCompletionPhoneAlert)
         assertFalse(stored.healthConnectSyncEnabled)
+        assertTrue(stored.selfHostedUseHttps)
+    }
+
+    @Test
+    fun legacySelfHostedUrlsMigrateToAddressAndProtocolWithoutChangingOtherSettings() {
+        val https = preferencesOf(
+            stringPreferencesKey("self_hosted_server_url") to "https://workout.example.com/",
+            booleanPreferencesKey("self_hosted_sync_enabled") to true,
+        ).toAppPreferences()
+        assertEquals("workout.example.com", https.selfHostedServerAddress)
+        assertTrue(https.selfHostedUseHttps)
+        assertTrue(https.selfHostedSyncEnabled)
+
+        val http = preferencesOf(
+            stringPreferencesKey("self_hosted_server_url") to "http://192.168.1.140:5544/",
+        ).toAppPreferences()
+        assertEquals("192.168.1.140:5544", http.selfHostedServerAddress)
+        assertFalse(http.selfHostedUseHttps)
     }
 
     @Test

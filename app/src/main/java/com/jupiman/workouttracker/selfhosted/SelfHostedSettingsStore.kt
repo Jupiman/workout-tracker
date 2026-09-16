@@ -4,7 +4,8 @@ import com.jupiman.workouttracker.preferences.AppPreferencesRepository
 
 data class StoredSelfHostedSettings(
     val enabled: Boolean,
-    val serverUrl: String,
+    val serverAddress: String,
+    val useHttps: Boolean,
     val lastSuccessfulSyncAt: Long?,
     val lastError: String?,
 )
@@ -12,7 +13,7 @@ data class StoredSelfHostedSettings(
 interface SelfHostedSettingsStore {
     suspend fun current(): StoredSelfHostedSettings
     suspend fun setEnabled(value: Boolean)
-    suspend fun setServerUrl(value: String)
+    suspend fun setServerConfiguration(serverAddress: String, useHttps: Boolean)
     suspend fun setLastSuccessfulSyncAt(value: Long?)
     suspend fun setLastError(value: String?)
 }
@@ -23,13 +24,16 @@ class DataStoreSelfHostedSettingsStore(
     override suspend fun current() = repository.current().let {
         StoredSelfHostedSettings(
             enabled = it.selfHostedSyncEnabled,
-            serverUrl = it.selfHostedServerUrl,
+            serverAddress = it.selfHostedServerAddress,
+            useHttps = it.selfHostedUseHttps,
             lastSuccessfulSyncAt = it.selfHostedLastSuccessfulSyncAt,
             lastError = it.selfHostedLastError,
         )
     }
     override suspend fun setEnabled(value: Boolean) { repository.setSelfHostedSyncEnabled(value) }
-    override suspend fun setServerUrl(value: String) { repository.setSelfHostedServerUrl(value) }
+    override suspend fun setServerConfiguration(serverAddress: String, useHttps: Boolean) {
+        repository.setSelfHostedServerConfiguration(serverAddress, useHttps)
+    }
     override suspend fun setLastSuccessfulSyncAt(value: Long?) { repository.setSelfHostedLastSuccessfulSyncAt(value) }
     override suspend fun setLastError(value: String?) { repository.setSelfHostedLastError(value) }
 }

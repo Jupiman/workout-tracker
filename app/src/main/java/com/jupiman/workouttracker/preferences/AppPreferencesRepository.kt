@@ -20,13 +20,31 @@ import kotlinx.coroutines.flow.map
 class AppPreferencesRepository(
     private val dataStore: DataStore<Preferences>,
 ) : DurationPreparationProvider {
-    val preferences: Flow<AppPreferences> = dataStore.data
+    private val storedPreferences: Flow<Preferences> = dataStore.data
         .catch { exception ->
             if (exception is IOException) emit(emptyPreferences()) else throw exception
         }
+
+    val preferences: Flow<AppPreferences> = storedPreferences
         .map { values -> values.toAppPreferences() }
 
-    suspend fun current(): AppPreferences = preferences.first()
+    suspend fun current(): AppPreferences {
+        val values = storedPreferences.first()
+        if (
+            values[SELF_HOSTED_SERVER_ADDRESS] == null &&
+            values[LEGACY_SELF_HOSTED_SERVER_URL] != null
+        ) {
+            dataStore.edit {
+                if (it[SELF_HOSTED_SERVER_ADDRESS] == null) {
+                    val migrated = migrateLegacySelfHostedUrl(it[LEGACY_SELF_HOSTED_SERVER_URL])
+                    it[SELF_HOSTED_SERVER_ADDRESS] = migrated.serverAddress
+                    it[SELF_HOSTED_USE_HTTPS] = migrated.useHttps
+                    it.remove(LEGACY_SELF_HOSTED_SERVER_URL)
+                }
+            }
+        }
+        return values.toAppPreferences()
+    }
 
     override suspend fun durationPrepSeconds(): Int = current().durationPrepSeconds
 
@@ -41,7 +59,11 @@ class AppPreferencesRepository(
     suspend fun setDurationCompletionPhoneAlert(value: Boolean) = dataStore.edit { it[DURATION_COMPLETION_PHONE_ALERT] = value }
     suspend fun setHealthConnectSyncEnabled(value: Boolean) = dataStore.edit { it[HEALTH_CONNECT_SYNC_ENABLED] = value }
     suspend fun setSelfHostedSyncEnabled(value: Boolean) = dataStore.edit { it[SELF_HOSTED_SYNC_ENABLED] = value }
-    suspend fun setSelfHostedServerUrl(value: String) = dataStore.edit { it[SELF_HOSTED_SERVER_URL] = value }
+    suspend fun setSelfHostedServerConfiguration(serverAddress: String, useHttps: Boolean) = dataStore.edit {
+        it[SELF_HOSTED_SERVER_ADDRESS] = serverAddress
+        it[SELF_HOSTED_USE_HTTPS] = useHttps
+        it.remove(LEGACY_SELF_HOSTED_SERVER_URL)
+    }
     suspend fun setSelfHostedLastSuccessfulSyncAt(value: Long?) = dataStore.edit {
         if (value == null) it.remove(SELF_HOSTED_LAST_SUCCESS_AT) else it[SELF_HOSTED_LAST_SUCCESS_AT] = value
     }
@@ -60,7 +82,9 @@ class AppPreferencesRepository(
         internal val DURATION_COMPLETION_PHONE_ALERT = booleanPreferencesKey("duration_completion_phone_alert")
         internal val HEALTH_CONNECT_SYNC_ENABLED = booleanPreferencesKey("health_connect_sync_enabled")
         internal val SELF_HOSTED_SYNC_ENABLED = booleanPreferencesKey("self_hosted_sync_enabled")
-        internal val SELF_HOSTED_SERVER_URL = stringPreferencesKey("self_hosted_server_url")
+        internal val SELF_HOSTED_SERVER_ADDRESS = stringPreferencesKey("self_hosted_server_address")
+        internal val SELF_HOSTED_USE_HTTPS = booleanPreferencesKey("self_hosted_use_https")
+        internal val LEGACY_SELF_HOSTED_SERVER_URL = stringPreferencesKey("self_hosted_server_url")
         internal val SELF_HOSTED_LAST_SUCCESS_AT = longPreferencesKey("self_hosted_last_success_at")
         internal val SELF_HOSTED_LAST_ERROR = stringPreferencesKey("self_hosted_last_error")
 
@@ -72,21 +96,41 @@ class AppPreferencesRepository(
     }
 }
 
-internal fun Preferences.toAppPreferences(): AppPreferences = AppPreferences(
-    weightUnit = this[AppPreferencesRepository.WEIGHT_UNIT].toEnumOrDefault(WeightUnit.KG),
-    themeMode = this[AppPreferencesRepository.THEME_MODE].toEnumOrDefault(ThemeMode.SYSTEM),
-    durationPrepSeconds = this[AppPreferencesRepository.DURATION_PREP_SECONDS]
-        ?.takeIf { it in AppPreferencesRepository.ALLOWED_DURATION_PREP_SECONDS }
-        ?: 3,
-    keepPhoneScreenAwake = this[AppPreferencesRepository.KEEP_PHONE_SCREEN_AWAKE] ?: false,
-    restCompletionPhoneAlert = this[AppPreferencesRepository.REST_COMPLETION_PHONE_ALERT] ?: true,
-    durationCompletionPhoneAlert = this[AppPreferencesRepository.DURATION_COMPLETION_PHONE_ALERT] ?: true,
-    healthConnectSyncEnabled = this[AppPreferencesRepository.HEALTH_CONNECT_SYNC_ENABLED] ?: false,
-    selfHostedSyncEnabled = this[AppPreferencesRepository.SELF_HOSTED_SYNC_ENABLED] ?: false,
-    selfHostedServerUrl = this[AppPreferencesRepository.SELF_HOSTED_SERVER_URL] ?: "",
-    selfHostedLastSuccessfulSyncAt = this[AppPreferencesRepository.SELF_HOSTED_LAST_SUCCESS_AT],
-    selfHostedLastError = this[AppPreferencesRepository.SELF_HOSTED_LAST_ERROR],
-)
+internal fun Preferences.toAppPreferences(): AppPreferences {
+    val storedAddress = this[AppPreferencesRepository.SELF_HOSTED_SERVER_ADDRESS]
+    val migrated = storedAddress?.let {
+        LegacySelfHostedConfiguration(it, this[AppPreferencesRepository.SELF_HOSTED_USE_HTTPS] ?: true)
+    } ?: migrateLegacySelfHostedUrl(this[AppPreferencesRepository.LEGACY_SELF_HOSTED_SERVER_URL])
+    return AppPreferences(
+        weightUnit = this[AppPreferencesRepository.WEIGHT_UNIT].toEnumOrDefault(WeightUnit.KG),
+        themeMode = this[AppPreferencesRepository.THEME_MODE].toEnumOrDefault(ThemeMode.SYSTEM),
+        durationPrepSeconds = this[AppPreferencesRepository.DURATION_PREP_SECONDS]
+            ?.takeIf { it in AppPreferencesRepository.ALLOWED_DURATION_PREP_SECONDS }
+            ?: 3,
+        keepPhoneScreenAwake = this[AppPreferencesRepository.KEEP_PHONE_SCREEN_AWAKE] ?: false,
+        restCompletionPhoneAlert = this[AppPreferencesRepository.REST_COMPLETION_PHONE_ALERT] ?: true,
+        durationCompletionPhoneAlert = this[AppPreferencesRepository.DURATION_COMPLETION_PHONE_ALERT] ?: true,
+        healthConnectSyncEnabled = this[AppPreferencesRepository.HEALTH_CONNECT_SYNC_ENABLED] ?: false,
+        selfHostedSyncEnabled = this[AppPreferencesRepository.SELF_HOSTED_SYNC_ENABLED] ?: false,
+        selfHostedServerAddress = migrated.serverAddress,
+        selfHostedUseHttps = migrated.useHttps,
+        selfHostedLastSuccessfulSyncAt = this[AppPreferencesRepository.SELF_HOSTED_LAST_SUCCESS_AT],
+        selfHostedLastError = this[AppPreferencesRepository.SELF_HOSTED_LAST_ERROR],
+    )
+}
+
+private data class LegacySelfHostedConfiguration(val serverAddress: String, val useHttps: Boolean)
+
+private fun migrateLegacySelfHostedUrl(value: String?): LegacySelfHostedConfiguration {
+    val trimmed = value.orEmpty().trim().trimEnd('/')
+    return when {
+        trimmed.startsWith("https://", ignoreCase = true) ->
+            LegacySelfHostedConfiguration(trimmed.substring(8), true)
+        trimmed.startsWith("http://", ignoreCase = true) ->
+            LegacySelfHostedConfiguration(trimmed.substring(7), false)
+        else -> LegacySelfHostedConfiguration(trimmed, true)
+    }
+}
 
 private inline fun <reified T : Enum<T>> String?.toEnumOrDefault(default: T): T =
     this?.let { stored -> enumValues<T>().firstOrNull { it.name == stored } } ?: default

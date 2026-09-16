@@ -949,7 +949,7 @@ class WorkoutSessionRepositoryTest {
             override fun schedulePending() {
                 backgroundScope.launch {
                     slowClient.uploadBatch(
-                        com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration("https://example.com", "token"),
+                        com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration("example.com", true, "token"),
                         emptyList(),
                     )
                 }
@@ -1651,6 +1651,8 @@ class WorkoutSessionRepositoryTest {
         backup.exportBackup(output)
         val backupText = output.toString("UTF-8")
         assertTrue(!backupText.contains("selfHostedServerUrl"))
+        assertTrue(!backupText.contains("selfHostedServerAddress"))
+        assertTrue(!backupText.contains("selfHostedUseHttps"))
         assertTrue(!backupText.contains("apiToken", ignoreCase = true))
         repository.discardActiveWorkout()
         backup.restoreBackup(java.io.ByteArrayInputStream(output.toByteArray()))
