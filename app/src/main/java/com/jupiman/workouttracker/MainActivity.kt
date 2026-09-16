@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity() {
         val container = (application as WorkoutTrackerApplication).container
         lifecycleScope.launch {
             container.healthConnectSyncManager.syncIfEnabled()
+            container.selfHostedSyncManager.schedulePendingIfConfigured()
         }
     }
 

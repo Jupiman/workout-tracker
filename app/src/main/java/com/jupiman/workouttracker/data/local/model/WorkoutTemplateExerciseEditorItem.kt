@@ -19,4 +19,5 @@ data class WorkoutTemplateExerciseEditorItem(
     val targetDurationSeconds: Int? = null,
     val durationIncrementSeconds: Int = 0,
     val warmupRoundingCentiKg: Int = 500,
+    val syncId: String,
 )

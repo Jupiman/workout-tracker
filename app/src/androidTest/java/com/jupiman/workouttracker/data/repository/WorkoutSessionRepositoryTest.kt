@@ -29,12 +29,17 @@ import com.jupiman.workouttracker.healthconnect.HealthConnectGateway
 import com.jupiman.workouttracker.healthconnect.HealthConnectSyncManager
 import com.jupiman.workouttracker.healthconnect.HealthConnectWorkoutRecord
 import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
+import com.jupiman.workouttracker.selfhosted.NoOpSelfHostedWorkoutScheduler
+import com.jupiman.workouttracker.selfhosted.SelfHostedWorkoutScheduler
 import com.jupiman.workouttracker.wear.WorkoutWearStateProjector
 import com.jupiman.workouttracker.wearprotocol.WearSessionStatus
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -66,6 +71,7 @@ class WorkoutSessionRepositoryTest {
     private fun createRepository(
         durationPreparationProvider: DurationPreparationProvider = DurationPreparationProvider { 3 },
         finalizedWorkoutSync: FinalizedWorkoutSync = NoOpFinalizedWorkoutSync,
+        selfHostedWorkoutScheduler: SelfHostedWorkoutScheduler = NoOpSelfHostedWorkoutScheduler,
     ) = WorkoutSessionRepository(
             database = database,
             workoutSessionDao = database.workoutSessionDao(),
@@ -83,6 +89,7 @@ class WorkoutSessionRepositoryTest {
             workoutNotificationUpdater = workoutNotificationUpdater,
             durationPreparationProvider = durationPreparationProvider,
             finalizedWorkoutSync = finalizedWorkoutSync,
+            selfHostedWorkoutScheduler = selfHostedWorkoutScheduler,
         )
 
     @After
@@ -371,7 +378,9 @@ class WorkoutSessionRepositoryTest {
         val finalized = database.workoutSessionDao().getById(sessionId)!!
         assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
         assertTrue(finalized.progressionApplied)
-        withTimeout(5_000L) { writeStarted.await() }
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(5_000L) { writeStarted.await() }
+        }
         assertTrue(writeStarted.isCompleted)
         assertTrue(!releaseWrite.isCompleted)
         releaseWrite.complete(Unit)
@@ -379,8 +388,10 @@ class WorkoutSessionRepositoryTest {
 
     @Test
     fun externalSyncFailureCannotUndoFinalizedWorkout() = runTest {
+        val selfHostedScheduler = RecordingSelfHostedScheduler()
         repository = createRepository(
             finalizedWorkoutSync = FinalizedWorkoutSync { error("Health Connect failed") },
+            selfHostedWorkoutScheduler = selfHostedScheduler,
         )
         val sessionId = repository.startWorkout(seedBenchWorkout())
         completeAllSets(sessionId, actualWeight = 7_000, actualReps = 10)
@@ -390,6 +401,7 @@ class WorkoutSessionRepositoryTest {
         val finalized = database.workoutSessionDao().getById(sessionId)!!
         assertEquals(WorkoutSessionStatus.COMPLETED, finalized.status)
         assertTrue(finalized.progressionApplied)
+        assertEquals(1, selfHostedScheduler.pendingSchedules)
     }
 
     @Test
@@ -886,7 +898,111 @@ class WorkoutSessionRepositoryTest {
         assertEquals(8, historicalExercise.repMaxSnapshot)
         assertEquals(8, historicalExercise.targetRepsSnapshot)
         assertEquals(7000, historicalExercise.prescribedWeightCentiKgSnapshot)
+        assertEquals(7250, historicalExercise.resultingProgressionWeightCentiKg)
+        assertEquals(8, historicalExercise.resultingProgressionTargetReps)
+        assertEquals(
+            database.workoutTemplateExerciseDao().getById(templateExerciseId)!!.syncId,
+            historicalExercise.sourceProgressionTrackSyncId,
+        )
         assertEquals(listOf(7000, 7000, 7000), firstSessionSets(firstSessionId).map { it.prescribedWeightCentiKg })
+    }
+
+    @Test
+    fun finalizationCommitsLocallyAndOnlySchedulesSelfHostedWork() = runTest {
+        val scheduler = RecordingSelfHostedScheduler()
+        val localRepository = createRepository(selfHostedWorkoutScheduler = scheduler)
+        val sessionId = localRepository.startWorkout(seedBenchWorkout())
+        firstSessionSets(sessionId).forEach { localRepository.completeSet(it.id, 7000, 10) }
+
+        val summary = localRepository.finishActiveWorkout(false)
+
+        assertEquals(sessionId, summary.sessionId)
+        assertEquals(WorkoutSessionStatus.COMPLETED, database.workoutSessionDao().getById(sessionId)!!.status)
+        assertEquals(
+            com.jupiman.workouttracker.data.local.entity.SelfHostedSyncState.PENDING,
+            database.workoutSessionDao().getById(sessionId)!!.selfHostedSyncState,
+        )
+        assertEquals(1, scheduler.pendingSchedules)
+    }
+
+    @Test
+    fun finishActiveWorkoutDoesNotWaitForSlowSelfHostedClient() = runTest {
+        val uploadStarted = CompletableDeferred<Unit>()
+        val releaseUpload = CompletableDeferred<Unit>()
+        val slowClient = object : com.jupiman.workouttracker.selfhosted.SelfHostedSyncClient {
+            override suspend fun testConnection(configuration: com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration) =
+                com.jupiman.workouttracker.selfhosted.ConnectionTestResult.Success("1.0.0")
+            override suspend fun uploadWorkout(
+                configuration: com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration,
+                workout: com.jupiman.workouttracker.selfhosted.SelfHostedWorkoutPayload,
+            ): com.jupiman.workouttracker.selfhosted.UploadResult = error("Not used")
+            override suspend fun uploadBatch(
+                configuration: com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration,
+                workouts: List<com.jupiman.workouttracker.selfhosted.SelfHostedWorkoutPayload>,
+            ): com.jupiman.workouttracker.selfhosted.UploadResult {
+                uploadStarted.complete(Unit)
+                releaseUpload.await()
+                return com.jupiman.workouttracker.selfhosted.UploadResult.Processed(emptyList())
+            }
+        }
+        val scheduler = object : SelfHostedWorkoutScheduler {
+            override fun schedulePending() {
+                backgroundScope.launch {
+                    slowClient.uploadBatch(
+                        com.jupiman.workouttracker.selfhosted.SelfHostedConfiguration("https://example.com", "token"),
+                        emptyList(),
+                    )
+                }
+            }
+            override fun scheduleFullSync() = Unit
+            override fun cancel() = Unit
+        }
+        val localRepository = createRepository(selfHostedWorkoutScheduler = scheduler)
+        val sessionId = localRepository.startWorkout(seedBenchWorkout())
+        firstSessionSets(sessionId).forEach { localRepository.completeSet(it.id, 7000, 10) }
+
+        val summary = localRepository.finishActiveWorkout(false)
+
+        assertEquals(sessionId, summary.sessionId)
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(5_000L) { uploadStarted.await() }
+        }
+        assertTrue(!releaseUpload.isCompleted)
+        releaseUpload.complete(Unit)
+    }
+
+    @Test
+    fun selfHostedSchedulingFailureCannotUndoFinalizedWorkout() = runTest {
+        var healthConnectCalls = 0
+        val scheduler = object : SelfHostedWorkoutScheduler {
+            override fun schedulePending() = error("Queue failed")
+            override fun scheduleFullSync() = Unit
+            override fun cancel() = Unit
+        }
+        val localRepository = createRepository(
+            finalizedWorkoutSync = FinalizedWorkoutSync { healthConnectCalls++ },
+            selfHostedWorkoutScheduler = scheduler,
+        )
+        val sessionId = localRepository.startWorkout(seedBenchWorkout())
+        firstSessionSets(sessionId).forEach { localRepository.completeSet(it.id, 7000, 10) }
+
+        localRepository.finishActiveWorkout(false)
+
+        assertEquals(WorkoutSessionStatus.COMPLETED, database.workoutSessionDao().getById(sessionId)!!.status)
+        assertTrue(database.workoutSessionDao().getById(sessionId)!!.progressionApplied)
+        assertEquals(1, healthConnectCalls)
+    }
+
+    @Test
+    fun finalizationSkipsPendingSessionOnlySets() = runTest {
+        val sessionId = repository.startWorkout(seedBenchWorkout())
+        val exerciseId = database.sessionExerciseDao().getForSession(sessionId).single().id
+        firstSessionSets(sessionId).forEach { repository.completeSet(it.id, 7000, 10) }
+        val extraId = repository.addSessionSet(exerciseId, SetType.EXTRA)
+
+        repository.finishActiveWorkout(false)
+
+        assertEquals(SessionSetStatus.SKIPPED, database.sessionSetDao().getById(extraId)!!.status)
     }
 
     @Test
@@ -1533,6 +1649,9 @@ class WorkoutSessionRepositoryTest {
         val output = java.io.ByteArrayOutputStream()
         val backup = DataBackupRepository(database)
         backup.exportBackup(output)
+        val backupText = output.toString("UTF-8")
+        assertTrue(!backupText.contains("selfHostedServerUrl"))
+        assertTrue(!backupText.contains("apiToken", ignoreCase = true))
         repository.discardActiveWorkout()
         backup.restoreBackup(java.io.ByteArrayInputStream(output.toByteArray()))
         repository.syncRestTimerAlarm()
@@ -1541,6 +1660,48 @@ class WorkoutSessionRepositoryTest {
         assertEquals(templatesBefore, database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId))
         assertEquals(progressionBefore, database.progressionStateDao().getForTemplateExercise(templatesBefore.single().id))
         assertEquals(activeBefore!!.session.restEndsAt, restTimerScheduler.scheduledRestEndsAt)
+    }
+
+    @Test
+    fun versionFiveBackupGetsFreshGroupedSyncIdsAndSchedulesRestoreCatchUp() = runTest {
+        val templateId = seedBenchWorkout()
+        val sessionId = repository.startWorkout(templateId)
+        firstSessionSets(sessionId).forEach { repository.completeSet(it.id, 7000, 10) }
+        repository.finishActiveWorkout(false)
+        val originalTemplateSyncId = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single().syncId
+        val originalSessionSyncId = database.workoutSessionDao().getById(sessionId)!!.syncId
+        val output = java.io.ByteArrayOutputStream()
+        DataBackupRepository(database).exportBackup(output)
+        val backup = org.json.JSONObject(output.toString("UTF-8"))
+            .put("formatVersion", 5)
+            .put("schemaVersion", 9)
+        val tables = backup.getJSONObject("tables")
+        mapOf(
+            "workout_template_exercises" to listOf("syncId"),
+            "workout_sessions" to listOf("syncId", "selfHostedSyncState", "selfHostedLastAttemptAt", "selfHostedLastError"),
+            "session_exercises" to listOf(
+                "syncId", "sourceProgressionTrackSyncId", "resultingProgressionWeightCentiKg",
+                "resultingProgressionTargetReps", "resultingProgressionDurationSeconds",
+            ),
+            "session_sets" to listOf("syncId"),
+        ).forEach { (table, columns) ->
+            val rows = tables.getJSONArray(table)
+            repeat(rows.length()) { index -> columns.forEach { rows.getJSONObject(index).remove(it) } }
+        }
+        var catchUpScheduled = false
+
+        DataBackupRepository(database) { catchUpScheduled = true }
+            .restoreBackup(java.io.ByteArrayInputStream(backup.toString().toByteArray()))
+
+        val restoredTemplate = database.workoutTemplateExerciseDao().getForWorkoutTemplate(templateId).single()
+        val restoredSession = database.workoutSessionDao().getById(sessionId)!!
+        val restoredExercise = database.sessionExerciseDao().getForSession(sessionId).single()
+        assertTrue(restoredTemplate.syncId != originalTemplateSyncId)
+        assertTrue(restoredSession.syncId != originalSessionSyncId)
+        assertEquals(restoredTemplate.syncId, restoredExercise.sourceProgressionTrackSyncId)
+        assertNull(restoredExercise.resultingProgressionWeightCentiKg)
+        assertEquals(com.jupiman.workouttracker.data.local.entity.SelfHostedSyncState.PENDING, restoredSession.selfHostedSyncState)
+        assertTrue(catchUpScheduled)
     }
 
     @Test
@@ -1577,6 +1738,7 @@ class WorkoutSessionRepositoryTest {
         val next = repository.startWorkout(templateId)
         assertEquals(65, firstSessionSets(next).first().prescribedDurationSeconds)
         assertEquals(60, database.sessionExerciseDao().getById(snapshot.id)!!.targetDurationSecondsSnapshot)
+        assertEquals(65, database.sessionExerciseDao().getById(snapshot.id)!!.resultingProgressionDurationSeconds)
     }
 
     @Test
@@ -2024,5 +2186,12 @@ class WorkoutSessionRepositoryTest {
         override fun cancel() {
             cancelled = true
         }
+    }
+
+    private class RecordingSelfHostedScheduler : SelfHostedWorkoutScheduler {
+        var pendingSchedules = 0
+        override fun schedulePending() { pendingSchedules += 1 }
+        override fun scheduleFullSync() = Unit
+        override fun cancel() = Unit
     }
 }

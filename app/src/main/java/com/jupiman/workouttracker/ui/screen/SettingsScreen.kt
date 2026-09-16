@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,15 +27,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.jupiman.workouttracker.preferences.AppPreferences
 import com.jupiman.workouttracker.preferences.ThemeMode
 import com.jupiman.workouttracker.preferences.WeightUnit
 import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
 import com.jupiman.workouttracker.healthconnect.HealthConnectSettingsState
 import com.jupiman.workouttracker.ui.theme.WorkoutSpacing
+import com.jupiman.workouttracker.selfhosted.SelfHostedSettingsState
+import com.jupiman.workouttracker.selfhosted.formatSelfHostedLastSync
 
 private enum class ChoiceSetting { WEIGHT_UNIT, THEME, DURATION_PREP }
 
@@ -55,12 +60,24 @@ fun SettingsScreen(
     onSyncHealthConnectNow: () -> Unit,
     onManageHealthConnect: () -> Unit,
     onInstallHealthConnect: () -> Unit,
+    selfHostedState: SelfHostedSettingsState?,
+    selfHostedBusy: Boolean,
+    selfHostedConnectionStatus: String?,
+    onSaveSelfHostedConfiguration: (String, String) -> Unit,
+    onTestSelfHostedConnection: (String, String) -> Unit,
+    onSelfHostedSyncEnabledChange: (Boolean, String, String) -> Unit,
+    onSyncSelfHostedNow: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     onExportBackup: () -> Unit,
     onRestoreBackup: () -> Unit,
 ) {
     var confirmingRestore by rememberSaveable { mutableStateOf(false) }
     var choiceSetting by rememberSaveable { mutableStateOf<ChoiceSetting?>(null) }
+    var selfHostedServerUrl by rememberSaveable { mutableStateOf("") }
+    var selfHostedToken by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(selfHostedState?.serverUrl) {
+        if (selfHostedServerUrl.isBlank()) selfHostedServerUrl = selfHostedState?.serverUrl.orEmpty()
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = WorkoutSpacing.screen),
         verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section),
@@ -145,6 +162,78 @@ fun SettingsScreen(
                     HealthConnectAvailability.UNAVAILABLE,
                     null -> Unit
                 }
+            }
+        }
+        item { SettingsSectionLabel("SELF-HOSTED SYNC") }
+        item {
+            SettingsCard {
+                Column(
+                    modifier = Modifier.padding(WorkoutSpacing.card),
+                    verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+                ) {
+                    OutlinedTextField(
+                        value = selfHostedServerUrl,
+                        onValueChange = { selfHostedServerUrl = it },
+                        label = { Text("Server URL") },
+                        placeholder = { Text("https://workout.example.com") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = selfHostedToken,
+                        onValueChange = { selfHostedToken = it },
+                        label = { Text("API token") },
+                        placeholder = { Text(if (selfHostedState?.hasToken == true) "Saved token" else "Enter token") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(WorkoutSpacing.item),
+                    ) {
+                        OutlinedButton(
+                            onClick = { onSaveSelfHostedConfiguration(selfHostedServerUrl, selfHostedToken) },
+                            enabled = !selfHostedBusy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Save") }
+                        OutlinedButton(
+                            onClick = { onTestSelfHostedConnection(selfHostedServerUrl, selfHostedToken) },
+                            enabled = !selfHostedBusy,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Test connection") }
+                    }
+                    Text(
+                        "Last sync: ${formatSelfHostedLastSync(selfHostedState?.lastSuccessfulSyncAt)}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    selfHostedConnectionStatus?.let {
+                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(
+                        "Pending uploads: ${selfHostedState?.pendingUploads ?: 0}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if ((selfHostedState?.permanentFailures ?: 0) > 0) {
+                        Text(
+                            "Needs attention: ${selfHostedState?.permanentFailures}",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    selfHostedState?.latestError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                SwitchRow(
+                    title = "Sync completed workouts",
+                    checked = selfHostedState?.enabled == true,
+                    enabled = !selfHostedBusy,
+                ) { onSelfHostedSyncEnabledChange(it, selfHostedServerUrl, selfHostedToken) }
+                TextButton(
+                    onClick = onSyncSelfHostedNow,
+                    enabled = selfHostedState?.enabled == true && !selfHostedBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (selfHostedBusy) "Syncing…" else "Sync now") }
             }
         }
         item { SettingsSectionLabel("DATA") }

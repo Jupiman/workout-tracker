@@ -70,6 +70,8 @@ class ProgramTransferRepositoryTest {
 
         val strength = targetDatabase.workoutTemplateExerciseDao()
             .getEditorItemsForWorkoutTemplate(days[0].id)
+        val sourceStrength = sourceDatabase.workoutTemplateExerciseDao()
+            .getEditorItemsForWorkoutTemplate(sourceDatabase.workoutTemplateDao().getForProgram(sourceProgramId)[0].id)
         assertEquals(listOf("BENCH PRESS", "Machine Row"), strength.map { it.exerciseName })
         assertEquals(existingExerciseId, strength[0].exerciseId)
         assertEquals(TrackingMode.WEIGHT_REPS, strength[0].trackingMode)
@@ -97,6 +99,8 @@ class ProgramTransferRepositoryTest {
         assertEquals(listOf(2_000, null, null), warmups.map { it.fixedWeightCentiKg })
         assertEquals(listOf(null, 50, 70), warmups.map { it.percentOfWorkingWeight })
         assertEquals(125, strength[0].warmupRoundingCentiKg)
+        assertNotEquals(sourceStrength[0].syncId, strength[0].syncId)
+        assertNotEquals(sourceStrength[1].syncId, strength[1].syncId)
 
         val duration = targetDatabase.workoutTemplateExerciseDao()
             .getEditorItemsForWorkoutTemplate(days[1].id)

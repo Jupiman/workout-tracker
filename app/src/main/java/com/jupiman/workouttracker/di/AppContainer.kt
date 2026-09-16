@@ -18,6 +18,13 @@ import com.jupiman.workouttracker.healthconnect.AndroidHealthConnectGateway
 import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSource
 import com.jupiman.workouttracker.healthconnect.HealthConnectSyncManager
 import com.jupiman.workouttracker.wear.AndroidWearWorkoutBridge
+import com.jupiman.workouttracker.selfhosted.AndroidKeystoreSelfHostedTokenStore
+import com.jupiman.workouttracker.selfhosted.AndroidSelfHostedSyncScheduler
+import com.jupiman.workouttracker.selfhosted.HttpSelfHostedSyncClient
+import com.jupiman.workouttracker.selfhosted.SelfHostedSyncManager
+import com.jupiman.workouttracker.selfhosted.RoomSelfHostedWorkoutStore
+import com.jupiman.workouttracker.selfhosted.DataStoreSelfHostedSettingsStore
+import android.content.pm.ApplicationInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +34,7 @@ class AppContainer(context: Context) {
     val appPreferencesRepository = AppPreferencesRepository.create(context)
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
     private val durationTimerScheduler = AndroidDurationTimerScheduler(context.applicationContext)
+    private val allowLocalSelfHostedHttp = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     val database: WorkoutTrackerDatabase = Room.databaseBuilder(
         context.applicationContext,
@@ -42,7 +50,25 @@ class AppContainer(context: Context) {
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_6_7)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_7_8)
         .addMigrations(WorkoutTrackerDatabase.MIGRATION_8_9)
+        .addMigrations(WorkoutTrackerDatabase.MIGRATION_9_10)
         .build()
+
+    private val selfHostedTokenStore = AndroidKeystoreSelfHostedTokenStore(context.applicationContext)
+    private val selfHostedSyncScheduler = AndroidSelfHostedSyncScheduler(
+        context = context.applicationContext,
+        scope = applicationScope,
+        preferencesRepository = appPreferencesRepository,
+        tokenStore = selfHostedTokenStore,
+        allowLocalHttp = allowLocalSelfHostedHttp,
+    )
+    val selfHostedSyncManager = SelfHostedSyncManager(
+        client = HttpSelfHostedSyncClient(),
+        workoutStore = RoomSelfHostedWorkoutStore(database.workoutSessionDao()),
+        settingsStore = DataStoreSelfHostedSettingsStore(appPreferencesRepository),
+        tokenStore = selfHostedTokenStore,
+        scheduler = selfHostedSyncScheduler,
+        allowLocalHttp = allowLocalSelfHostedHttp,
+    )
 
     val workoutNotificationCoordinator = AndroidWorkoutNotificationCoordinator(
         context = context.applicationContext,
@@ -55,7 +81,10 @@ class AppContainer(context: Context) {
         workoutTemplateExerciseDao = database.workoutTemplateExerciseDao(),
         workoutSessionDao = database.workoutSessionDao(),
     )
-    val dataBackupRepository = DataBackupRepository(database)
+    val dataBackupRepository = DataBackupRepository(
+        database = database,
+        onRestoreCompleted = { selfHostedSyncManager.scheduleFullAfterRestore() },
+    )
     val programTransferRepository = ProgramTransferRepository(database)
     val healthConnectSyncManager = HealthConnectSyncManager(
         gateway = AndroidHealthConnectGateway(context.applicationContext),
@@ -97,6 +126,7 @@ class AppContainer(context: Context) {
         workoutNotificationUpdater = workoutNotificationCoordinator,
         durationPreparationProvider = appPreferencesRepository,
         finalizedWorkoutSync = healthConnectSyncManager,
+        selfHostedWorkoutScheduler = selfHostedSyncScheduler,
     )
 
     val wearWorkoutBridge = AndroidWearWorkoutBridge(

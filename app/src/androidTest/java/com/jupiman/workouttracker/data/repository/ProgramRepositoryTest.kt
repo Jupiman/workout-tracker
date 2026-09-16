@@ -599,6 +599,7 @@ class ProgramRepositoryTest {
         assertEquals(listOf("Bench Press", "Machine Row"), editorExerciseNames(copyId))
         assertEquals("Seat 4", copiedFirst.setupNote)
         assertEquals(false, seed.firstTemplateExerciseId == copiedFirst.id)
+        assertEquals(false, sourceFirst.syncId == copiedFirst.syncId)
         assertEquals(sourceFirst.exerciseId, copiedFirst.exerciseId)
         assertNotNull(copiedFirst.supersetGroupId)
         assertEquals(copiedFirst.supersetGroupId, copiedSecond.supersetGroupId)

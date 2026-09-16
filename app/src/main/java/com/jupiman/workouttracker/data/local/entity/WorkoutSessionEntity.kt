@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -17,6 +18,8 @@ enum class WorkoutSessionStatus {
         Index(value = ["sourceProgramId"]),
         Index(value = ["sourceWorkoutTemplateId"]),
         Index(value = ["completedAt"]),
+        Index(value = ["syncId"], unique = true),
+        Index(value = ["selfHostedSyncState"]),
     ],
 )
 data class WorkoutSessionEntity(
@@ -33,4 +36,8 @@ data class WorkoutSessionEntity(
     val durationStartsAt: Long? = null,
     val durationEndsAt: Long? = null,
     val progressionApplied: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val syncId: String = newSyncId(),
+    @ColumnInfo(defaultValue = "'PENDING'") val selfHostedSyncState: SelfHostedSyncState = SelfHostedSyncState.PENDING,
+    val selfHostedLastAttemptAt: Long? = null,
+    val selfHostedLastError: String? = null,
 )

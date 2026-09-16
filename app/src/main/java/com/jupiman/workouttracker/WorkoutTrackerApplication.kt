@@ -22,6 +22,7 @@ class WorkoutTrackerApplication : Application() {
             container.workoutSessionRepository.syncTimers()
             container.workoutNotificationCoordinator.showCurrentState()
             container.wearWorkoutBridge.refresh()
+            container.selfHostedSyncManager.schedulePendingIfConfigured()
         }
     }
 }

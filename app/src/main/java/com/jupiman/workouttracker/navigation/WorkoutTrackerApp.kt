@@ -50,6 +50,9 @@ import com.jupiman.workouttracker.healthconnect.AndroidHealthConnectGateway
 import com.jupiman.workouttracker.healthconnect.HealthConnectAvailability
 import com.jupiman.workouttracker.healthconnect.HealthConnectSettingsState
 import com.jupiman.workouttracker.healthconnect.HealthConnectSyncResult
+import com.jupiman.workouttracker.selfhosted.ConnectionTestResult
+import com.jupiman.workouttracker.selfhosted.SelfHostedSettingsState
+import com.jupiman.workouttracker.selfhosted.displayMessage
 import com.jupiman.workouttracker.ui.screen.HistoryScreen
 import com.jupiman.workouttracker.ui.screen.ProgramScreen
 import com.jupiman.workouttracker.ui.screen.SettingsScreen
@@ -88,6 +91,9 @@ fun WorkoutTrackerApp(
     var importedProgramId by rememberSaveable { mutableStateOf<Long?>(null) }
     var healthConnectState by remember { mutableStateOf<HealthConnectSettingsState?>(null) }
     var healthConnectBusy by remember { mutableStateOf(false) }
+    var selfHostedState by remember { mutableStateOf<SelfHostedSettingsState?>(null) }
+    var selfHostedBusy by remember { mutableStateOf(false) }
+    var selfHostedConnectionStatus by remember { mutableStateOf<String?>(null) }
     val versionName = remember(context) {
         @Suppress("DEPRECATION")
         runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
@@ -99,6 +105,9 @@ fun WorkoutTrackerApp(
         scope.launch {
             healthConnectState = container.healthConnectSyncManager.settingsState()
         }
+    }
+    fun refreshSelfHostedState() {
+        scope.launch { selfHostedState = container.selfHostedSyncManager.settingsState() }
     }
     fun showHealthConnectResult(result: HealthConnectSyncResult) {
         showToast(
@@ -127,12 +136,17 @@ fun WorkoutTrackerApp(
     LaunchedEffect(currentRoute, preferences.healthConnectSyncEnabled) {
         if (currentRoute == SETTINGS_ROUTE) {
             healthConnectState = container.healthConnectSyncManager.settingsState()
+            selfHostedState = container.selfHostedSyncManager.settingsState()
         }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshHealthConnectState()
+            if (event == Lifecycle.Event.ON_RESUME) {
+                refreshHealthConnectState()
+                refreshSelfHostedState()
+                scope.launch { container.selfHostedSyncManager.schedulePendingIfConfigured() }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -412,6 +426,60 @@ fun WorkoutTrackerApp(
                             context.startActivity(
                                 Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$provider")),
                             )
+                        }
+                    },
+                    selfHostedState = selfHostedState,
+                    selfHostedBusy = selfHostedBusy,
+                    selfHostedConnectionStatus = selfHostedConnectionStatus,
+                    onSaveSelfHostedConfiguration = { serverUrl, token ->
+                        scope.launch {
+                            selfHostedBusy = true
+                            val result = container.selfHostedSyncManager.saveConfiguration(serverUrl, token)
+                            if (result.isSuccess) selfHostedConnectionStatus = null
+                            selfHostedBusy = false
+                            showToast(result.fold({ "Self-hosted sync configuration saved." }, { it.message ?: "Configuration is invalid." }))
+                            refreshSelfHostedState()
+                        }
+                    },
+                    onTestSelfHostedConnection = { serverUrl, token ->
+                        scope.launch {
+                            selfHostedBusy = true
+                            val result = runCatching {
+                                container.selfHostedSyncManager.testConnection(serverUrl, token)
+                            }.getOrElse { ConnectionTestResult.Unexpected("Connection test failed.") }
+                            selfHostedBusy = false
+                            selfHostedConnectionStatus = result.displayMessage()
+                            showToast(result.displayMessage())
+                            refreshSelfHostedState()
+                        }
+                    },
+                    onSelfHostedSyncEnabledChange = { enabled, serverUrl, token ->
+                        scope.launch {
+                            selfHostedBusy = true
+                            val saveResult = if (enabled) {
+                                container.selfHostedSyncManager.saveConfiguration(serverUrl, token)
+                            } else {
+                                Result.success(serverUrl)
+                            }
+                            val result = saveResult.fold(
+                                onSuccess = { container.selfHostedSyncManager.setEnabled(enabled) },
+                                onFailure = { Result.failure(it) },
+                            )
+                            selfHostedBusy = false
+                            result.exceptionOrNull()?.let { showToast(it.message ?: "Self-hosted sync could not be updated.") }
+                            refreshSelfHostedState()
+                        }
+                    },
+                    onSyncSelfHostedNow = {
+                        scope.launch {
+                            selfHostedBusy = true
+                            val result = runCatching { container.selfHostedSyncManager.syncAll() }
+                            selfHostedBusy = false
+                            showToast(result.fold(
+                                onSuccess = { "${it.synchronized} workouts synchronized; ${it.failed} failed." },
+                                onFailure = { "Self-hosted sync could not be completed." },
+                            ))
+                            refreshSelfHostedState()
                         }
                     },
                     onOpenNotificationSettings = {

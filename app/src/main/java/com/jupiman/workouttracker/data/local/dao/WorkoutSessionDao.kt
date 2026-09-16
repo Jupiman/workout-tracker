@@ -7,6 +7,7 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionEntity
+import com.jupiman.workouttracker.data.local.entity.SelfHostedSyncState
 import com.jupiman.workouttracker.data.local.model.WorkoutSessionWithDetails
 import kotlinx.coroutines.flow.Flow
 
@@ -28,6 +29,41 @@ interface WorkoutSessionDao {
 
     @Query("SELECT * FROM workout_sessions WHERE status != 'ACTIVE' AND completedAt IS NOT NULL ORDER BY startedAt ASC")
     suspend fun getFinalizedForHealthConnect(): List<WorkoutSessionEntity>
+
+    @Transaction
+    @Query(
+        "SELECT * FROM workout_sessions WHERE status != 'ACTIVE' AND completedAt IS NOT NULL " +
+            "AND selfHostedSyncState = 'PENDING' ORDER BY completedAt ASC LIMIT :limit",
+    )
+    suspend fun getPendingForSelfHostedSync(limit: Int): List<WorkoutSessionWithDetails>
+
+    @Transaction
+    @Query(
+        "SELECT * FROM workout_sessions WHERE status != 'ACTIVE' AND completedAt IS NOT NULL " +
+            "ORDER BY completedAt ASC LIMIT :limit OFFSET :offset",
+    )
+    suspend fun getFinalizedForSelfHostedSync(limit: Int, offset: Int): List<WorkoutSessionWithDetails>
+
+    @Transaction
+    @Query("SELECT * FROM workout_sessions WHERE id = :id AND status != 'ACTIVE' AND completedAt IS NOT NULL")
+    suspend fun getFinalizedWithDetails(id: Long): WorkoutSessionWithDetails?
+
+    @Query("SELECT COUNT(*) FROM workout_sessions WHERE status != 'ACTIVE' AND selfHostedSyncState = 'PENDING'")
+    suspend fun countPendingSelfHostedSync(): Int
+
+    @Query("SELECT COUNT(*) FROM workout_sessions WHERE status != 'ACTIVE' AND selfHostedSyncState = 'FAILED_PERMANENT'")
+    suspend fun countPermanentSelfHostedFailures(): Int
+
+    @Query(
+        "UPDATE workout_sessions SET selfHostedSyncState = :state, selfHostedLastAttemptAt = :attemptAt, " +
+            "selfHostedLastError = :error WHERE id = :id AND status != 'ACTIVE'",
+    )
+    suspend fun updateSelfHostedSyncState(
+        id: Long,
+        state: SelfHostedSyncState,
+        attemptAt: Long?,
+        error: String?,
+    )
 
     @Transaction
     @Query("SELECT * FROM workout_sessions WHERE status != 'ACTIVE' ORDER BY completedAt DESC, startedAt DESC")

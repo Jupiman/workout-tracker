@@ -27,6 +27,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
+import java.util.UUID
 
 @Database(
     entities = [
@@ -42,7 +43,7 @@ import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEnti
         SessionExerciseEntity::class,
         SessionSetEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(WorkoutTypeConverters::class)
@@ -60,6 +61,73 @@ abstract class WorkoutTrackerDatabase : RoomDatabase() {
     abstract fun sessionSetDao(): SessionSetDao
 
     companion object {
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE workout_template_exercises ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN selfHostedSyncState TEXT NOT NULL DEFAULT 'PENDING'")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN selfHostedLastAttemptAt INTEGER")
+                db.execSQL("ALTER TABLE workout_sessions ADD COLUMN selfHostedLastError TEXT")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN sourceProgressionTrackSyncId TEXT")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN resultingProgressionWeightCentiKg INTEGER")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN resultingProgressionTargetReps INTEGER")
+                db.execSQL("ALTER TABLE session_exercises ADD COLUMN resultingProgressionDurationSeconds INTEGER")
+                db.execSQL("ALTER TABLE session_sets ADD COLUMN syncId TEXT NOT NULL DEFAULT ''")
+
+                val progressionIds = mutableMapOf<Long, String>()
+                db.query("SELECT id FROM workout_template_exercises").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(0)
+                        val syncId = UUID.randomUUID().toString()
+                        progressionIds[id] = syncId
+                        db.execSQL(
+                            "UPDATE workout_template_exercises SET syncId = ? WHERE id = ?",
+                            arrayOf(syncId, id),
+                        )
+                    }
+                }
+                db.query("SELECT id FROM workout_sessions").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        db.execSQL(
+                            "UPDATE workout_sessions SET syncId = ? WHERE id = ?",
+                            arrayOf(UUID.randomUUID().toString(), cursor.getLong(0)),
+                        )
+                    }
+                }
+                val historicalProgressionIds = mutableMapOf<Long, String>()
+                db.query("SELECT id, sourceWorkoutTemplateExerciseId FROM session_exercises").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(0)
+                        val sourceId = if (cursor.isNull(1)) null else cursor.getLong(1)
+                        val sourceSyncId = sourceId?.let { source ->
+                            progressionIds[source] ?: historicalProgressionIds.getOrPut(source) {
+                                UUID.randomUUID().toString()
+                            }
+                        }
+                        db.execSQL(
+                            "UPDATE session_exercises SET syncId = ?, sourceProgressionTrackSyncId = ? WHERE id = ?",
+                            arrayOf(UUID.randomUUID().toString(), sourceSyncId, id),
+                        )
+                    }
+                }
+                db.query("SELECT id FROM session_sets").use { cursor ->
+                    while (cursor.moveToNext()) {
+                        db.execSQL(
+                            "UPDATE session_sets SET syncId = ? WHERE id = ?",
+                            arrayOf(UUID.randomUUID().toString(), cursor.getLong(0)),
+                        )
+                    }
+                }
+
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_workout_template_exercises_syncId ON workout_template_exercises (syncId)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_workout_sessions_syncId ON workout_sessions (syncId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_workout_sessions_selfHostedSyncState ON workout_sessions (selfHostedSyncState)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_session_exercises_syncId ON session_exercises (syncId)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_session_sets_syncId ON session_sets (syncId)")
+            }
+        }
+
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(

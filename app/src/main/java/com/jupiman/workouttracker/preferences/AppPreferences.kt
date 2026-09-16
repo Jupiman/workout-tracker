@@ -19,6 +19,10 @@ data class AppPreferences(
     val restCompletionPhoneAlert: Boolean = true,
     val durationCompletionPhoneAlert: Boolean = true,
     val healthConnectSyncEnabled: Boolean = false,
+    val selfHostedSyncEnabled: Boolean = false,
+    val selfHostedServerUrl: String = "",
+    val selfHostedLastSuccessfulSyncAt: Long? = null,
+    val selfHostedLastError: String? = null,
 )
 
 fun shouldUseDarkTheme(themeMode: ThemeMode, systemDark: Boolean): Boolean = when (themeMode) {

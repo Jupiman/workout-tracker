@@ -75,6 +75,7 @@ interface WorkoutTemplateExerciseDao {
         """
         SELECT 
             wte.id,
+            wte.syncId,
             wte.workoutTemplateId,
             wte.exerciseId,
             e.name AS exerciseName,
@@ -108,6 +109,7 @@ interface WorkoutTemplateExerciseDao {
         """
         SELECT 
             wte.id,
+            wte.syncId,
             wte.workoutTemplateId,
             wte.exerciseId,
             e.name AS exerciseName,

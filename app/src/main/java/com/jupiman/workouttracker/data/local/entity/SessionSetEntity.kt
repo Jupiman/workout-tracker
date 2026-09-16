@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -32,6 +33,7 @@ enum class SessionSetStatus {
     indices = [
         Index(value = ["sessionExerciseId"]),
         Index(value = ["sessionExerciseId", "setOrder"]),
+        Index(value = ["syncId"], unique = true),
     ],
 )
 data class SessionSetEntity(
@@ -49,4 +51,5 @@ data class SessionSetEntity(
     val completedAt: Long? = null,
     val prescribedDurationSeconds: Int? = null,
     val actualDurationSeconds: Int? = null,
+    @ColumnInfo(defaultValue = "''") val syncId: String = newSyncId(),
 )

@@ -34,6 +34,8 @@ import com.jupiman.workouttracker.preferences.DefaultDurationPreparationProvider
 import com.jupiman.workouttracker.preferences.DurationPreparationProvider
 import com.jupiman.workouttracker.healthconnect.FinalizedWorkoutSync
 import com.jupiman.workouttracker.healthconnect.NoOpFinalizedWorkoutSync
+import com.jupiman.workouttracker.selfhosted.NoOpSelfHostedWorkoutScheduler
+import com.jupiman.workouttracker.selfhosted.SelfHostedWorkoutScheduler
 import kotlin.math.max
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +57,7 @@ class WorkoutSessionRepository(
     private val workoutNotificationUpdater: WorkoutNotificationUpdater = NoOpWorkoutNotificationUpdater,
     private val durationPreparationProvider: DurationPreparationProvider = DefaultDurationPreparationProvider,
     private val finalizedWorkoutSync: FinalizedWorkoutSync = NoOpFinalizedWorkoutSync,
+    private val selfHostedWorkoutScheduler: SelfHostedWorkoutScheduler = NoOpSelfHostedWorkoutScheduler,
 ) {
     // Only the short-lived affordance is transient; the set and timer live in Room.
     private var latestUndo: SetCompletionUndo? = null
@@ -121,6 +124,7 @@ class WorkoutSessionRepository(
                         durationIncrementSecondsSnapshot = templateExercise.durationIncrementSeconds,
                         supersetGroupSnapshot = templateExercise.supersetGroupId,
                         supersetRestSecondsSnapshot = supersetRestSeconds,
+                        sourceProgressionTrackSyncId = templateExercise.syncId,
                     ),
                 )
 
@@ -672,6 +676,7 @@ class WorkoutSessionRepository(
             sessionExerciseDao.update(
                 sessionExercise.copy(
                     sourceWorkoutTemplateExerciseId = null,
+                    sourceProgressionTrackSyncId = null,
                     exerciseNameSnapshot = trimmedName,
                     setupNoteSnapshot = "",
                 ),
@@ -768,9 +773,7 @@ class WorkoutSessionRepository(
             val completedAt = System.currentTimeMillis()
             val finalSetsByExerciseId = setsByExerciseId.mapValues { (_, exerciseSets) ->
                 exerciseSets.map { set ->
-                    if (set.status == SessionSetStatus.PENDING &&
-                        (set.setType == SetType.WARMUP || (!allPlannedSetsCompleted && allowPartial))
-                    ) {
+                    if (set.status == SessionSetStatus.PENDING) {
                         val skippedSet = set.copy(
                             status = SessionSetStatus.SKIPPED,
                             actualWeightCentiKg = null,
@@ -876,6 +879,36 @@ class WorkoutSessionRepository(
                 }
             }
 
+            sessionExercises.forEach { sessionExercise ->
+                val sourceId = sessionExercise.sourceWorkoutTemplateExerciseId ?: return@forEach
+                val template = workoutTemplateExerciseDao.getById(sourceId) ?: return@forEach
+                if (template.trackingMode != sessionExercise.trackingModeSnapshot) return@forEach
+                val updatedSnapshot = when (template.trackingMode) {
+                    TrackingMode.WEIGHT_REPS -> {
+                        val progression = progressionStateDao.getForTemplateExercise(sourceId) ?: return@forEach
+                        sessionExercise.copy(
+                            resultingProgressionWeightCentiKg = progression.currentWeightCentiKg,
+                            resultingProgressionTargetReps = progression.currentTargetReps,
+                            resultingProgressionDurationSeconds = null,
+                        )
+                    }
+                    TrackingMode.REPS -> {
+                        val progression = progressionStateDao.getForTemplateExercise(sourceId) ?: return@forEach
+                        sessionExercise.copy(
+                            resultingProgressionWeightCentiKg = null,
+                            resultingProgressionTargetReps = progression.currentTargetReps,
+                            resultingProgressionDurationSeconds = null,
+                        )
+                    }
+                    TrackingMode.DURATION -> sessionExercise.copy(
+                        resultingProgressionWeightCentiKg = null,
+                        resultingProgressionTargetReps = null,
+                        resultingProgressionDurationSeconds = template.targetDurationSeconds,
+                    )
+                }
+                sessionExerciseDao.update(updatedSnapshot)
+            }
+
             workoutSessionDao.update(
                 activeSession.copy(
                     completedAt = completedAt,
@@ -886,6 +919,9 @@ class WorkoutSessionRepository(
                     },
                     restEndsAt = null,
                     progressionApplied = true,
+                    selfHostedSyncState = com.jupiman.workouttracker.data.local.entity.SelfHostedSyncState.PENDING,
+                    selfHostedLastAttemptAt = null,
+                    selfHostedLastError = null,
                 ),
             )
             val finalSets = finalSetsByExerciseId.values.flatten()
@@ -914,6 +950,7 @@ class WorkoutSessionRepository(
         durationTimerScheduler.cancel()
         workoutNotificationUpdater.cancel()
         runCatching { finalizedWorkoutSync.syncAfterFinalization(summary.sessionId) }
+        runCatching { selfHostedWorkoutScheduler.schedulePending() }
         return summary
     }
 

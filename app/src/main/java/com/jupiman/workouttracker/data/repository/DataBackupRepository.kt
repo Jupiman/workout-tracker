@@ -11,9 +11,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 class DataBackupRepository(
     private val database: WorkoutTrackerDatabase,
+    private val onRestoreCompleted: suspend () -> Unit = {},
 ) {
     suspend fun exportBackup(outputStream: OutputStream) = withContext(Dispatchers.IO) {
         val db = database.openHelper.writableDatabase
@@ -37,14 +39,16 @@ class DataBackupRepository(
         val initialTracking = backup.optInt("formatVersion") == 2 && backup.optInt("schemaVersion") == 6
         val preDurationTimer = backup.optInt("formatVersion") == 3 && backup.optInt("schemaVersion") == 7
         val preAdvancedWarmups = backup.optInt("formatVersion") == 4 && backup.optInt("schemaVersion") == 8
-        require(legacy || initialTracking || preDurationTimer || preAdvancedWarmups || backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION) {
+        val preSelfHostedSync = backup.optInt("formatVersion") == 5 && backup.optInt("schemaVersion") == 9
+        val current = backup.optInt("formatVersion") == BACKUP_FORMAT_VERSION &&
+            backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION
+        require(legacy || initialTracking || preDurationTimer || preAdvancedWarmups || preSelfHostedSync || current) {
             "Unsupported backup format."
-        }
-        require(legacy || initialTracking || preDurationTimer || preAdvancedWarmups || backup.optInt("schemaVersion") == BACKUP_SCHEMA_VERSION) {
-            "Backup schema does not match this app version."
         }
 
         val tables = backup.getJSONObject("tables")
+        val needsSyncIdentity = !current
+        if (needsSyncIdentity) addSyncIdentityFields(tables)
         val db = database.openHelper.writableDatabase
         db.beginTransaction()
         try {
@@ -90,6 +94,7 @@ class DataBackupRepository(
         } finally {
             db.endTransaction()
         }
+        runCatching { onRestoreCompleted() }
     }
 
     private fun exportTables(db: SupportSQLiteDatabase): JSONObject {
@@ -149,6 +154,42 @@ class DataBackupRepository(
         return values
     }
 
+    private fun addSyncIdentityFields(tables: JSONObject) {
+        val progressionIds = mutableMapOf<Long, String>()
+        tables.optJSONArray("workout_template_exercises")?.forEachObject { row ->
+            val syncId = UUID.randomUUID().toString()
+            progressionIds[row.getLong("id")] = syncId
+            row.put("syncId", syncId)
+        }
+        tables.optJSONArray("workout_sessions")?.forEachObject { row ->
+            row.put("syncId", UUID.randomUUID().toString())
+                .put("selfHostedSyncState", "PENDING")
+                .put("selfHostedLastAttemptAt", JSONObject.NULL)
+                .put("selfHostedLastError", JSONObject.NULL)
+        }
+        val missingProgressionIds = mutableMapOf<Long, String>()
+        tables.optJSONArray("session_exercises")?.forEachObject { row ->
+            val sourceId = row.optLong("sourceWorkoutTemplateExerciseId").takeUnless {
+                row.isNull("sourceWorkoutTemplateExerciseId")
+            }
+            val sourceSyncId = sourceId?.let { id ->
+                progressionIds[id] ?: missingProgressionIds.getOrPut(id) { UUID.randomUUID().toString() }
+            }
+            row.put("syncId", UUID.randomUUID().toString())
+                .put("sourceProgressionTrackSyncId", sourceSyncId ?: JSONObject.NULL)
+                .put("resultingProgressionWeightCentiKg", JSONObject.NULL)
+                .put("resultingProgressionTargetReps", JSONObject.NULL)
+                .put("resultingProgressionDurationSeconds", JSONObject.NULL)
+        }
+        tables.optJSONArray("session_sets")?.forEachObject { row ->
+            row.put("syncId", UUID.randomUUID().toString())
+        }
+    }
+
+    private inline fun JSONArray.forEachObject(block: (JSONObject) -> Unit) {
+        for (index in 0 until length()) block(getJSONObject(index))
+    }
+
     private data class BackupTable(
         val name: String,
         val orderBy: String = "id",
@@ -156,8 +197,8 @@ class DataBackupRepository(
 
     private companion object {
         const val BACKUP_APP = "Workout Companion"
-        const val BACKUP_FORMAT_VERSION = 5
-        const val BACKUP_SCHEMA_VERSION = 9
+        const val BACKUP_FORMAT_VERSION = 6
+        const val BACKUP_SCHEMA_VERSION = 10
 
         val BACKUP_TABLES = listOf(
             BackupTable("exercises"),

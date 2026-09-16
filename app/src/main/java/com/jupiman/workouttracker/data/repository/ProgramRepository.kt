@@ -17,6 +17,7 @@ import com.jupiman.workouttracker.data.local.entity.ProgressionStateEntity
 import com.jupiman.workouttracker.data.local.entity.SupersetGroupEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateExerciseEntity
+import com.jupiman.workouttracker.data.local.entity.newSyncId
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateSetTargetEntity
 import com.jupiman.workouttracker.data.local.entity.WorkoutTemplateWarmupSetEntity
 import com.jupiman.workouttracker.data.local.model.WorkoutTemplateExerciseEditorItem
@@ -639,6 +640,7 @@ class ProgramRepository(
         val targetExerciseId = workoutTemplateExerciseDao.insert(
             sourceExercise.copy(
                 id = 0,
+                syncId = newSyncId(),
                 workoutTemplateId = targetWorkoutTemplateId,
                 sortOrder = targetSortOrder,
                 supersetGroupId = targetSupersetGroupId,

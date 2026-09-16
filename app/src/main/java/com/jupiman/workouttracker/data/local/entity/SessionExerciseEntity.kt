@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -19,6 +20,7 @@ import androidx.room.PrimaryKey
         Index(value = ["sessionId"]),
         Index(value = ["sourceWorkoutTemplateExerciseId"]),
         Index(value = ["sessionId", "sortOrderSnapshot"]),
+        Index(value = ["syncId"], unique = true),
     ],
 )
 data class SessionExerciseEntity(
@@ -40,4 +42,9 @@ data class SessionExerciseEntity(
     val trackingModeSnapshot: TrackingMode = TrackingMode.WEIGHT_REPS,
     val targetDurationSecondsSnapshot: Int? = null,
     val durationIncrementSecondsSnapshot: Int = 0,
+    @ColumnInfo(defaultValue = "''") val syncId: String = newSyncId(),
+    val sourceProgressionTrackSyncId: String? = null,
+    val resultingProgressionWeightCentiKg: Int? = null,
+    val resultingProgressionTargetReps: Int? = null,
+    val resultingProgressionDurationSeconds: Int? = null,
 )

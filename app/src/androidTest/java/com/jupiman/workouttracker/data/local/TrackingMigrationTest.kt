@@ -27,12 +27,13 @@ class TrackingMigrationTest {
         }
         helper.runMigrationsAndValidate(
             name,
-            9,
+            10,
             true,
             WorkoutTrackerDatabase.MIGRATION_5_6,
             WorkoutTrackerDatabase.MIGRATION_6_7,
             WorkoutTrackerDatabase.MIGRATION_7_8,
             WorkoutTrackerDatabase.MIGRATION_8_9,
+            WorkoutTrackerDatabase.MIGRATION_9_10,
         ).use { db ->
             db.query(
                 "SELECT trackingMode, durationIncrementSeconds, setupNote, warmupRoundingCentiKg " +
@@ -61,6 +62,76 @@ class TrackingMigrationTest {
                 assertTrue(it.isNull(0))
                 assertTrue(it.isNull(1))
                 assertTrue(it.isNull(2))
+            }
+        }
+    }
+
+    @Test
+    fun versionNineSyncIdentityMigrationPreservesHistoricalProgressionGrouping() {
+        val name = "self-hosted-sync-migration-test"
+        helper.createDatabase(name, 9).apply {
+            execSQL("INSERT INTO programs VALUES (1, 'Program', 1, 0, 1000)")
+            execSQL("INSERT INTO exercises VALUES (1, 'Bench', 0, 1000)")
+            execSQL("INSERT INTO workout_templates VALUES (1, 1, 'Day', 0)")
+            execSQL(
+                "INSERT INTO workout_template_exercises " +
+                    "(id, workoutTemplateId, exerciseId, sortOrder, plannedWorkingSets, repMin, repMax, incrementCentiKg, restSeconds, setupNote, supersetGroupId, trackingMode, targetDurationSeconds, durationIncrementSeconds, warmupRoundingCentiKg) " +
+                    "VALUES (1, 1, 1, 0, 1, 8, 12, 250, 120, '', NULL, 'WEIGHT_REPS', NULL, 0, 500)",
+            )
+            execSQL("INSERT INTO workout_sessions VALUES (1, 1, 1, 'Program', 'Day', 1000, 2000, 'COMPLETED', NULL, NULL, NULL, NULL, 1)")
+            execSQL("INSERT INTO workout_sessions VALUES (2, 1, 1, 'Program', 'Day', 3000, 4000, 'PARTIAL', NULL, NULL, NULL, NULL, 1)")
+            execSQL("INSERT INTO session_exercises VALUES (1, 1, 1, 'Bench', 0, 1, 8, 12, 8, 7000, 250, 120, '', NULL, NULL, 'WEIGHT_REPS', NULL, 0)")
+            execSQL("INSERT INTO session_exercises VALUES (2, 1, 99, 'Deleted track', 1, 1, 8, 12, 8, 5000, 250, 120, '', NULL, NULL, 'WEIGHT_REPS', NULL, 0)")
+            execSQL("INSERT INTO session_exercises VALUES (3, 2, 99, 'Deleted track', 0, 1, 8, 12, 8, 5000, 250, 120, '', NULL, NULL, 'WEIGHT_REPS', NULL, 0)")
+            execSQL("INSERT INTO session_exercises VALUES (4, 2, NULL, 'Session only', 1, 1, 8, 8, 8, 0, 250, 120, '', NULL, NULL, 'REPS', NULL, 0)")
+            execSQL("INSERT INTO session_sets VALUES (1, 1, 0, 'WORKING', 1, 1, 7000, 8, 7000, 8, 'COMPLETED', 2000, NULL, NULL)")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(name, 10, true, WorkoutTrackerDatabase.MIGRATION_9_10).use { db ->
+            val uuid = Regex("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+            val templateSyncId = db.query("SELECT syncId FROM workout_template_exercises WHERE id = 1").use {
+                assertTrue(it.moveToFirst()); it.getString(0)
+            }
+            assertTrue(uuid.matches(templateSyncId))
+            db.query("SELECT sourceProgressionTrackSyncId FROM session_exercises WHERE id = 1").use {
+                assertTrue(it.moveToFirst()); assertEquals(templateSyncId, it.getString(0))
+            }
+            val deletedIds = db.query("SELECT sourceProgressionTrackSyncId FROM session_exercises WHERE id IN (2, 3) ORDER BY id").use {
+                buildList { while (it.moveToNext()) add(it.getString(0)) }
+            }
+            assertEquals(2, deletedIds.size)
+            assertEquals(deletedIds[0], deletedIds[1])
+            assertTrue(uuid.matches(deletedIds[0]))
+            assertTrue(templateSyncId != deletedIds[0])
+            db.query("SELECT sourceProgressionTrackSyncId, resultingProgressionWeightCentiKg FROM session_exercises WHERE id = 4").use {
+                assertTrue(it.moveToFirst()); assertTrue(it.isNull(0)); assertTrue(it.isNull(1))
+            }
+            db.query("SELECT syncId, selfHostedSyncState, selfHostedLastAttemptAt FROM workout_sessions ORDER BY id").use {
+                var count = 0
+                while (it.moveToNext()) {
+                    assertTrue(uuid.matches(it.getString(0)))
+                    assertEquals("PENDING", it.getString(1))
+                    assertTrue(it.isNull(2))
+                    count++
+                }
+                assertEquals(2, count)
+            }
+            db.query("SELECT syncId, exerciseNameSnapshot FROM session_exercises ORDER BY id").use {
+                val ids = mutableSetOf<String>()
+                val names = mutableListOf<String>()
+                while (it.moveToNext()) {
+                    assertTrue(uuid.matches(it.getString(0)))
+                    assertTrue(ids.add(it.getString(0)))
+                    names += it.getString(1)
+                }
+                assertEquals(listOf("Bench", "Deleted track", "Deleted track", "Session only"), names)
+            }
+            db.query("SELECT syncId, actualWeightCentiKg, actualReps FROM session_sets WHERE id = 1").use {
+                assertTrue(it.moveToFirst())
+                assertTrue(uuid.matches(it.getString(0)))
+                assertEquals(7000, it.getInt(1))
+                assertEquals(8, it.getInt(2))
             }
         }
     }

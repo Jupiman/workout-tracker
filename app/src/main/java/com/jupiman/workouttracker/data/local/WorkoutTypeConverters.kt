@@ -5,8 +5,15 @@ import com.jupiman.workouttracker.data.local.entity.SessionSetStatus
 import com.jupiman.workouttracker.data.local.entity.SetType
 import com.jupiman.workouttracker.data.local.entity.WorkoutSessionStatus
 import com.jupiman.workouttracker.data.local.entity.WarmupLoadType
+import com.jupiman.workouttracker.data.local.entity.SelfHostedSyncState
 
 class WorkoutTypeConverters {
+    @TypeConverter
+    fun toSelfHostedSyncState(value: String): SelfHostedSyncState = SelfHostedSyncState.valueOf(value)
+
+    @TypeConverter
+    fun fromSelfHostedSyncState(value: SelfHostedSyncState): String = value.name
+
     @TypeConverter
     fun toWarmupLoadType(value: String): WarmupLoadType = WarmupLoadType.valueOf(value)
 

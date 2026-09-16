@@ -73,8 +73,8 @@ Architecture:
 - single-activity Compose app
 - MVVM
 - repository layer between Room and ViewModels
-- local-first / offline-only
-- no network dependency
+- local-first and fully offline-capable
+- no required network dependency; optional integrations may send finalized data outward
 
 Avoid unnecessary frameworks.
 
@@ -1416,7 +1416,7 @@ The user should be able to operate the app while physically training without exc
 
 # 44. Data persistence requirements
 
-The application must work entirely offline.
+The application must work entirely offline. Optional integrations must never be required for workout logging, progression, timers, History, or backup/restore.
 
 All data must survive application restart.
 
@@ -4236,6 +4236,77 @@ current target, and non-progression sets remain ignored. Program transfer and fu
 backup preserve equal minimum and maximum values without a schema change.
 
 STOP after Advanced Warm-up Schemes.
+
+---
+
+## Self-hosted one-way sync
+
+Self-hosted synchronization is an optional Android-to-server integration. Android
+Room remains authoritative for Programs, Training Days, exercises, progression,
+active workouts, timers, and finalized History. The server is a remote lifting-log
+viewer only: it cannot update or delete Android data, and the app remains fully
+usable offline with no required network dependency.
+
+Only immutable `COMPLETED` and `PARTIAL` session snapshots synchronize. `ACTIVE`
+sessions never synchronize. Workout finalization, progression decisions, and the
+resulting progression snapshot commit in Room before background work is scheduled;
+Finish Workout never waits for HTTP. Health Connect and self-hosted sync are
+independent best-effort destinations, and a failure in either cannot affect Room,
+progression, the other destination, Wear, or workout completion.
+
+Room schema 10 gives every `WorkoutTemplateExercise`, `WorkoutSession`,
+`SessionExercise`, and `SessionSet` a persistent canonical UUID string. Template
+exercise UUIDs identify progression tracks, so instances in different Training
+Days remain distinct. A `SessionExercise` snapshots its source progression-track
+UUID when available. Migration preserves historical grouping by reusing the live
+template UUID or one generated UUID per missing historical source local ID;
+session-only exercises retain a null source track. Historical resulting-progression
+fields remain null. New and duplicated Program tracks receive fresh UUIDs, while
+full backup/restore preserves stable UUIDs.
+
+After existing progression logic completes, template-backed session exercises
+snapshot the authoritative next target: weight and reps for `WEIGHT_REPS`, reps for
+`REPS`, and duration seconds for `DURATION`. No synchronization-specific progression
+algorithm is used. Finalized sessions persist `PENDING`, `SYNCED`, or
+`FAILED_PERMANENT`, plus a sanitized last-attempt time/error. Retryable failures
+remain pending; explicit full Sync now may retry every finalized session, including
+previously synced and permanently failed records.
+
+Device-local Settings contain enabled state, normalized server URL, status, and
+last successful synchronization time. The API token is stored separately using an
+Android Keystore-backed encrypted value and is never logged, placed in a URL,
+included in Program transfer, or included in full backup. Sync defaults off and
+cannot be enabled until the URL is valid and the token is non-empty. Release builds
+require HTTPS; debug builds may use HTTP for localhost/emulator development.
+
+API v1 uses `Authorization: Bearer <token>` and payload schema 1. Connection testing
+calls `GET /api/v1/info` and succeeds only when the response declares API version 1
+and a payload range containing schema 1. A single finalized workout uses
+`PUT /api/v1/workouts/{workoutSyncId}`. Full catch-up uses
+`POST /api/v1/workouts/batch` with at most 50 immutable workout payloads. Payloads
+use UUIDs rather than Room IDs, ISO-8601 UTC timestamps, current tracking/set/status
+enums, concrete session snapshots, and null for concepts that do not apply. Batch
+results are applied per workout so one rejected record does not discard successful
+states.
+
+Unique WorkManager work named `self-hosted-workout-sync` runs with a connected
+network constraint and exponential backoff. Automatic work sends finalized pending
+sessions only, never polls, and stops successfully when disabled or misconfigured.
+Network, DNS, timeout, and HTTP 5xx failures retry; authentication and compatibility
+failures remain visible for configuration correction without aggressive retry;
+per-record 400/422 validation failures become permanently failed. Enabling sync,
+app start/resume with pending work, and post-finalization schedule unique work.
+Manual Sync now performs a full-history catch-up; successful legacy/full restore
+schedules one.
+Restore never performs network I/O inside its transaction.
+
+Full backup format 6/schema 10 preserves Room UUIDs, source-track identities,
+resulting progression snapshots, and persisted per-session state, while excluding
+the server URL and token. Supported older backups generate stable UUIDs after
+restore with the same grouping rules as migration. Program transfer remains a
+portable Program definition and imports fresh progression-track UUIDs.
+
+STOP after Self-hosted one-way sync.
 
 ARCHITECTURE RULES
 
