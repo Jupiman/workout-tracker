@@ -95,7 +95,6 @@ class HttpSelfHostedSyncClient(
     ): UploadResult = withContext(Dispatchers.IO) {
         require(workouts.isNotEmpty() && workouts.size <= SELF_HOSTED_BATCH_SIZE)
         val body = JSONObject()
-            .put("schemaVersion", PAYLOAD_SCHEMA_VERSION)
             .put("workouts", JSONArray(workouts.map { it.json }))
             .toString()
         val response = request(configuration, "POST", "/api/v1/workouts/batch", body)
@@ -122,11 +121,17 @@ class HttpSelfHostedSyncClient(
             val values = JSONObject(response.body).getJSONArray("results")
             val results = List(values.length()) { index ->
                 values.getJSONObject(index).let { item ->
+                    val status = item.getString("status")
+                    val success = when (status) {
+                        "CREATED", "UPDATED" -> true
+                        "REJECTED" -> false
+                        else -> error("Unknown batch result status")
+                    }
                     RecordUploadResult(
                         syncId = item.getString("syncId"),
-                        success = item.getBoolean("success"),
-                        code = item.optString("code").takeIf { it.isNotBlank() },
-                        message = item.optString("message").takeIf { it.isNotBlank() },
+                        success = success,
+                        code = item.optionalString("code") ?: status.takeIf { !success },
+                        message = if (success) item.optionalString("message") else item.rejectionMessage(),
                     )
                 }
             }
@@ -217,5 +222,22 @@ class HttpSelfHostedSyncClient(
         const val CONNECT_TIMEOUT_MILLIS = 10_000
         const val READ_TIMEOUT_MILLIS = 20_000
         const val MAX_RESPONSE_CHARACTERS = 1_000_000
+    }
+}
+
+private fun JSONObject.optionalString(key: String): String? =
+    if (!has(key) || isNull(key)) null else getString(key).trim().takeIf { it.isNotEmpty() }
+
+private fun JSONObject.rejectionMessage(): String? {
+    val message = optionalString("message")
+    val details = when (val value = opt("details")) {
+        null, JSONObject.NULL -> null
+        is String -> value.trim().takeIf { it.isNotEmpty() }
+        else -> value.toString().takeIf { it.isNotBlank() }
+    }
+    return when {
+        message != null && details != null -> "$message Details: $details"
+        message != null -> message
+        else -> details
     }
 }
