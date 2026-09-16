@@ -1,6 +1,8 @@
 package com.jupiman.workouttracker.wear
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.PutDataRequest
@@ -16,8 +18,11 @@ import com.jupiman.workouttracker.wearprotocol.WorkoutWearState
 import com.jupiman.workouttracker.wearprotocol.WearWeightUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,10 +38,15 @@ class AndroidWearWorkoutBridge(
     private val appPreferencesRepository: AppPreferencesRepository,
 ) {
     private val appContext = context.applicationContext
-    private val dataClient = Wearable.getDataClient(appContext)
-    private val messageClient = Wearable.getMessageClient(appContext)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
+    private val lastFailureLogAt = AtomicLong(0L)
+    private val dataClient by lazy { Wearable.getDataClient(appContext) }
+    private val messageClient by lazy { Wearable.getMessageClient(appContext) }
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            logWearFailure("background operation", throwable)
+        },
+    )
     private val durationCommandResults = ConcurrentHashMap<String, Boolean>()
     @Volatile private var latestPublishedStateVersion: Long = 0L
 
@@ -85,19 +95,23 @@ class AndroidWearWorkoutBridge(
             stateVersion = state.stateVersion,
             message = if (accepted) null else "Command ignored because the set is no longer current.",
         )
-        messageClient.sendMessage(
+        sendMessage(
             sourceNodeId,
             WorkoutWearPaths.COMMAND_ACK,
             WorkoutWearCodecs.encodeCommandAck(ack),
-        ).await()
+        )
     }
 
     private suspend fun publishState(state: WorkoutWearState) {
         val request = PutDataRequest.create(WorkoutWearPaths.STATE)
             .setData(WorkoutWearCodecs.encodeState(state))
             .setUrgent()
-        dataClient.putDataItem(request).await()
-        latestPublishedStateVersion = state.stateVersion
+        val published = runOptionalWearOperation(
+            onFailure = { logWearFailure("publish state", it) },
+        ) {
+            dataClient.putDataItem(request).await()
+        }
+        if (published) latestPublishedStateVersion = state.stateVersion
     }
 
     suspend fun handleFinishWorkoutCommand(bytes: ByteArray, sourceNodeId: String) {
@@ -115,7 +129,7 @@ class AndroidWearWorkoutBridge(
             stateVersion = state.stateVersion,
             message = result.exceptionOrNull()?.message,
         )
-        messageClient.sendMessage(sourceNodeId, WorkoutWearPaths.COMMAND_ACK, WorkoutWearCodecs.encodeCommandAck(ack)).await()
+        sendMessage(sourceNodeId, WorkoutWearPaths.COMMAND_ACK, WorkoutWearCodecs.encodeCommandAck(ack))
     }
 
     suspend fun handleDurationSetCommand(path: String, bytes: ByteArray, sourceNodeId: String) {
@@ -149,12 +163,48 @@ class AndroidWearWorkoutBridge(
             stateVersion = state.stateVersion,
             message = if (accepted) null else "Command ignored because the duration set changed.",
         )
-        messageClient.sendMessage(
+        sendMessage(
             sourceNodeId,
             WorkoutWearPaths.COMMAND_ACK,
             WorkoutWearCodecs.encodeCommandAck(ack),
-        ).await()
+        )
     }
+
+    private suspend fun sendMessage(nodeId: String, path: String, data: ByteArray) {
+        runOptionalWearOperation(
+            onFailure = { logWearFailure("send message", it) },
+        ) {
+            messageClient.sendMessage(nodeId, path, data).await()
+        }
+    }
+
+    private fun logWearFailure(operation: String, throwable: Throwable) {
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastFailureLogAt.get()
+        if ((previous == 0L || now - previous >= FAILURE_LOG_INTERVAL_MILLIS) &&
+            lastFailureLogAt.compareAndSet(previous, now)
+        ) {
+            Log.w(TAG, "Wear $operation failed; Wear support is temporarily unavailable.", throwable)
+        }
+    }
+
+    private companion object {
+        const val TAG = "WearWorkoutBridge"
+        const val FAILURE_LOG_INTERVAL_MILLIS = 60_000L
+    }
+}
+
+internal suspend fun runOptionalWearOperation(
+    onFailure: (Throwable) -> Unit,
+    operation: suspend () -> Unit,
+): Boolean = try {
+    operation()
+    true
+} catch (cancellation: CancellationException) {
+    throw cancellation
+} catch (failure: Exception) {
+    onFailure(failure)
+    false
 }
 
 private fun WeightUnit.toWearUnit(): WearWeightUnit = when (this) {

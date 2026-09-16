@@ -1,16 +1,22 @@
 package com.jupiman.workouttracker.wear
 
+import android.util.Log
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.WearableListenerService
 import com.jupiman.workouttracker.WorkoutTrackerApplication
 import com.jupiman.workouttracker.wearprotocol.WorkoutWearPaths
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 class PhoneWearListenerService : WearableListenerService() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            Log.w(TAG, "Wear command handling failed.", throwable)
+        },
+    )
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
         val bridge = (applicationContext as WorkoutTrackerApplication).container.wearWorkoutBridge
@@ -45,5 +51,9 @@ class PhoneWearListenerService : WearableListenerService() {
                 }
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "PhoneWearListener"
     }
 }
