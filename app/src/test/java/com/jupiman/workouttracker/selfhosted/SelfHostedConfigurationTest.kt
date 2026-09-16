@@ -1,5 +1,6 @@
 package com.jupiman.workouttracker.selfhosted
 
+import com.jupiman.workouttracker.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,6 +8,11 @@ import org.junit.Test
 import java.util.Locale
 
 class SelfHostedConfigurationTest {
+    @Test
+    fun generatedDistributionCapabilityMatchesTheActiveFlavor() {
+        assertEquals(BuildConfig.FLAVOR == "github", BuildConfig.ALLOW_SELF_HOSTED_HTTP)
+    }
+
     @Test
     fun constructsHttpAndHttpsUrlsFromNormalizedAddresses() {
         assertEquals(
@@ -37,6 +43,23 @@ class SelfHostedConfigurationTest {
         assertTrue(validateServerAddress("https://user@example.com", true) is ServerAddressValidation.Invalid)
         assertTrue(validateServerAddress("not a host", true) is ServerAddressValidation.Invalid)
         assertTrue(validateServerAddress("workout.example.com:70000", true) is ServerAddressValidation.Invalid)
+    }
+
+    @Test
+    fun distributionPolicyAllowsExplicitGithubHttpButForcesPlayHttps() {
+        val github = validateServerAddress(
+            "http://192.168.1.140:5544/",
+            useHttps = false,
+            transportPolicy = SelfHostedTransportPolicy.HTTP_ALLOWED,
+        ) as ServerAddressValidation.Valid
+        val play = validateServerAddress(
+            "http://192.168.1.140:5544/",
+            useHttps = false,
+            transportPolicy = SelfHostedTransportPolicy.HTTPS_ONLY,
+        ) as ServerAddressValidation.Valid
+
+        assertEquals("http://192.168.1.140:5544", buildSelfHostedBaseUrl(github.serverAddress, github.useHttps))
+        assertEquals("https://192.168.1.140:5544", buildSelfHostedBaseUrl(play.serverAddress, play.useHttps))
     }
 
     @Test

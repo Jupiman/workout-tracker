@@ -2,6 +2,15 @@ package com.jupiman.workouttracker.selfhosted
 
 import java.net.URI
 
+data class SelfHostedTransportPolicy(val allowsHttp: Boolean) {
+    fun effectiveUseHttps(requestedUseHttps: Boolean): Boolean = !allowsHttp || requestedUseHttps
+
+    companion object {
+        val HTTP_ALLOWED = SelfHostedTransportPolicy(allowsHttp = true)
+        val HTTPS_ONLY = SelfHostedTransportPolicy(allowsHttp = false)
+    }
+}
+
 data class SelfHostedConfiguration(
     val serverAddress: String,
     val useHttps: Boolean,
@@ -23,7 +32,11 @@ sealed interface ServerAddressValidation {
 /**
  * Normalizes an address and, when a full URL was pasted, treats its explicit scheme as authoritative.
  */
-fun validateServerAddress(raw: String, useHttps: Boolean): ServerAddressValidation {
+fun validateServerAddress(
+    raw: String,
+    useHttps: Boolean,
+    transportPolicy: SelfHostedTransportPolicy = SelfHostedTransportPolicy.HTTP_ALLOWED,
+): ServerAddressValidation {
     val trimmed = raw.trim().trimEnd('/')
     if (trimmed.isEmpty()) return ServerAddressValidation.Invalid("Enter a server address.")
 
@@ -31,9 +44,9 @@ fun validateServerAddress(raw: String, useHttps: Boolean): ServerAddressValidati
     if (explicitScheme != null && explicitScheme !in setOf("http", "https")) {
         return ServerAddressValidation.Invalid("The server address is invalid.")
     }
-    val effectiveUseHttps = explicitScheme?.let { it == "https" } ?: useHttps
+    val requestedUseHttps = explicitScheme?.let { it == "https" } ?: useHttps
     val candidate = if (explicitScheme == null) {
-        buildSelfHostedBaseUrl(trimmed, effectiveUseHttps)
+        buildSelfHostedBaseUrl(trimmed, requestedUseHttps)
     } else {
         trimmed
     }
@@ -51,7 +64,10 @@ fun validateServerAddress(raw: String, useHttps: Boolean): ServerAddressValidati
     val authority = uri.rawAuthority?.lowercase()
         ?: return ServerAddressValidation.Invalid("The server address is invalid.")
     val path = uri.rawPath.orEmpty().trimEnd('/')
-    return ServerAddressValidation.Valid(authority + path, effectiveUseHttps)
+    return ServerAddressValidation.Valid(
+        authority + path,
+        transportPolicy.effectiveUseHttps(requestedUseHttps),
+    )
 }
 
 fun buildSelfHostedBaseUrl(serverAddress: String, useHttps: Boolean): String =

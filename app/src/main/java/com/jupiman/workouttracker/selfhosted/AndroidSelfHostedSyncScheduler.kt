@@ -21,6 +21,7 @@ class AndroidSelfHostedSyncScheduler(
     private val scope: CoroutineScope,
     private val preferencesRepository: AppPreferencesRepository,
     private val tokenStore: SelfHostedTokenStore,
+    private val transportPolicy: SelfHostedTransportPolicy = SelfHostedTransportPolicy.HTTP_ALLOWED,
 ) : SelfHostedWorkoutScheduler {
     private val workManager = WorkManager.getInstance(context.applicationContext)
 
@@ -31,6 +32,7 @@ class AndroidSelfHostedSyncScheduler(
                 validateServerAddress(
                     preferences.selfHostedServerAddress,
                     preferences.selfHostedUseHttps,
+                    transportPolicy,
                 ) is ServerAddressValidation.Valid
             ) {
                 enqueue(full = false, ExistingWorkPolicy.KEEP)

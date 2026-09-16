@@ -1,6 +1,7 @@
 package com.jupiman.workouttracker.di
 
 import android.content.Context
+import com.jupiman.workouttracker.BuildConfig
 import androidx.room.Room
 import com.jupiman.workouttracker.data.local.WorkoutTrackerDatabase
 import com.jupiman.workouttracker.data.repository.DataBackupRepository
@@ -22,6 +23,7 @@ import com.jupiman.workouttracker.selfhosted.AndroidKeystoreSelfHostedTokenStore
 import com.jupiman.workouttracker.selfhosted.AndroidSelfHostedSyncScheduler
 import com.jupiman.workouttracker.selfhosted.HttpSelfHostedSyncClient
 import com.jupiman.workouttracker.selfhosted.SelfHostedSyncManager
+import com.jupiman.workouttracker.selfhosted.SelfHostedTransportPolicy
 import com.jupiman.workouttracker.selfhosted.RoomSelfHostedWorkoutStore
 import com.jupiman.workouttracker.selfhosted.DataStoreSelfHostedSettingsStore
 import kotlinx.coroutines.CoroutineScope
@@ -33,6 +35,7 @@ class AppContainer(context: Context) {
     val appPreferencesRepository = AppPreferencesRepository.create(context)
     private val restTimerScheduler = AndroidRestTimerScheduler(context.applicationContext)
     private val durationTimerScheduler = AndroidDurationTimerScheduler(context.applicationContext)
+    val selfHostedTransportPolicy = SelfHostedTransportPolicy(BuildConfig.ALLOW_SELF_HOSTED_HTTP)
 
     val database: WorkoutTrackerDatabase = Room.databaseBuilder(
         context.applicationContext,
@@ -57,6 +60,7 @@ class AppContainer(context: Context) {
         scope = applicationScope,
         preferencesRepository = appPreferencesRepository,
         tokenStore = selfHostedTokenStore,
+        transportPolicy = selfHostedTransportPolicy,
     )
     val selfHostedSyncManager = SelfHostedSyncManager(
         client = HttpSelfHostedSyncClient(),
@@ -64,6 +68,7 @@ class AppContainer(context: Context) {
         settingsStore = DataStoreSelfHostedSettingsStore(appPreferencesRepository),
         tokenStore = selfHostedTokenStore,
         scheduler = selfHostedSyncScheduler,
+        transportPolicy = selfHostedTransportPolicy,
     )
 
     val workoutNotificationCoordinator = AndroidWorkoutNotificationCoordinator(

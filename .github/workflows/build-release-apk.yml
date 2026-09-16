@@ -1,4 +1,4 @@
-name: Build Android Release APK
+name: Build Android Release APKs
 
 on:
   release:
@@ -40,30 +40,35 @@ jobs:
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/release.jks
 
-      - name: Build release APK
+      - name: Build GitHub phone and Wear release APKs
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: ./gradlew :app:assembleGithubRelease :wear:assembleRelease
 
-      - name: Find APK
-        id: apk
+      - name: Verify and name release APKs
         run: |
-          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
-          echo "Found APK: $APK_PATH"
+          PHONE_APK="app/build/outputs/apk/github/release/app-github-release.apk"
+          WEAR_APK="wear/build/outputs/apk/release/wear-release.apk"
+          if [ ! -f "$PHONE_APK" ]; then
+            echo "::error::Missing GitHub phone APK at $PHONE_APK"
+            exit 1
+          fi
+          if [ ! -f "$WEAR_APK" ]; then
+            echo "::error::Missing Wear APK at $WEAR_APK"
+            exit 1
+          fi
+          cp "$PHONE_APK" "WorkoutTracker-${{ github.event.release.tag_name }}.apk"
+          cp "$WEAR_APK" "WorkoutTracker-Wear-${{ github.event.release.tag_name }}.apk"
 
-      - name: Rename APK
-        run: |
-          cp "${{ steps.apk.outputs.path }}" "WorkoutTracker-${{ github.event.release.tag_name }}.apk"
-
-      - name: Upload APK to GitHub Release
+      - name: Upload APKs to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload \
             "${{ github.event.release.tag_name }}" \
             "WorkoutTracker-${{ github.event.release.tag_name }}.apk" \
+            "WorkoutTracker-Wear-${{ github.event.release.tag_name }}.apk" \
             --clobber

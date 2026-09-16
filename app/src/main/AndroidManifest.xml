@@ -10,12 +10,12 @@
         <package android:name="com.google.android.apps.healthdata" />
     </queries>
 
-    <!-- The platform permits HTTP for arbitrary user-configured LAN servers. App configuration
-         keeps it opt-in, defaults to HTTPS, and never weakens normal TLS validation. -->
+    <!-- GitHub builds permit explicitly configured LAN HTTP. Play builds reject cleartext here,
+         in addition to enforcing HTTPS in application configuration. -->
     <application
         android:name=".WorkoutTrackerApplication"
         android:allowBackup="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="${selfHostedCleartextPermitted}"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

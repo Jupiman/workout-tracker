@@ -13,12 +13,26 @@ android {
         applicationId = "com.jupiman.workouttracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.6"
+        versionCode = 17000
+        versionName = "1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
+        }
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("github") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ALLOW_SELF_HOSTED_HTTP", "true")
+            manifestPlaceholders["selfHostedCleartextPermitted"] = "true"
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ALLOW_SELF_HOSTED_HTTP", "false")
+            manifestPlaceholders["selfHostedCleartextPermitted"] = "false"
         }
     }
 
@@ -61,6 +75,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
 }

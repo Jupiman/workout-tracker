@@ -148,16 +148,41 @@ class SelfHostedSyncManagerTest {
         assertTrue(client.configurations.all { it.baseUrl == "http://192.168.1.140:5544" })
     }
 
+    @Test
+    fun httpsOnlyPolicyOverridesPastedAndPersistedHttpForEveryManagerPath() = runTest {
+        val settings = FakeSettingsStore(enabled = false, useHttps = false)
+        val client = FakeClient()
+        val manager = manager(
+            store = FakeWorkoutStore(listOf(workout(1))),
+            client = client,
+            settings = settings,
+            transportPolicy = SelfHostedTransportPolicy.HTTPS_ONLY,
+        )
+
+        assertTrue(manager.settingsState().useHttps)
+        assertEquals(
+            ConnectionTestResult.Success("1.0.0"),
+            manager.testConnection("http://192.168.1.140:5544/", false, null),
+        )
+        assertTrue(manager.saveConfiguration("http://192.168.1.140:5544/", false, null).isSuccess)
+        manager.syncAll()
+
+        assertTrue(settings.current().useHttps)
+        assertTrue(client.configurations.all { it.baseUrl == "https://192.168.1.140:5544" })
+    }
+
     private fun manager(
         store: FakeWorkoutStore,
         client: FakeClient,
         settings: FakeSettingsStore = FakeSettingsStore(),
+        transportPolicy: SelfHostedTransportPolicy = SelfHostedTransportPolicy.HTTP_ALLOWED,
     ) = SelfHostedSyncManager(
         client = client,
         workoutStore = store,
         settingsStore = settings,
         tokenStore = FakeTokenStore(),
         scheduler = NoOpSelfHostedWorkoutScheduler,
+        transportPolicy = transportPolicy,
     )
 
     private fun workout(
@@ -205,8 +230,9 @@ class SelfHostedSyncManagerTest {
 
     private class FakeSettingsStore(
         enabled: Boolean = true,
+        useHttps: Boolean = true,
     ) : SelfHostedSettingsStore {
-        private var value = StoredSelfHostedSettings(enabled, "example.com", true, null, null)
+        private var value = StoredSelfHostedSettings(enabled, "example.com", useHttps, null, null)
         override suspend fun current() = value
         override suspend fun setEnabled(value: Boolean) { this.value = this.value.copy(enabled = value) }
         override suspend fun setServerConfiguration(serverAddress: String, useHttps: Boolean) {

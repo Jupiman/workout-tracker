@@ -41,4 +41,4 @@ jobs:
         run: ./gradlew test
 
       - name: Build phone and Wear debug APKs
-        run: ./gradlew :app:assembleDebug :wear:assembleDebug
+        run: ./gradlew :app:assembleGithubDebug :app:assemblePlayDebug :wear:assembleDebug

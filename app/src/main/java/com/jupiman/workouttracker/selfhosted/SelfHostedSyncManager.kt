@@ -22,13 +22,14 @@ class SelfHostedSyncManager(
     private val settingsStore: SelfHostedSettingsStore,
     private val tokenStore: SelfHostedTokenStore,
     private val scheduler: SelfHostedWorkoutScheduler,
+    private val transportPolicy: SelfHostedTransportPolicy = SelfHostedTransportPolicy.HTTP_ALLOWED,
 ) {
     suspend fun settingsState(): SelfHostedSettingsState {
         val preferences = settingsStore.current()
         return SelfHostedSettingsState(
             enabled = preferences.enabled,
             serverAddress = preferences.serverAddress,
-            useHttps = preferences.useHttps,
+            useHttps = transportPolicy.effectiveUseHttps(preferences.useHttps),
             hasToken = tokenStore.hasToken(),
             lastSuccessfulSyncAt = preferences.lastSuccessfulSyncAt,
             latestError = preferences.lastError,
@@ -58,7 +59,7 @@ class SelfHostedSyncManager(
         useHttps: Boolean,
         replacementToken: String?,
     ): Result<ServerAddressValidation.Valid> = runCatching {
-        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps)) {
+        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps, transportPolicy)) {
             is ServerAddressValidation.Invalid -> error(validation.message)
             is ServerAddressValidation.Valid -> validation
         }
@@ -88,7 +89,7 @@ class SelfHostedSyncManager(
         useHttps: Boolean,
         token: String?,
     ): ConnectionTestResult {
-        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps)) {
+        val normalized = when (val validation = validateServerAddress(serverAddress, useHttps, transportPolicy)) {
             is ServerAddressValidation.Invalid -> return ConnectionTestResult.InvalidUrl(validation.message)
             is ServerAddressValidation.Valid -> validation
         }
@@ -248,7 +249,11 @@ class SelfHostedSyncManager(
     private suspend fun configurationOrNull(recordError: Boolean): SelfHostedConfiguration? {
         val preferences = settingsStore.current()
         val normalized = when (
-            val validation = validateServerAddress(preferences.serverAddress, preferences.useHttps)
+            val validation = validateServerAddress(
+                preferences.serverAddress,
+                preferences.useHttps,
+                transportPolicy,
+            )
         ) {
             is ServerAddressValidation.Valid -> validation
             is ServerAddressValidation.Invalid -> {

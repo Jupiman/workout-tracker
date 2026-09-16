@@ -429,6 +429,7 @@ fun WorkoutTrackerApp(
                         }
                     },
                     selfHostedState = selfHostedState,
+                    allowSelfHostedHttp = container.selfHostedTransportPolicy.allowsHttp,
                     selfHostedBusy = selfHostedBusy,
                     selfHostedConnectionStatus = selfHostedConnectionStatus,
                     onSaveSelfHostedConfiguration = { serverAddress, useHttps, token ->

@@ -63,6 +63,7 @@ fun SettingsScreen(
     onManageHealthConnect: () -> Unit,
     onInstallHealthConnect: () -> Unit,
     selfHostedState: SelfHostedSettingsState?,
+    allowSelfHostedHttp: Boolean,
     selfHostedBusy: Boolean,
     selfHostedConnectionStatus: String?,
     onSaveSelfHostedConfiguration: (String, Boolean, String) -> Unit,
@@ -87,6 +88,7 @@ fun SettingsScreen(
             selfHostedConfigurationInitialized = true
         }
     }
+    val effectiveSelfHostedUseHttps = !allowSelfHostedHttp || selfHostedUseHttps
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = WorkoutSpacing.screen),
         verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.section),
@@ -185,10 +187,10 @@ fun SettingsScreen(
                         onValueChange = { value ->
                             val pastedFullUrl = value.trimStart().startsWith("http://", ignoreCase = true) ||
                                 value.trimStart().startsWith("https://", ignoreCase = true)
-                            val parsed = validateServerAddress(value, selfHostedUseHttps)
+                            val parsed = validateServerAddress(value, effectiveSelfHostedUseHttps)
                             if (pastedFullUrl && parsed is ServerAddressValidation.Valid) {
                                 selfHostedServerAddress = parsed.serverAddress
-                                selfHostedUseHttps = parsed.useHttps
+                                selfHostedUseHttps = if (allowSelfHostedHttp) parsed.useHttps else true
                             } else {
                                 selfHostedServerAddress = value
                             }
@@ -198,18 +200,20 @@ fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    SwitchRow(
-                        title = "Use HTTPS",
-                        checked = selfHostedUseHttps,
-                        enabled = !selfHostedBusy,
-                        onCheckedChange = { selfHostedUseHttps = it },
-                    )
-                    if (!selfHostedUseHttps) {
-                        Text(
-                            "HTTP is intended for trusted local networks only. Your API token and workout data will not be encrypted.",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+                    if (allowSelfHostedHttp) {
+                        SwitchRow(
+                            title = "Use HTTPS",
+                            checked = selfHostedUseHttps,
+                            enabled = !selfHostedBusy,
+                            onCheckedChange = { selfHostedUseHttps = it },
                         )
+                        if (!selfHostedUseHttps) {
+                            Text(
+                                "HTTP is intended for trusted local networks only. Your API token and workout data will not be encrypted.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                     OutlinedTextField(
                         value = selfHostedToken,
@@ -228,7 +232,7 @@ fun SettingsScreen(
                             onClick = {
                                 onSaveSelfHostedConfiguration(
                                     selfHostedServerAddress,
-                                    selfHostedUseHttps,
+                                    effectiveSelfHostedUseHttps,
                                     selfHostedToken,
                                 )
                             },
@@ -239,7 +243,7 @@ fun SettingsScreen(
                             onClick = {
                                 onTestSelfHostedConnection(
                                     selfHostedServerAddress,
-                                    selfHostedUseHttps,
+                                    effectiveSelfHostedUseHttps,
                                     selfHostedToken,
                                 )
                             },
@@ -276,7 +280,7 @@ fun SettingsScreen(
                     onSelfHostedSyncEnabledChange(
                         it,
                         selfHostedServerAddress,
-                        selfHostedUseHttps,
+                        effectiveSelfHostedUseHttps,
                         selfHostedToken,
                     )
                 }

@@ -1,6 +1,6 @@
 # Workout Companion
 
-Workout Companion 1.6 is a local-first Android workout tracker with a Wear OS
+Workout Companion 1.7 is a local-first Android workout tracker with a Wear OS
 companion. It supports strength and duration-based programs, quick set logging,
 progression, timers, and immutable workout history without requiring an account.
 
@@ -17,6 +17,7 @@ progression, timers, and immutable workout history without requiring an account.
 - Portable Program export/import and full local backup/restore.
 - Wear OS active-workout companion with phone-authoritative state.
 - Optional, write-only Health Connect sync for finalized workouts.
+- Optional one-way synchronization to a self-hosted workout log.
 
 The implementation details and behavior contracts are maintained in [SPEC.md](SPEC.md).
 
@@ -44,14 +45,27 @@ On Windows, run all JVM unit tests:
 Run all phone instrumentation tests on a connected Android device or emulator:
 
 ```powershell
-.\gradlew.bat :app:connectedDebugAndroidTest
+.\gradlew.bat :app:connectedGithubDebugAndroidTest
 ```
 
-Build phone and Wear debug and release variants:
+Build the normal phone and Wear debug variants:
 
 ```powershell
-.\gradlew.bat :app:assembleDebug :app:assembleRelease :wear:assembleDebug :wear:assembleRelease
+.\gradlew.bat :app:assembleGithubDebug :app:assemblePlayDebug :wear:assembleDebug
 ```
+
+The two phone release flavors are alternative distributions with the same application ID:
+
+- GitHub: `:app:assembleGithubRelease` produces the sideloadable phone APK. It defaults
+  to HTTPS but permits explicitly selected HTTP for trusted self-hosted LAN servers.
+- Google Play: `:app:bundlePlayRelease` produces the HTTPS-only phone AAB under
+  `app/build/outputs/bundle/playRelease/`.
+- Wear: `:wear:assembleRelease` produces the GitHub Wear APK, while
+  `:wear:bundleRelease` produces the Play AAB under `wear/build/outputs/bundle/release/`.
+
+Published GitHub Releases contain `WorkoutTracker-<tag>.apk` and
+`WorkoutTracker-Wear-<tag>.apk`. Google Play artifacts are built locally or in a
+separate publishing process and are never uploaded by the GitHub Release workflow.
 
 Release signing uses these environment variables:
 
@@ -64,7 +78,7 @@ The GitHub Release workflow also expects `ANDROID_KEYSTORE_BASE64` as a reposito
 secret. Pull requests and pushes to `master` run unit tests and phone/Wear debug
 builds in CI. Instrumentation tests remain a required local pre-release check.
 
-## 1.6 Release Checklist
+## 1.7 Release Checklist
 
 - Provide a public privacy policy before publishing.
 - Complete the Play Console Health/Fitness declaration.
@@ -77,11 +91,12 @@ builds in CI. Instrumentation tests remain a required local pre-release check.
 ## Data and Privacy
 
 Workout data remains in the local Room database unless the user explicitly exports
-a backup or Program file, or enables write-only Health Connect synchronization.
-The app has no account system, ads, or analytics.
+a backup or Program file, enables write-only Health Connect synchronization, or
+configures one-way synchronization to their own server. The app has no account
+system, ads, or analytics.
 
 ## Status
 
-The repository is the Workout Companion 1.6 release-candidate codebase. Feature work
-for 1.6 is complete; release readiness depends on automated verification, release
+The repository is the Workout Companion 1.7 release-candidate codebase. Feature work
+for 1.7 is complete; release readiness depends on automated verification, release
 signing, and the manual checks above.

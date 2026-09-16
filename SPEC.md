@@ -4281,15 +4281,16 @@ encrypted value and is never logged, placed in a URL, included in Program transf
 or included in full backup. Sync defaults off and cannot be enabled until the address
 is valid and the token is non-empty.
 
-HTTPS is the default and recommended transport. HTTP may be explicitly enabled for
-trusted private networks. When HTTP is selected, the API token and synchronized
-workout data are transmitted without transport encryption. Android permits cleartext
-transport at the platform layer so arbitrary LAN addresses can work, but application
-logic constructs an HTTP URL only when `useHttps` is false. HTTPS always uses normal
-Android certificate and hostname validation. The app never falls back from HTTPS to
-HTTP and does not bypass TLS errors or trust self-signed certificates automatically.
-Test connection, single and batch uploads, Sync now, WorkManager, and restore catch-up
-all use the same effective base-URL builder.
+HTTPS is the default and recommended transport. The GitHub distribution may explicitly
+enable HTTP for trusted private networks; its manifest permits cleartext so arbitrary
+LAN addresses can work. When HTTP is selected, the API token and synchronized workout
+data are transmitted without transport encryption. The Google Play distribution is
+HTTPS-only: its build-time transport policy forces persisted settings, pasted URLs,
+connection tests, uploads, WorkManager, and restore catch-up to HTTPS, its Settings UI
+does not expose the HTTP toggle, and its merged manifest rejects cleartext transport.
+HTTPS always uses normal Android certificate and hostname validation. Neither
+distribution falls back from HTTPS to HTTP or bypasses TLS errors. All paths use the
+same effective base-URL builder.
 
 API v1 uses `Authorization: Bearer <token>` and payload schema 1. Connection testing
 calls `GET /api/v1/info` and succeeds only when the response declares API version 1
