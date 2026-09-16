@@ -71,6 +71,7 @@ fun SettingsScreen(
     onSelfHostedSyncEnabledChange: (Boolean, String, Boolean, String) -> Unit,
     onSyncSelfHostedNow: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenPrivacyPolicy: () -> Unit,
     onExportBackup: () -> Unit,
     onRestoreBackup: () -> Unit,
 ) {
@@ -317,6 +318,9 @@ fun SettingsScreen(
                 Column(Modifier.padding(WorkoutSpacing.card), verticalArrangement = Arrangement.spacedBy(WorkoutSpacing.item)) {
                     Text("Workout Companion", style = MaterialTheme.typography.titleMedium)
                     versionName?.let { Text("Version $it", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    TextButton(onClick = onOpenPrivacyPolicy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Privacy policy")
+                    }
                 }
             }
         }

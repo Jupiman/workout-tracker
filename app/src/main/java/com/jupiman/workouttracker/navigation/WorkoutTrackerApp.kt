@@ -489,6 +489,11 @@ fun WorkoutTrackerApp(
                                 .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
                         )
                     },
+                    onOpenPrivacyPolicy = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://jupiman.cz/policy.html")),
+                        )
+                    },
                     onExportBackup = {
                         exportBackupLauncher.launch(
                             "workout-companion-backup-${LocalDate.now()}.json",
