@@ -1,4 +1,4 @@
-name: Build Android Release APKs
+name: Build Android Release
 
 on:
   release:
@@ -40,13 +40,13 @@ jobs:
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/release.jks
 
-      - name: Build GitHub phone and Wear release APKs
+      - name: Build signed release APKs and Play AABs
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleGithubRelease :wear:assembleRelease
+        run: ./gradlew :app:assembleGithubRelease :wear:assembleRelease :app:bundlePlayRelease :wear:bundleRelease
 
       - name: Verify and name release APKs
         run: |
@@ -62,6 +62,31 @@ jobs:
           fi
           cp "$PHONE_APK" "WorkoutTracker-${{ github.event.release.tag_name }}.apk"
           cp "$WEAR_APK" "WorkoutTracker-Wear-${{ github.event.release.tag_name }}.apk"
+
+      - name: Verify and name Play AABs
+        run: |
+          PHONE_AAB="app/build/outputs/bundle/playRelease/app-play-release.aab"
+          WEAR_AAB="wear/build/outputs/bundle/release/wear-release.aab"
+          if [ ! -f "$PHONE_AAB" ]; then
+            echo "::error::Missing Play phone AAB at $PHONE_AAB"
+            exit 1
+          fi
+          if [ ! -f "$WEAR_AAB" ]; then
+            echo "::error::Missing Wear AAB at $WEAR_AAB"
+            exit 1
+          fi
+          cp "$PHONE_AAB" "WorkoutTracker-Play-${{ github.event.release.tag_name }}.aab"
+          cp "$WEAR_AAB" "WorkoutTracker-Wear-Play-${{ github.event.release.tag_name }}.aab"
+
+      - name: Store Play AABs as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-aabs-${{ github.event.release.tag_name }}
+          path: |
+            WorkoutTracker-Play-${{ github.event.release.tag_name }}.aab
+            WorkoutTracker-Wear-Play-${{ github.event.release.tag_name }}.aab
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload APKs to GitHub Release
         env:
