@@ -40,13 +40,43 @@ jobs:
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > $RUNNER_TEMP/release.jks
 
+      - name: Derive app versions from release tag
+        id: release_version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION_NAME="${RELEASE_TAG#v}"
+          if [[ ! "$VERSION_NAME" =~ ^([0-9])\.([0-9]{1,2})$ ]]; then
+            echo "::error::Release tag must use vMAJOR.MINOR or MAJOR.MINOR, with a one-digit major and one- or two-digit minor version. Received: $RELEASE_TAG"
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          if [ "${#MINOR}" -eq 1 ]; then
+            MINOR="${MINOR}0"
+          fi
+
+          VERSION_PREFIX="${MAJOR}${MINOR}"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "phone_version_code=${VERSION_PREFIX}00" >> "$GITHUB_OUTPUT"
+          echo "wear_version_code=${VERSION_PREFIX}01" >> "$GITHUB_OUTPUT"
+
       - name: Build signed release APKs and Play AABs
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleGithubRelease :wear:assembleRelease :app:bundlePlayRelease :wear:bundleRelease
+        run: |
+          ./gradlew \
+            -PworkoutVersionName="${{ steps.release_version.outputs.version_name }}" \
+            -PworkoutPhoneVersionCode="${{ steps.release_version.outputs.phone_version_code }}" \
+            -PworkoutWearVersionCode="${{ steps.release_version.outputs.wear_version_code }}" \
+            :app:assembleGithubRelease \
+            :wear:assembleRelease \
+            :app:bundlePlayRelease \
+            :wear:bundleRelease
 
       - name: Verify and name release APKs
         run: |

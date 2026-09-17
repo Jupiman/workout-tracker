@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val workoutVersionName = providers.gradleProperty("workoutVersionName").orNull ?: "1.71"
+val workoutWearVersionCode = providers.gradleProperty("workoutWearVersionCode").orNull?.toInt() ?: 17101
+
 android {
     namespace = "com.jupiman.workouttracker.wear"
     compileSdk = 36
@@ -12,8 +15,8 @@ android {
         applicationId = "com.jupiman.workouttracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17101
-        versionName = "1.71"
+        versionCode = workoutWearVersionCode
+        versionName = workoutVersionName
     }
 
     signingConfigs {

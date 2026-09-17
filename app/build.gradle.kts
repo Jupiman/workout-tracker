@@ -5,6 +5,9 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val workoutVersionName = providers.gradleProperty("workoutVersionName").orNull ?: "1.71"
+val workoutPhoneVersionCode = providers.gradleProperty("workoutPhoneVersionCode").orNull?.toInt() ?: 17100
+
 android {
     namespace = "com.jupiman.workouttracker"
     compileSdk = 36
@@ -13,8 +16,8 @@ android {
         applicationId = "com.jupiman.workouttracker"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17100
-        versionName = "1.71"
+        versionCode = workoutPhoneVersionCode
+        versionName = workoutVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ksp {
